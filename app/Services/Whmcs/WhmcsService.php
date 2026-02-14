@@ -1,0 +1,514 @@
+<?php
+
+namespace App\Services\Whmcs;
+
+use Illuminate\Support\Facades\Cache;
+
+/**
+ * High-level typed service for all WHMCS API actions.
+ * Every method is typed and documented — controllers never call WhmcsClient directly.
+ */
+class WhmcsService
+{
+    protected WhmcsClient $client;
+
+    public function __construct(WhmcsClient $client)
+    {
+        $this->client = $client;
+    }
+
+    // ─── Auth ──────────────────────────────────────────────
+
+    public function validateLogin(string $email, string $password): array
+    {
+        return $this->client->call('ValidateLogin', [
+            'email'     => $email,
+            'password2' => $password,
+        ]);
+    }
+
+    // ─── Client / Account ──────────────────────────────────
+
+    public function getClientsDetails(int $clientId): array
+    {
+        return $this->client->callSafe('GetClientsDetails', [
+            'clientid' => $clientId,
+            'stats'    => true,
+        ]);
+    }
+
+    public function updateClient(int $clientId, array $data): array
+    {
+        return $this->client->call('UpdateClient', array_merge(['clientid' => $clientId], $data));
+    }
+
+    public function addClient(array $data): array
+    {
+        return $this->client->call('AddClient', $data);
+    }
+
+    public function getContacts(int $clientId): array
+    {
+        return $this->client->callSafe('GetContacts', ['userid' => $clientId]);
+    }
+
+    public function addContact(int $clientId, array $data): array
+    {
+        return $this->client->call('AddContact', array_merge(['clientid' => $clientId], $data));
+    }
+
+    public function updateContact(int $contactId, array $data): array
+    {
+        return $this->client->call('UpdateContact', array_merge(['contactid' => $contactId], $data));
+    }
+
+    public function deleteContact(int $contactId): array
+    {
+        return $this->client->call('DeleteContact', ['contactid' => $contactId]);
+    }
+
+    // ─── Services / Products ───────────────────────────────
+
+    public function getClientsProducts(int $clientId, int $offset = 0, int $limit = 25, ?string $status = null): array
+    {
+        $params = [
+            'clientid'   => $clientId,
+            'limitstart' => $offset,
+            'limitnum'   => $limit,
+        ];
+        if ($status) {
+            $params['status'] = ucfirst($status);
+        }
+        return $this->client->callSafe('GetClientsProducts', $params);
+    }
+
+    public function getClientProduct(int $clientId, int $serviceId): array
+    {
+        return $this->client->callSafe('GetClientsProducts', [
+            'clientid'  => $clientId,
+            'serviceid' => $serviceId,
+        ]);
+    }
+
+    public function addCancelRequest(int $serviceId, string $type = 'Immediate', string $reason = ''): array
+    {
+        return $this->client->call('AddCancelRequest', [
+            'serviceid' => $serviceId,
+            'type'      => $type,
+            'reason'    => $reason,
+        ]);
+    }
+
+    public function upgradeProduct(int $serviceId, string $type, int $newProductId, string $paymentMethod, string $newBillingCycle = ''): array
+    {
+        $params = [
+            'serviceid'       => $serviceId,
+            'type'            => $type, // 'product' or 'configoptions'
+            'newproductid'    => $newProductId,
+            'paymentmethod'   => $paymentMethod,
+        ];
+        if ($newBillingCycle) {
+            $params['newproductbillingcycle'] = $newBillingCycle;
+        }
+        return $this->client->call('UpgradeProduct', $params);
+    }
+
+    public function moduleChangePassword(int $serviceId): array
+    {
+        return $this->client->call('ModuleChangePassword', ['serviceid' => $serviceId]);
+    }
+
+    public function moduleCustom(int $serviceId, string $funcName): array
+    {
+        // Only allow safe actions
+        $allowed = ['reboot', 'shutdown', 'boot', 'resetpassword', 'console', 'vnc'];
+        if (!in_array(strtolower($funcName), $allowed)) {
+            throw new \App\Exceptions\WhmcsApiException("Action '{$funcName}' is not permitted.", 'ModuleCustom');
+        }
+        return $this->client->call('ModuleCustom', [
+            'serviceid'       => $serviceId,
+            'func_name'       => $funcName,
+        ]);
+    }
+
+    // ─── Addons ────────────────────────────────────────────
+
+    public function getClientsAddons(int $clientId, int $offset = 0, int $limit = 25): array
+    {
+        return $this->client->callSafe('GetClientsAddons', [
+            'clientid'   => $clientId,
+            'limitstart' => $offset,
+            'limitnum'   => $limit,
+        ]);
+    }
+
+    // ─── Domains ───────────────────────────────────────────
+
+    public function getClientsDomains(int $clientId, int $offset = 0, int $limit = 25, ?string $status = null): array
+    {
+        $params = [
+            'clientid'   => $clientId,
+            'limitstart' => $offset,
+            'limitnum'   => $limit,
+        ];
+        if ($status) {
+            $params['status'] = ucfirst($status);
+        }
+        return $this->client->callSafe('GetClientsDomains', $params);
+    }
+
+    public function getClientDomain(int $clientId, int $domainId): array
+    {
+        return $this->client->callSafe('GetClientsDomains', [
+            'clientid' => $clientId,
+            'domainid' => $domainId,
+        ]);
+    }
+
+    public function updateClientDomain(int $domainId, array $data): array
+    {
+        return $this->client->call('UpdateClientDomain', array_merge(['domainid' => $domainId], $data));
+    }
+
+    public function domainRenew(int $domainId): array
+    {
+        return $this->client->call('DomainRenew', ['domainid' => $domainId]);
+    }
+
+    public function domainGetNameservers(int $domainId): array
+    {
+        return $this->client->callSafe('DomainGetNameservers', ['domainid' => $domainId]);
+    }
+
+    public function domainUpdateNameservers(int $domainId, array $nameservers): array
+    {
+        $params = ['domainid' => $domainId];
+        foreach ($nameservers as $i => $ns) {
+            $params['ns' . ($i + 1)] = $ns;
+        }
+        return $this->client->call('DomainUpdateNameservers', $params);
+    }
+
+    public function domainGetLockingStatus(int $domainId): array
+    {
+        return $this->client->callSafe('DomainGetLockingStatus', ['domainid' => $domainId]);
+    }
+
+    public function domainUpdateLockingStatus(int $domainId, bool $lock): array
+    {
+        return $this->client->call('DomainUpdateLockingStatus', [
+            'domainid'   => $domainId,
+            'lockstatus' => $lock ? 1 : 0,
+        ]);
+    }
+
+    public function domainGetEPPCode(int $domainId): array
+    {
+        return $this->client->call('DomainRequestEPP', ['domainid' => $domainId]);
+    }
+
+    public function domainWhois(string $domain): array
+    {
+        return $this->client->callSafe('DomainWhois', ['domain' => $domain]);
+    }
+
+    public function domainGetDNS(int $domainId): array
+    {
+        return $this->client->callSafe('GetDomainDNSRecords', ['domainid' => $domainId]);
+    }
+
+    public function domainSetDNS(int $domainId, array $records): array
+    {
+        return $this->client->call('SetDomainDNSRecords', [
+            'domainid'   => $domainId,
+            'dnsrecords' => $records,
+        ]);
+    }
+
+    // ─── Invoices ──────────────────────────────────────────
+
+    public function getInvoices(int $clientId, string $status = '', int $offset = 0, int $limit = 25, ?string $orderBy = null): array
+    {
+        $params = [
+            'userid'     => $clientId,
+            'limitstart' => $offset,
+            'limitnum'   => $limit,
+        ];
+        if ($status) {
+            $params['status'] = $status;
+        }
+        if ($orderBy) {
+            $params['orderby'] = $orderBy;
+        }
+        return $this->client->callSafe('GetInvoices', $params);
+    }
+
+    public function getInvoice(int $invoiceId): array
+    {
+        return $this->client->callSafe('GetInvoice', ['invoiceid' => $invoiceId]);
+    }
+
+    // ─── Transactions ──────────────────────────────────────
+
+    public function getTransactions(int $clientId, int $offset = 0, int $limit = 25): array
+    {
+        return $this->client->callSafe('GetTransactions', [
+            'clientid'   => $clientId,
+            'limitstart' => $offset,
+            'limitnum'   => $limit,
+        ]);
+    }
+
+    // ─── Quotes ────────────────────────────────────────────
+
+    public function getQuotes(int $clientId, int $offset = 0, int $limit = 25): array
+    {
+        return $this->client->callSafe('GetQuotes', [
+            'userid'     => $clientId,
+            'limitstart' => $offset,
+            'limitnum'   => $limit,
+        ]);
+    }
+
+    public function getQuote(int $quoteId): array
+    {
+        return $this->client->callSafe('GetQuotes', ['quoteid' => $quoteId]);
+    }
+
+    public function acceptQuote(int $quoteId): array
+    {
+        return $this->client->call('AcceptQuote', ['quoteid' => $quoteId]);
+    }
+
+    // ─── Tickets ───────────────────────────────────────────
+
+    public function getTickets(int $clientId, string $status = '', int $offset = 0, int $limit = 25): array
+    {
+        $params = [
+            'clientid'   => $clientId,
+            'limitstart' => $offset,
+            'limitnum'   => $limit,
+        ];
+        if ($status) {
+            $params['status'] = $status;
+        }
+        return $this->client->callSafe('GetTickets', $params);
+    }
+
+    public function getTicket(int $ticketId): array
+    {
+        return $this->client->callSafe('GetTicket', ['ticketid' => $ticketId]);
+    }
+
+    public function openTicket(int $clientId, int $deptId, string $subject, string $message, string $priority = 'Medium'): array
+    {
+        return $this->client->call('OpenTicket', [
+            'clientid' => $clientId,
+            'deptid'   => $deptId,
+            'subject'  => $subject,
+            'message'  => $message,
+            'priority' => $priority,
+        ]);
+    }
+
+    public function addTicketReply(int $ticketId, int $clientId, string $message): array
+    {
+        return $this->client->call('AddTicketReply', [
+            'ticketid' => $ticketId,
+            'clientid' => $clientId,
+            'message'  => $message,
+        ]);
+    }
+
+    public function closeTicket(int $ticketId): array
+    {
+        return $this->client->call('CloseTicket', ['ticketid' => $ticketId]);
+    }
+
+    public function getSupportDepartments(): array
+    {
+        return Cache::remember('whmcs.departments', 3600, function () {
+            return $this->client->callSafe('GetSupportDepartments');
+        });
+    }
+
+    // ─── Products / Ordering ───────────────────────────────
+
+    public function getProducts(?int $groupId = null): array
+    {
+        $params = [];
+        if ($groupId) {
+            $params['gid'] = $groupId;
+        }
+        return Cache::remember("whmcs.products.{$groupId}", 600, function () use ($params) {
+            return $this->client->callSafe('GetProducts', $params);
+        });
+    }
+
+    public function getProductGroups(): array
+    {
+        // GetProducts returns group info with each product; we extract unique groups
+        return Cache::remember('whmcs.product_groups', 600, function () {
+            $products = $this->client->callSafe('GetProducts');
+            $groups = [];
+            foreach ($products['products']['product'] ?? [] as $p) {
+                $gid = $p['gid'] ?? 0;
+                if ($gid && !isset($groups[$gid])) {
+                    $groups[$gid] = [
+                        'id'   => $gid,
+                        'name' => $p['groupname'] ?? 'Products',
+                    ];
+                }
+            }
+            return array_values($groups);
+        });
+    }
+
+    public function getPromotions(?string $code = null): array
+    {
+        $params = [];
+        if ($code) {
+            $params['code'] = $code;
+        }
+        return $this->client->callSafe('GetPromotions', $params);
+    }
+
+    public function addOrder(int $clientId, array $orderData): array
+    {
+        return $this->client->call('AddOrder', array_merge([
+            'clientid' => $clientId,
+        ], $orderData));
+    }
+
+    public function getOrders(int $clientId, int $offset = 0, int $limit = 25): array
+    {
+        return $this->client->callSafe('GetOrders', [
+            'userid'     => $clientId,
+            'limitstart' => $offset,
+            'limitnum'   => $limit,
+        ]);
+    }
+
+    public function getOrder(int $orderId): array
+    {
+        return $this->client->callSafe('GetOrders', ['id' => $orderId]);
+    }
+
+    // ─── Announcements ─────────────────────────────────────
+
+    public function getAnnouncements(int $offset = 0, int $limit = 25): array
+    {
+        return Cache::remember("whmcs.announcements.{$offset}.{$limit}", 300, function () use ($offset, $limit) {
+            return $this->client->callSafe('GetAnnouncements', [
+                'limitstart' => $offset,
+                'limitnum'   => $limit,
+            ]);
+        });
+    }
+
+    public function getAnnouncement(int $id): array
+    {
+        return $this->client->callSafe('GetAnnouncements', ['id' => $id]);
+    }
+
+    // ─── Knowledgebase ─────────────────────────────────────
+
+    public function getKnowledgebaseCategories(): array
+    {
+        return Cache::remember('whmcs.kb_categories', 600, function () {
+            return $this->client->callSafe('GetKnowledgebaseCategories');
+        });
+    }
+
+    public function getKnowledgebaseArticles(int $catId = 0, int $offset = 0, int $limit = 25): array
+    {
+        $cacheKey = "whmcs.kb_articles.{$catId}.{$offset}";
+        return Cache::remember($cacheKey, 600, function () use ($catId, $offset, $limit) {
+            $params = ['limitstart' => $offset, 'limitnum' => $limit];
+            if ($catId) {
+                $params['catid'] = $catId;
+            }
+            return $this->client->callSafe('GetKnowledgebaseArticles', $params);
+        });
+    }
+
+    public function getKnowledgebaseArticle(int $articleId): array
+    {
+        return Cache::remember("whmcs.kb_article.{$articleId}", 600, function () use ($articleId) {
+            return $this->client->callSafe('GetKnowledgebaseArticles', ['articleid' => $articleId]);
+        });
+    }
+
+    // ─── Downloads ─────────────────────────────────────────
+
+    public function getDownloads(int $catId = 0, int $offset = 0, int $limit = 25): array
+    {
+        $cacheKey = "whmcs.downloads.{$catId}.{$offset}";
+        return Cache::remember($cacheKey, 600, function () use ($catId, $offset, $limit) {
+            $params = ['limitstart' => $offset, 'limitnum' => $limit];
+            if ($catId) {
+                $params['catid'] = $catId;
+            }
+            return $this->client->callSafe('GetDownloads', $params);
+        });
+    }
+
+    // ─── Affiliates ────────────────────────────────────────
+
+    public function getAffiliates(int $clientId): array
+    {
+        return $this->client->callSafe('GetAffiliates', ['userid' => $clientId]);
+    }
+
+    // ─── SSO ───────────────────────────────────────────────
+
+    public function createSsoToken(int $clientId, string $destination = ''): array
+    {
+        $params = ['client_id' => $clientId];
+        if ($destination) {
+            $params['destination'] = $destination;
+        }
+        return $this->client->call('CreateSsoToken', $params);
+    }
+
+    // ─── Currencies ────────────────────────────────────────
+
+    public function getCurrencies(): array
+    {
+        return Cache::remember('whmcs.currencies', 3600, function () {
+            return $this->client->callSafe('GetCurrencies');
+        });
+    }
+
+    // ─── Payment Methods ───────────────────────────────────
+
+    public function getPaymentMethods(): array
+    {
+        return Cache::remember('whmcs.payment_methods', 3600, function () {
+            return $this->client->callSafe('GetPaymentMethods');
+        });
+    }
+
+    // ─── TLD Pricing ───────────────────────────────────────
+
+    public function getTLDPricing(?int $currencyId = null): array
+    {
+        $params = [];
+        if ($currencyId) {
+            $params['currencyid'] = $currencyId;
+        }
+        return Cache::remember("whmcs.tld_pricing.{$currencyId}", 3600, function () use ($params) {
+            return $this->client->callSafe('GetTLDPricing', $params);
+        });
+    }
+
+    // ─── Domain Availability ───────────────────────────────
+
+    public function domainCheck(string $domain): array
+    {
+        $parts = explode('.', $domain, 2);
+        return $this->client->callSafe('DomainWhois', [
+            'domain' => $domain,
+        ]);
+    }
+}

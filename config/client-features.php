@@ -1,0 +1,17 @@
+<?php
+
+/**
+ * Feature flags for optional client portal modules.
+ * Set to false to hide menu items and disable routes.
+ */
+return [
+    'domains'      => true,
+    'knowledgebase' => true,
+    'announcements' => true,
+    'downloads'    => true,
+    'affiliates'   => false, // Enable if your WHMCS has affiliates
+    'sso'          => false, // Enable if CreateSsoToken is available
+    'quotes'       => true,
+    'addons'       => true,
+    'orders'       => true,
+];

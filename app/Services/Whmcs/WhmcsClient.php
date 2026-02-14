@@ -1,0 +1,131 @@
+<?php
+
+namespace App\Services\Whmcs;
+
+use App\Exceptions\WhmcsApiException;
+use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
+
+/**
+ * Low-level HTTP wrapper for WHMCS API.
+ * Handles authentication, retries, timeouts, SSL verification, and error normalization.
+ */
+class WhmcsClient
+{
+    protected string $baseUrl;
+    protected string $identifier;
+    protected string $secret;
+    protected int $timeout;
+    protected bool $verifySSL;
+
+    public function __construct()
+    {
+        $this->baseUrl = rtrim(config('whmcs.base_url'), '/');
+        $this->identifier = config('whmcs.api_identifier');
+        $this->secret = config('whmcs.api_secret');
+        $this->timeout = (int) config('whmcs.api_timeout', 10);
+        $this->verifySSL = (bool) config('whmcs.verify_ssl', true);
+    }
+
+    /**
+     * Send a POST request to the WHMCS API.
+     *
+     * @param string $action  WHMCS API action name.
+     * @param array  $params  Additional parameters (never include identifier/secret here).
+     * @return array  Decoded JSON response.
+     *
+     * @throws WhmcsApiException
+     */
+    public function call(string $action, array $params = []): array
+    {
+        $payload = array_merge([
+            'action'       => $action,
+            'identifier'   => $this->identifier,
+            'secret'       => $this->secret,
+            'responsetype' => 'json',
+        ], $params);
+
+        try {
+            $response = Http::timeout($this->timeout)
+                ->withOptions(['verify' => $this->verifySSL])
+                ->retry(2, 500, function ($exception) {
+                    // Only retry on connection timeouts, not on 4xx/5xx
+                    return $exception instanceof \Illuminate\Http\Client\ConnectionException;
+                })
+                ->asForm()
+                ->post("{$this->baseUrl}/includes/api.php", $payload);
+
+            $data = $response->json();
+
+            if (!$data || !is_array($data)) {
+                Log::error("WHMCS API: Non-JSON response", [
+                    'action' => $action,
+                    'status' => $response->status(),
+                    'body'   => substr($response->body(), 0, 500),
+                ]);
+                throw new WhmcsApiException(
+                    'Invalid response from billing system',
+                    $action,
+                    $this->redactParams($params)
+                );
+            }
+
+            if (($data['result'] ?? '') === 'error') {
+                $rawMsg = $data['message'] ?? 'Unknown WHMCS error';
+                Log::warning("WHMCS API error", [
+                    'action'  => $action,
+                    'message' => $rawMsg,
+                ]);
+                throw new WhmcsApiException(
+                    WhmcsApiException::friendlyMessage($rawMsg, $action),
+                    $action,
+                    $this->redactParams($params)
+                );
+            }
+
+            return $data;
+        } catch (WhmcsApiException $e) {
+            throw $e; // Re-throw domain exceptions
+        } catch (\Illuminate\Http\Client\ConnectionException $e) {
+            Log::error("WHMCS API connection failed", ['action' => $action, 'error' => $e->getMessage()]);
+            throw new WhmcsApiException(
+                'Unable to connect to billing system. Please try again later.',
+                $action,
+                $this->redactParams($params)
+            );
+        } catch (\Exception $e) {
+            Log::error("WHMCS API unexpected error", ['action' => $action, 'error' => $e->getMessage()]);
+            throw new WhmcsApiException(
+                'An unexpected error occurred. Please try again later.',
+                $action,
+                $this->redactParams($params)
+            );
+        }
+    }
+
+    /**
+     * Non-throwing version — returns ['result' => 'error'] on failure.
+     */
+    public function callSafe(string $action, array $params = []): array
+    {
+        try {
+            return $this->call($action, $params);
+        } catch (WhmcsApiException $e) {
+            return ['result' => 'error', 'message' => $e->getMessage()];
+        }
+    }
+
+    /**
+     * Remove sensitive fields from params before logging.
+     */
+    protected function redactParams(array $params): array
+    {
+        $redacted = $params;
+        foreach (['password', 'password2', 'cardnum', 'cardcvv', 'identifier', 'secret'] as $key) {
+            if (isset($redacted[$key])) {
+                $redacted[$key] = '***REDACTED***';
+            }
+        }
+        return $redacted;
+    }
+}
