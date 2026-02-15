@@ -208,6 +208,32 @@ if ($action === 'GetDNS') {
     });
     echo json_encode(['result' => 'success', 'registrar' => $registrar, 'functions' => array_values($regFns)]);
 
+} elseif ($action === 'DebugSaveDNS') {
+    // Debug: read the SaveDNS function source from the registrar module
+    $modulePath = $whmcsDir . '/modules/registrars/' . $registrar . '/' . $registrar . '.php';
+    $src = file_get_contents($modulePath);
+    // Extract the SaveDNS function
+    if (preg_match('/function\s+' . preg_quote($registrar) . '_SaveDNS\s*\(.*?\{(.+?)^\}/ms', $src, $m)) {
+        echo json_encode(['result' => 'success', 'source' => $m[0]]);
+    } else {
+        // Try simpler extraction - find the function and grab next 100 lines
+        $lines = explode("\n", $src);
+        $capture = false;
+        $captured = [];
+        $braceCount = 0;
+        foreach ($lines as $line) {
+            if (!$capture && preg_match('/function\s+' . preg_quote($registrar, '/') . '_SaveDNS/i', $line)) {
+                $capture = true;
+            }
+            if ($capture) {
+                $captured[] = $line;
+                $braceCount += substr_count($line, '{') - substr_count($line, '}');
+                if ($braceCount <= 0 && count($captured) > 1) break;
+            }
+        }
+        echo json_encode(['result' => 'success', 'source' => implode("\n", $captured)]);
+    }
+
 } elseif ($action === 'SaveDNS') {
 
     // Parse records from POST
