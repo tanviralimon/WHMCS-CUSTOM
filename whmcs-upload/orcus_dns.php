@@ -200,13 +200,15 @@ if ($action === 'GetDNS') {
         echo json_encode(['result' => 'error', 'message' => 'GetDNS error: ' . $e->getMessage()]);
     }
 
-} elseif ($action === 'SaveDNS') {
+} elseif ($action === 'ListFunctions') {
+    // Debug: list all registrar functions available
+    $fns = get_defined_functions();
+    $regFns = array_filter($fns['user'], function($f) use ($registrar) {
+        return stripos($f, strtolower($registrar) . '_') === 0;
+    });
+    echo json_encode(['result' => 'success', 'registrar' => $registrar, 'functions' => array_values($regFns)]);
 
-    $fn = $registrar . '_SaveDNS';
-    if (!function_exists($fn)) {
-        echo json_encode(['result' => 'error', 'message' => "Registrar '{$registrar}' does not support DNS management"]);
-        exit;
-    }
+} elseif ($action === 'SaveDNS') {
 
     // Parse records from POST
     $rawRecords = $_POST['dnsrecords'] ?? $_REQUEST['dnsrecords'] ?? '';
@@ -225,17 +227,12 @@ if ($action === 'GetDNS') {
         try { $rawRecords = App::getFromRequest('dnsrecords'); } catch (\Exception $e) {}
     }
 
-    // Debug: show what we actually received
     if (empty($rawRecords)) {
-        echo json_encode([
-            'result' => 'error',
-            'message' => 'No DNS records provided',
-        ]);
+        echo json_encode(['result' => 'error', 'message' => 'No DNS records provided']);
         exit;
     }
 
     // WHMCS sanitises POST values: adds backslashes (magic quotes) AND html-encodes them.
-    // Undo both transformations before json_decode.
     if (is_string($rawRecords)) {
         $rawRecords = html_entity_decode(stripslashes($rawRecords), ENT_QUOTES, 'UTF-8');
     }
@@ -251,29 +248,146 @@ if ($action === 'GetDNS') {
         exit;
     }
 
-    // Format records
-    $formatted = [];
+    // Format desired records
+    $desired = [];
     foreach ($dnsRecords as $rec) {
-        $formatted[] = [
+        $desired[] = [
             'hostname' => $rec['hostname'] ?? $rec['name'] ?? '',
             'type'     => strtoupper($rec['type'] ?? 'A'),
             'address'  => $rec['address'] ?? $rec['content'] ?? '',
-            'priority' => $rec['priority'] ?? '',
+            'priority' => (string)($rec['priority'] ?? ''),
         ];
     }
-    $params['dnsrecords'] = $formatted;
 
-    try {
-        $result = call_user_func($fn, $params);
-
-        if (isset($result['error']) && !empty($result['error'])) {
-            echo json_encode(['result' => 'error', 'message' => $result['error']]);
-            exit;
+    // ── Strategy: First try the standard SaveDNS ──
+    $fn = $registrar . '_SaveDNS';
+    if (function_exists($fn)) {
+        $params['dnsrecords'] = $desired;
+        try {
+            $result = call_user_func($fn, $params);
+            if (empty($result['error'])) {
+                echo json_encode(['result' => 'success', 'message' => 'DNS records saved successfully']);
+                exit;
+            }
+        } catch (\Exception $e) {
+            // SaveDNS failed — fall through to manual approach
         }
+    }
 
-        echo json_encode(['result' => 'success', 'message' => 'DNS records saved successfully']);
+    // ── Fallback: manual diff using GetDNS + individual Add/Delete ──
+    $getDnsFn  = $registrar . '_GetDNS';
+    if (!function_exists($getDnsFn)) {
+        // No way to diff, return the SaveDNS error
+        echo json_encode(['result' => 'error', 'message' => isset($result['error']) ? $result['error'] : 'SaveDNS not supported']);
+        exit;
+    }
+
+    // Fetch existing records
+    $existing = [];
+    try {
+        $getResult = call_user_func($getDnsFn, $params);
+        if (is_array($getResult)) {
+            foreach ($getResult as $r) {
+                if (is_array($r) && isset($r['hostname'])) {
+                    $existing[] = [
+                        'hostname' => $r['hostname'],
+                        'type'     => strtoupper($r['type'] ?? 'A'),
+                        'address'  => $r['address'] ?? '',
+                        'priority' => (string)($r['priority'] ?? ''),
+                        'recid'    => $r['recid'] ?? null,
+                    ];
+                }
+            }
+        }
     } catch (\Exception $e) {
-        echo json_encode(['result' => 'error', 'message' => 'SaveDNS error: ' . $e->getMessage()]);
+        echo json_encode(['result' => 'error', 'message' => 'Failed to fetch existing DNS records: ' . $e->getMessage()]);
+        exit;
+    }
+
+    // Build lookup keys: hostname|type|address
+    $existingKeys = [];
+    foreach ($existing as $r) {
+        $existingKeys[strtolower($r['hostname'] . '|' . $r['type'] . '|' . $r['address'])] = $r;
+    }
+    $desiredKeys = [];
+    foreach ($desired as $r) {
+        $desiredKeys[strtolower($r['hostname'] . '|' . $r['type'] . '|' . $r['address'])] = $r;
+    }
+
+    // Records to add: in desired but not in existing
+    $toAdd = [];
+    foreach ($desiredKeys as $key => $r) {
+        if (!isset($existingKeys[$key])) {
+            $toAdd[] = $r;
+        }
+    }
+
+    // Records to delete: in existing but not in desired
+    $toDelete = [];
+    foreach ($existingKeys as $key => $r) {
+        if (!isset($desiredKeys[$key])) {
+            $toDelete[] = $r;
+        }
+    }
+
+    $errors = [];
+
+    // Delete records that are no longer desired
+    foreach ($toDelete as $rec) {
+        $params['dnsrecords'] = [$rec]; // just the one to delete
+        // Try using dedicated delete function if available
+        // WHMCS registrar modules often use SaveDNS with empty set logic
+        // For now, we'll handle this after adds
+    }
+
+    // For the manual approach, we call SaveDNS with existing-that-stay + new records individually
+    // Many registrar modules handle add vs update via the registrar API
+    // The best universal approach: delete all existing, then add all desired
+    // But that could cause downtime. Instead, let's add new records one at a time.
+
+    // Try to add new records by calling SaveDNS with existing + one new record at a time
+    $currentRecords = [];
+    foreach ($existingKeys as $key => $r) {
+        if (isset($desiredKeys[$key])) {
+            $currentRecords[] = $r; // keep existing records that are still desired
+        }
+    }
+
+    // Add new records one at a time
+    foreach ($toAdd as $newRec) {
+        $currentRecords[] = $newRec;
+        $params['dnsrecords'] = $currentRecords;
+        try {
+            $result = call_user_func($fn, $params);
+            if (!empty($result['error'])) {
+                // Single record add failed — try without it
+                array_pop($currentRecords);
+                $errors[] = $newRec['type'] . '|' . $newRec['hostname'] . '|' . $newRec['address'] . ': ' . $result['error'];
+            }
+        } catch (\Exception $e) {
+            array_pop($currentRecords);
+            $errors[] = $newRec['type'] . '|' . $newRec['hostname'] . ': ' . $e->getMessage();
+        }
+    }
+
+    // Now delete records that should be removed
+    if (!empty($toDelete)) {
+        // Remove deleted records: call SaveDNS with only the desired records
+        $params['dnsrecords'] = $desired;
+        try {
+            $result = call_user_func($fn, $params);
+            if (!empty($result['error'])) {
+                $errors[] = 'Delete pass: ' . $result['error'];
+            }
+        } catch (\Exception $e) {
+            $errors[] = 'Delete pass: ' . $e->getMessage();
+        }
+    }
+
+    if (!empty($errors)) {
+        echo json_encode(['result' => 'error', 'message' => implode('; ', $errors)]);
+    } else {
+        echo json_encode(['result' => 'success', 'message' => 'DNS records saved successfully']);
     }
 
 } else {
