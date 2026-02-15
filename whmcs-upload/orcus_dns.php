@@ -209,40 +209,60 @@ if ($action === 'GetDNS') {
     echo json_encode(['result' => 'success', 'registrar' => $registrar, 'functions' => array_values($regFns)]);
 
 } elseif ($action === 'DebugSaveDNS') {
-    // Debug: inspect the stargate module's API config and behavior
+    // Debug: discover the correct LogicBoxes/Stargate API base URL
     $info = [
         'registrar' => $registrar,
-        'whmcs_version' => defined('WHMCS_VERSION') ? WHMCS_VERSION : 'unknown',
+        'config_keys' => array_keys($registrarConfig),
+        'ResellerID' => $registrarConfig['ResellerID'] ?? 'NOT SET',
+        'APIKey' => substr($registrarConfig['APIKey'] ?? '', 0, 8) . '...',
+        'TestMode' => $registrarConfig['TestMode'] ?? 'NOT SET',
+        'Username' => $registrarConfig['Username'] ?? 'NOT SET',
     ];
     
-    // Get the registrar config to find API endpoint/credentials
-    $info['config_keys'] = array_keys($registrarConfig);
+    // Stargate/UK2 uses LogicBoxes platform
+    // Try known LogicBoxes API base URLs to find which one works
+    $testMode = !empty($registrarConfig['TestMode']) && $registrarConfig['TestMode'] !== 'off' && $registrarConfig['TestMode'] !== '';
+    $apiUrls = $testMode ? [
+        'https://test.httpapi.com/api/',
+        'https://test.stargate.biz/api/',
+    ] : [
+        'https://httpapi.com/api/',
+        'https://domaincheck.httpapi.com/api/',
+        'https://stargate.biz/api/',
+        'https://api.stargate.biz/api/',
+    ];
     
-    // Check if the registrar has a whmcs.json with supported functions
-    $jsonPath = $whmcsDir . '/modules/registrars/' . $registrar . '/whmcs.json';
-    if (file_exists($jsonPath)) {
-        $info['whmcs_json'] = json_decode(file_get_contents($jsonPath), true);
+    $authUserId = $registrarConfig['ResellerID'] ?? '';
+    $apiKey = $registrarConfig['APIKey'] ?? '';
+    
+    $info['test_mode'] = $testMode;
+    $info['api_tests'] = [];
+    
+    foreach ($apiUrls as $baseUrl) {
+        $testUrl = $baseUrl . 'dns/manage/search-records.json?auth-userid=' . urlencode($authUserId) 
+            . '&api-key=' . urlencode($apiKey) 
+            . '&domain-name=' . urlencode($domain->domain) 
+            . '&type=A&no-of-records=1&page-no=1';
+        
+        $ch = curl_init($testUrl);
+        curl_setopt_array($ch, [
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_TIMEOUT => 10,
+            CURLOPT_SSL_VERIFYPEER => true,
+            CURLOPT_FOLLOWLOCATION => true,
+        ]);
+        $response = curl_exec($ch);
+        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $error = curl_error($ch);
+        curl_close($ch);
+        
+        $info['api_tests'][] = [
+            'url' => $baseUrl,
+            'http_code' => $httpCode,
+            'response' => $response ? substr($response, 0, 500) : null,
+            'curl_error' => $error ?: null,
+        ];
     }
-    
-    // Check if the stargate module is based on enom
-    $moduleSrc = file_get_contents($whmcsDir . '/modules/registrars/' . $registrar . '/' . $registrar . '.php');
-    $info['module_size'] = strlen($moduleSrc);
-    $info['has_enom_ref'] = stripos($moduleSrc, 'enom') !== false;
-    $info['has_resellerclub'] = stripos($moduleSrc, 'resellerclub') !== false;
-    $info['has_httpapi'] = stripos($moduleSrc, 'httpapi') !== false;
-    $info['has_api_url'] = stripos($moduleSrc, 'api.') !== false || stripos($moduleSrc, 'ApiUrl') !== false;
-    $info['has_stargate_api'] = stripos($moduleSrc, 'stargate') !== false;
-    
-    // Try to find the API base URL in the config
-    foreach ($registrarConfig as $k => $v) {
-        if (stripos($k, 'url') !== false || stripos($k, 'api') !== false || stripos($k, 'host') !== false || stripos($k, 'endpoint') !== false) {
-            $info['config_' . $k] = $v;
-        }
-    }
-    
-    // Look for SoapClient or curl usage
-    $info['has_soap'] = stripos($moduleSrc, 'SoapClient') !== false;
-    $info['has_curl'] = stripos($moduleSrc, 'curl') !== false;
     
     echo json_encode(['result' => 'success'] + $info);
 
