@@ -208,7 +208,7 @@ if ($action === 'GetDNS') {
         exit;
     }
 
-    // Parse records from POST — try multiple sources since WHMCS may modify $_POST
+    // Parse records from POST
     $rawRecords = $_POST['dnsrecords'] ?? $_REQUEST['dnsrecords'] ?? '';
 
     // If empty, try reading from raw input
@@ -220,9 +220,14 @@ if ($action === 'GetDNS') {
         }
     }
 
+    // WHMCS may add backslashes (magic quotes) — strip them before json_decode
+    if (is_string($rawRecords)) {
+        $rawRecords = stripslashes($rawRecords);
+    }
+
     $dnsRecords = is_string($rawRecords) ? json_decode($rawRecords, true) : $rawRecords;
     if (!is_array($dnsRecords) || empty($dnsRecords)) {
-        echo json_encode(['result' => 'error', 'message' => 'No DNS records provided', 'debug_post_keys' => array_keys($_POST)]);
+        echo json_encode(['result' => 'error', 'message' => 'No DNS records provided']);
         exit;
     }
 
