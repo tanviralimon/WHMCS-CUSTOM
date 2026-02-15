@@ -116,6 +116,60 @@ class WhmcsClient
     }
 
     /**
+     * Call the standalone DNS proxy on the WHMCS server.
+     * This bypasses the standard API and calls registrar module functions directly.
+     */
+    public function callDnsProxy(string $action, array $params = []): array
+    {
+        $payload = array_merge([
+            'action'     => $action,
+            'identifier' => $this->identifier,
+            'secret'     => $this->secret,
+        ], $params);
+
+        try {
+            $response = Http::timeout($this->timeout)
+                ->withOptions(['verify' => $this->verifySSL])
+                ->asForm()
+                ->post("{$this->baseUrl}/orcus_dns.php", $payload);
+
+            $data = $response->json();
+
+            if (!$data || !is_array($data)) {
+                Log::error('WHMCS DNS Proxy: Non-JSON response', [
+                    'action' => $action,
+                    'status' => $response->status(),
+                    'body'   => substr($response->body(), 0, 500),
+                ]);
+                throw new WhmcsApiException('Invalid response from DNS service', $action, []);
+            }
+
+            if (($data['result'] ?? '') === 'error') {
+                throw new WhmcsApiException($data['message'] ?? 'DNS operation failed', $action, []);
+            }
+
+            return $data;
+        } catch (WhmcsApiException $e) {
+            throw $e;
+        } catch (\Exception $e) {
+            Log::error('WHMCS DNS Proxy error', ['action' => $action, 'error' => $e->getMessage()]);
+            throw new WhmcsApiException('DNS service unavailable: ' . $e->getMessage(), $action, []);
+        }
+    }
+
+    /**
+     * Non-throwing version of callDnsProxy.
+     */
+    public function callDnsProxySafe(string $action, array $params = []): array
+    {
+        try {
+            return $this->callDnsProxy($action, $params);
+        } catch (WhmcsApiException $e) {
+            return ['result' => 'error', 'message' => $e->getMessage()];
+        }
+    }
+
+    /**
      * Remove sensitive fields from params before logging.
      */
     protected function redactParams(array $params): array

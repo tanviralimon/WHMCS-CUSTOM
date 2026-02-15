@@ -235,12 +235,12 @@ class WhmcsService
 
     public function domainGetDNS(int $domainId): array
     {
-        return $this->client->callSafe('OrcusGetDNS', ['domainid' => $domainId]);
+        return $this->client->callDnsProxySafe('GetDNS', ['domainid' => $domainId]);
     }
 
     public function domainSetDNS(int $domainId, array $records): array
     {
-        return $this->client->call('OrcusSaveDNS', [
+        return $this->client->callDnsProxy('SaveDNS', [
             'domainid'   => $domainId,
             'dnsrecords' => json_encode($records),
         ]);
