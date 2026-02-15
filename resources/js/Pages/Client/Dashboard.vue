@@ -1,5 +1,6 @@
 <script setup>
-import { Link } from '@inertiajs/vue3';
+import { Link, usePage } from '@inertiajs/vue3';
+import { computed } from 'vue';
 import ClientLayout from '@/Layouts/ClientLayout.vue';
 import StatCard from '@/Components/StatCard.vue';
 import StatusBadge from '@/Components/StatusBadge.vue';
@@ -13,6 +14,8 @@ defineProps({
     domains: Array,
     features: Object,
 });
+
+const whmcsUrl = computed(() => usePage().props.whmcsUrl || '');
 </script>
 
 <template>
@@ -22,6 +25,16 @@ defineProps({
                 <h1 class="text-lg font-bold text-gray-900">Dashboard</h1>
                 <p class="text-[13px] text-gray-500">Welcome back, {{ profile?.firstname || 'there' }}</p>
             </div>
+        </template>
+
+        <template #actions>
+            <a v-if="whmcsUrl" :href="whmcsUrl + '/clientarea.php'" target="_blank"
+                class="inline-flex items-center gap-2 px-4 py-2 text-[13px] font-medium text-amber-700 bg-amber-50 border border-amber-200 rounded-xl hover:bg-amber-100 hover:border-amber-300 transition-all">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M7.5 21L3 16.5m0 0L7.5 12M3 16.5h13.5m0-13.5L21 7.5m0 0L16.5 12M21 7.5H7.5" />
+                </svg>
+                Switch to Old Panel
+            </a>
         </template>
 
         <!-- Stats row -->
@@ -68,7 +81,7 @@ defineProps({
             <div class="bg-white rounded-xl border border-gray-200">
                 <div class="flex items-center justify-between px-5 py-3.5 border-b border-gray-100">
                     <h3 class="text-sm font-semibold text-gray-900">Unpaid Invoices</h3>
-                    <Link :href="route('client.invoices.index')" class="text-[12px] font-medium text-indigo-600 hover:text-indigo-700">View all →</Link>
+                    <Link :href="route('client.invoices.index')" class="text-[12px] font-medium text-indigo-600 hover:text-indigo-700">View all &#8594;</Link>
                 </div>
                 <div v-if="invoices.length === 0" class="px-5 py-8 text-center text-[13px] text-gray-400">No unpaid invoices</div>
                 <div v-else>
@@ -89,13 +102,13 @@ defineProps({
             <div class="bg-white rounded-xl border border-gray-200">
                 <div class="flex items-center justify-between px-5 py-3.5 border-b border-gray-100">
                     <h3 class="text-sm font-semibold text-gray-900">Recent Tickets</h3>
-                    <Link :href="route('client.tickets.index')" class="text-[12px] font-medium text-indigo-600 hover:text-indigo-700">View all →</Link>
+                    <Link :href="route('client.tickets.index')" class="text-[12px] font-medium text-indigo-600 hover:text-indigo-700">View all &#8594;</Link>
                 </div>
                 <div v-if="tickets.length === 0" class="px-5 py-8 text-center text-[13px] text-gray-400">No recent tickets</div>
                 <div v-else>
                     <Link v-for="t in tickets" :key="t.id" :href="route('client.tickets.show', t.id)" class="flex items-center justify-between px-5 py-3 hover:bg-gray-50 transition-colors border-b border-gray-50 last:border-0">
                         <div class="flex-1 min-w-0">
-                            <p class="text-[13px] font-medium text-gray-900 truncate">#{{ t.tid }} — {{ t.subject }}</p>
+                            <p class="text-[13px] font-medium text-gray-900 truncate">#{{ t.tid }} &#8212; {{ t.subject }}</p>
                             <p class="text-[12px] text-gray-500">{{ t.date }}</p>
                         </div>
                         <StatusBadge :status="t.status" size="xs" class="ml-3" />
@@ -107,7 +120,7 @@ defineProps({
             <div class="bg-white rounded-xl border border-gray-200">
                 <div class="flex items-center justify-between px-5 py-3.5 border-b border-gray-100">
                     <h3 class="text-sm font-semibold text-gray-900">Services</h3>
-                    <Link :href="route('client.services.index')" class="text-[12px] font-medium text-indigo-600 hover:text-indigo-700">View all →</Link>
+                    <Link :href="route('client.services.index')" class="text-[12px] font-medium text-indigo-600 hover:text-indigo-700">View all &#8594;</Link>
                 </div>
                 <div v-if="services.length === 0" class="px-5 py-8 text-center text-[13px] text-gray-400">No active services</div>
                 <div v-else>
@@ -125,7 +138,7 @@ defineProps({
             <div v-if="features?.domains" class="bg-white rounded-xl border border-gray-200">
                 <div class="flex items-center justify-between px-5 py-3.5 border-b border-gray-100">
                     <h3 class="text-sm font-semibold text-gray-900">Domains</h3>
-                    <Link :href="route('client.domains.index')" class="text-[12px] font-medium text-indigo-600 hover:text-indigo-700">View all →</Link>
+                    <Link :href="route('client.domains.index')" class="text-[12px] font-medium text-indigo-600 hover:text-indigo-700">View all &#8594;</Link>
                 </div>
                 <div v-if="!domains || domains.length === 0" class="px-5 py-8 text-center text-[13px] text-gray-400">No domains</div>
                 <div v-else>

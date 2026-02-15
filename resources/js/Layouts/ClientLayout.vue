@@ -262,6 +262,11 @@ onUnmounted(() => document.removeEventListener('click', handleClickOutside));
                                 Security
                             </Link>
                             <hr class="my-1.5 border-gray-100" />
+                            <a v-if="page.props.whmcsUrl" :href="page.props.whmcsUrl + '/clientarea.php'" target="_blank" class="flex items-center gap-2 px-4 py-2 text-[13px] text-amber-700 hover:bg-amber-50">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M7.5 21L3 16.5m0 0L7.5 12M3 16.5h13.5m0-13.5L21 7.5m0 0L16.5 12M21 7.5H7.5" /></svg>
+                                Switch to Old Panel
+                            </a>
+                            <hr class="my-1.5 border-gray-100" />
                             <Link :href="route('logout')" method="post" as="button" class="flex items-center gap-2 w-full px-4 py-2 text-[13px] text-red-600 hover:bg-red-50">
                                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M15.75 9V5.25A2.25 2.25 0 0013.5 3h-6a2.25 2.25 0 00-2.25 2.25v13.5A2.25 2.25 0 007.5 21h6a2.25 2.25 0 002.25-2.25V15m3 0l3-3m0 0l-3-3m3 3H9" /></svg>
                                 Sign out

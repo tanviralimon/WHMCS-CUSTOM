@@ -1,10 +1,7 @@
 <script setup>
-import { Head, useForm, Link, usePage } from '@inertiajs/vue3';
-import { computed } from 'vue';
+import { Head, useForm, Link } from '@inertiajs/vue3';
 
 defineProps({ canResetPassword: Boolean, status: String });
-
-const whmcsUrl = computed(() => usePage().props.whmcsUrl || '');
 
 const form = useForm({ email: '', password: '', remember: false });
 
@@ -20,12 +17,10 @@ function submit() {
     <div class="min-h-screen flex">
         <!-- Left - Branding -->
         <div class="hidden lg:flex lg:w-1/2 bg-gradient-to-br from-slate-900 via-blue-900 to-indigo-900 items-center justify-center p-12 relative overflow-hidden">
-            <!-- Background decoration -->
             <div class="absolute inset-0 opacity-10">
                 <div class="absolute top-20 left-20 w-72 h-72 bg-blue-500 rounded-full blur-3xl"></div>
                 <div class="absolute bottom-20 right-20 w-96 h-96 bg-purple-500 rounded-full blur-3xl"></div>
             </div>
-
             <div class="relative z-10 text-center max-w-md">
                 <div class="w-16 h-16 bg-gradient-to-br from-blue-500 to-purple-600 rounded-2xl flex items-center justify-center mx-auto mb-8">
                     <svg class="w-10 h-10 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -55,50 +50,20 @@ function submit() {
 
                     <div v-if="status" class="mb-4 text-sm font-medium text-emerald-600 bg-emerald-50 rounded-xl p-3">{{ status }}</div>
 
-                    <!-- Fallback: Go to old WHMCS Client Area -->
-                    <a v-if="whmcsUrl" :href="whmcsUrl + '/clientarea.php'" target="_blank"
-                        class="w-full mb-5 flex items-center justify-center gap-2.5 py-3 border-2 border-slate-200 text-slate-600 font-medium rounded-xl hover:bg-slate-50 hover:border-slate-300 transition-all">
-                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.5 6H5.25A2.25 2.25 0 003 8.25v10.5A2.25 2.25 0 005.25 21h10.5A2.25 2.25 0 0018 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25" />
-                        </svg>
-                        Go to WHMCS Client Area
-                    </a>
-
-                    <div v-if="whmcsUrl" class="relative mb-5">
-                        <div class="absolute inset-0 flex items-center">
-                            <div class="w-full border-t border-slate-200"></div>
-                        </div>
-                        <div class="relative flex justify-center text-[12px]">
-                            <span class="bg-white px-3 text-slate-400">or sign in below</span>
-                        </div>
-                    </div>
-
                     <form @submit.prevent="submit" class="space-y-5">
                         <div>
                             <label for="email" class="block text-sm font-medium text-slate-700 mb-1">Email address</label>
-                            <input
-                                id="email"
-                                v-model="form.email"
-                                type="email"
-                                autocomplete="email"
-                                required
+                            <input id="email" v-model="form.email" type="email" autocomplete="email" required
                                 class="w-full rounded-xl border-slate-300 focus:ring-blue-500 focus:border-blue-500 transition-colors"
-                                placeholder="you@example.com"
-                            />
+                                placeholder="you@example.com" />
                             <div v-if="form.errors.email" class="text-sm text-red-600 mt-1">{{ form.errors.email }}</div>
                         </div>
 
                         <div>
                             <label for="password" class="block text-sm font-medium text-slate-700 mb-1">Password</label>
-                            <input
-                                id="password"
-                                v-model="form.password"
-                                type="password"
-                                autocomplete="current-password"
-                                required
+                            <input id="password" v-model="form.password" type="password" autocomplete="current-password" required
                                 class="w-full rounded-xl border-slate-300 focus:ring-blue-500 focus:border-blue-500 transition-colors"
-                                placeholder="••••••••"
-                            />
+                                placeholder="&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;" />
                             <div v-if="form.errors.password" class="text-sm text-red-600 mt-1">{{ form.errors.password }}</div>
                         </div>
 
@@ -112,11 +77,8 @@ function submit() {
                             </a>
                         </div>
 
-                        <button
-                            type="submit"
-                            :disabled="form.processing"
-                            class="w-full py-3 bg-gradient-to-r from-blue-600 to-indigo-600 text-white font-semibold rounded-xl hover:from-blue-700 hover:to-indigo-700 transition-all disabled:opacity-50 shadow-sm"
-                        >
+                        <button type="submit" :disabled="form.processing"
+                            class="w-full py-3 bg-gradient-to-r from-blue-600 to-indigo-600 text-white font-semibold rounded-xl hover:from-blue-700 hover:to-indigo-700 transition-all disabled:opacity-50 shadow-sm">
                             {{ form.processing ? 'Signing in...' : 'Sign in' }}
                         </button>
                     </form>
