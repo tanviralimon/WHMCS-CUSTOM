@@ -1,5 +1,5 @@
 <script setup>
-import { Head, useForm } from '@inertiajs/vue3';
+import { Head, useForm, Link } from '@inertiajs/vue3';
 
 defineProps({ canResetPassword: Boolean, status: String });
 
@@ -52,6 +52,24 @@ function submit() {
 
                     <div v-if="status" class="mb-4 text-sm font-medium text-emerald-600 bg-emerald-50 rounded-xl p-3">{{ status }}</div>
 
+                    <!-- SSO Login Button -->
+                    <a :href="route('sso.login')"
+                        class="w-full mb-5 flex items-center justify-center gap-2.5 py-3 bg-gradient-to-r from-emerald-600 to-teal-600 text-white font-semibold rounded-xl hover:from-emerald-700 hover:to-teal-700 transition-all shadow-sm">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.75 5.25a3 3 0 013 3m3 0a6 6 0 01-7.029 5.912c-.563-.097-1.159.026-1.563.43L10.5 17.25H8.25v2.25H6v2.25H2.25v-2.818c0-.597.237-1.17.659-1.591l6.499-6.499c.404-.404.527-1 .43-1.563A6 6 0 1121.75 8.25z" />
+                        </svg>
+                        Sign in with WHMCS Account
+                    </a>
+
+                    <div class="relative mb-5">
+                        <div class="absolute inset-0 flex items-center">
+                            <div class="w-full border-t border-slate-200"></div>
+                        </div>
+                        <div class="relative flex justify-center text-[12px]">
+                            <span class="bg-white px-3 text-slate-400">or sign in with email</span>
+                        </div>
+                    </div>
+
                     <form @submit.prevent="submit" class="space-y-5">
                         <div>
                             <label for="email" class="block text-sm font-medium text-slate-700 mb-1">Email address</label>
@@ -86,6 +104,9 @@ function submit() {
                                 <input v-model="form.remember" type="checkbox" class="rounded border-slate-300 text-blue-600 focus:ring-blue-500" />
                                 <span class="text-sm text-slate-600">Remember me</span>
                             </label>
+                            <a v-if="canResetPassword" :href="route('password.request')" class="text-sm text-blue-600 hover:text-blue-700 font-medium">
+                                Forgot password?
+                            </a>
                         </div>
 
                         <button
@@ -96,6 +117,11 @@ function submit() {
                             {{ form.processing ? 'Signing in...' : 'Sign in' }}
                         </button>
                     </form>
+
+                    <p class="mt-5 text-center text-[13px] text-slate-500">
+                        Don't have an account?
+                        <a :href="route('register')" class="text-blue-600 hover:text-blue-700 font-medium">Create one</a>
+                    </p>
                 </div>
             </div>
         </div>

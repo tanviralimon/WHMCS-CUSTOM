@@ -11,7 +11,7 @@ defineProps({
 });
 
 function filterGroup(gid) {
-    router.get(route('client.orders.products'), gid ? { gid } : {}, { preserveState: true });
+    router.get(route('client.orders.products'), gid ? { group: gid } : {}, { preserveState: true });
 }
 </script>
 
@@ -39,7 +39,7 @@ function filterGroup(gid) {
             <EmptyState title="No products available" message="No products are available for order at this time." />
         </div>
         <div v-else class="grid md:grid-cols-2 xl:grid-cols-3 gap-5">
-            <Link v-for="p in products" :key="p.pid" :href="route('client.orders.product', p.pid)"
+            <Link v-for="p in products" :key="p.pid" :href="route('client.orders.products.show', p.pid)"
                 class="group block">
                 <Card class="h-full transition-all group-hover:border-indigo-200 group-hover:shadow-md">
                     <div class="flex flex-col h-full">

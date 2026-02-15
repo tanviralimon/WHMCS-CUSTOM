@@ -1,5 +1,6 @@
 <script setup>
 import { computed } from 'vue';
+import { router } from '@inertiajs/vue3';
 import ClientLayout from '@/Layouts/ClientLayout.vue';
 import StatusBadge from '@/Components/StatusBadge.vue';
 import Card from '@/Components/Card.vue';
@@ -7,11 +8,18 @@ import Card from '@/Components/Card.vue';
 const props = defineProps({
     invoice: Object,
     payUrl: String,
+    paymentMethods: Array,
 });
 
 const inv = props.invoice;
 const items = computed(() => inv.items?.item || []);
 const transactions = computed(() => inv.transactions?.transaction || []);
+const isUnpaid = computed(() => inv.status === 'Unpaid');
+const balance = computed(() => parseFloat(inv.balance || 0));
+
+function payNow() {
+    window.open(props.payUrl, '_blank');
+}
 </script>
 
 <template>
@@ -110,13 +118,53 @@ const transactions = computed(() => inv.transactions?.transaction || []);
                         </div>
                         <div class="flex justify-between">
                             <dt class="text-[13px] text-gray-500">Balance</dt>
-                            <dd class="text-[13px] font-semibold" :class="parseFloat(inv.balance) > 0 ? 'text-red-600' : 'text-emerald-600'">${{ inv.balance }}</dd>
+                            <dd class="text-[13px] font-semibold" :class="balance > 0 ? 'text-red-600' : 'text-emerald-600'">${{ inv.balance }}</dd>
                         </div>
                         <div class="flex justify-between">
                             <dt class="text-[13px] text-gray-500">Payment</dt>
                             <dd class="text-[13px] text-gray-900 capitalize">{{ inv.paymentmethod }}</dd>
                         </div>
                     </dl>
+                </Card>
+
+                <!-- Pay Now Card -->
+                <Card v-if="isUnpaid && balance > 0" title="Pay Invoice">
+                    <div class="space-y-4">
+                        <div class="text-center">
+                            <p class="text-2xl font-bold text-gray-900">${{ inv.balance }}</p>
+                            <p class="text-[12px] text-gray-500 mt-1">Amount Due</p>
+                        </div>
+
+                        <!-- Available Payment Methods -->
+                        <div v-if="paymentMethods && paymentMethods.length" class="space-y-2">
+                            <p class="text-[12px] font-semibold text-gray-500 uppercase tracking-wider">Available Methods</p>
+                            <div class="space-y-1.5">
+                                <div v-for="pm in paymentMethods" :key="pm.module" class="flex items-center gap-2 px-3 py-2 bg-gray-50 rounded-lg">
+                                    <svg class="w-4 h-4 text-gray-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.25 8.25h19.5M2.25 9h19.5m-16.5 5.25h6m-6 2.25h3m-3.75 3h15a2.25 2.25 0 002.25-2.25V6.75A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25v10.5A2.25 2.25 0 004.5 19.5z" /></svg>
+                                    <span class="text-[13px] text-gray-700">{{ pm.displayname }}</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <button @click="payNow"
+                            class="w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 text-[13px] font-semibold text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 transition-colors shadow-sm">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.25 8.25h19.5M2.25 9h19.5m-16.5 5.25h6m-6 2.25h3m-3.75 3h15a2.25 2.25 0 002.25-2.25V6.75A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25v10.5A2.25 2.25 0 004.5 19.5z" /></svg>
+                            Pay Now — ${{ inv.balance }}
+                        </button>
+
+                        <p class="text-[11px] text-gray-400 text-center">You will be redirected to the payment gateway</p>
+                    </div>
+                </Card>
+
+                <!-- Paid confirmation -->
+                <Card v-else-if="inv.status === 'Paid'">
+                    <div class="text-center py-2">
+                        <div class="w-12 h-12 rounded-full bg-emerald-100 flex items-center justify-center mx-auto mb-3">
+                            <svg class="w-6 h-6 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4.5 12.75l6 6 9-13.5" /></svg>
+                        </div>
+                        <p class="text-[14px] font-semibold text-emerald-700">Invoice Paid</p>
+                        <p class="text-[12px] text-gray-500 mt-1">Thank you for your payment</p>
+                    </div>
                 </Card>
             </div>
         </div>

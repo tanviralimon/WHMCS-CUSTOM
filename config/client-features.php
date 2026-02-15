@@ -10,7 +10,7 @@ return [
     'announcements' => true,
     'downloads'    => true,
     'affiliates'   => false, // Enable if your WHMCS has affiliates
-    'sso'          => false, // Enable if CreateSsoToken is available
+    'sso'          => true,  // SSO auto-login from WHMCS
     'quotes'       => true,
     'addons'       => true,
     'orders'       => true,

@@ -37,19 +37,48 @@ class InvoiceController extends Controller
             abort(404);
         }
 
-        // Build WHMCS pay URL
-        $payUrl = rtrim(config('whmcs.base_url'), '/') . '/viewinvoice.php?id=' . $id;
+        // Build WHMCS pay URL — this redirects to the payment gateway
+        $whmcsBase = rtrim(config('whmcs.base_url'), '/');
+        $payUrl = $whmcsBase . '/viewinvoice.php?id=' . $id;
+
+        // Get available payment methods
+        $paymentMethods = $this->whmcs->getPaymentMethods();
 
         return Inertia::render('Client/Invoices/Show', [
-            'invoice' => $result,
-            'payUrl'  => $payUrl,
+            'invoice'        => $result,
+            'payUrl'         => $payUrl,
+            'paymentMethods' => $paymentMethods['paymentmethods']['paymentmethod'] ?? [],
         ]);
     }
 
     public function downloadPdf(Request $request, int $id)
     {
-        // Redirect to WHMCS invoice PDF
+        // Redirect to WHMCS invoice PDF download
         $url = rtrim(config('whmcs.base_url'), '/') . '/dl.php?type=i&id=' . $id;
         return redirect()->away($url);
+    }
+
+    /**
+     * Redirect to WHMCS payment gateway for a specific invoice.
+     */
+    public function pay(Request $request, int $id)
+    {
+        $whmcsBase = rtrim(config('whmcs.base_url'), '/');
+
+        // If client has SSO enabled, create an SSO token to auto-login at WHMCS
+        if (config('client-features.sso')) {
+            $clientId = $request->user()->whmcs_client_id;
+            try {
+                $sso = $this->whmcs->createSsoToken($clientId, 'clientarea:invoices');
+                if (!empty($sso['redirect_url'])) {
+                    // Redirect to WHMCS SSO which will then redirect to the invoice
+                    return redirect()->away($sso['redirect_url']);
+                }
+            } catch (\Exception $e) {
+                // Fall through to direct link
+            }
+        }
+
+        return redirect()->away($whmcsBase . '/viewinvoice.php?id=' . $id);
     }
 }

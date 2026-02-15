@@ -63,6 +63,8 @@ Route::prefix('invoices')->name('invoices.')->group(function () {
         ->middleware('whmcs.own:invoice,id');
     Route::get('/{id}/pdf', [InvoiceController::class, 'downloadPdf'])->name('pdf')
         ->middleware('whmcs.own:invoice,id');
+    Route::post('/{id}/pay', [InvoiceController::class, 'pay'])->name('pay')
+        ->middleware(['whmcs.own:invoice,id', 'throttle:10,1']);
 });
 
 // ─── Billing ────────────────────────────────────────────────

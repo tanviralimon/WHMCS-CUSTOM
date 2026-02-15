@@ -32,7 +32,9 @@ function addToCart() {
     router.post(route('client.orders.cart.add'), {
         pid: p.pid,
         billingcycle: selectedCycle.value,
-        paymentmethod: selectedPayment.value,
+        name: p.name,
+        price: getPrice(selectedCycle.value) || '0.00',
+        domain: '',
     }, {
         onFinish: () => adding.value = false,
     });

@@ -14,10 +14,10 @@ class DashboardController extends Controller
         $clientId = $request->user()->whmcs_client_id;
 
         $profile   = $whmcs->getClientsDetails($clientId);
-        $services  = $whmcs->getClientsProducts($clientId, 0, 5);
+        $services  = $whmcs->getClientsProducts($clientId, 0, 5, 'Active');
         $invoices  = $whmcs->getInvoices($clientId, 'Unpaid', 0, 5);
         $tickets   = $whmcs->getTickets($clientId, '', 0, 5);
-        $domains   = $whmcs->getClientsDomains($clientId, 0, 5);
+        $domains   = $whmcs->getClientsDomains($clientId, 0, 5, 'Active');
 
         // Count unpaid invoices
         $allUnpaid = $whmcs->getInvoices($clientId, 'Unpaid', 0, 1);

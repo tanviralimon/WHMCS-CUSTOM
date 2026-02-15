@@ -50,9 +50,11 @@ class OrderController extends Controller
     public function cart(Request $request)
     {
         $cart = session('cart', ['items' => [], 'promo' => null]);
+        $paymentMethods = $this->whmcs->getPaymentMethods();
 
         return Inertia::render('Client/Orders/Cart', [
-            'cart' => $cart,
+            'cart'           => $cart,
+            'paymentMethods' => $paymentMethods['paymentmethods']['paymentmethod'] ?? [],
         ]);
     }
 
