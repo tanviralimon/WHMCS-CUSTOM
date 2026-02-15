@@ -220,6 +220,26 @@ if ($action === 'GetDNS') {
         }
     }
 
+    // Try WHMCS's own request handler
+    if (empty($rawRecords) && class_exists('App')) {
+        try { $rawRecords = App::getFromRequest('dnsrecords'); } catch (\Exception $e) {}
+    }
+
+    // Debug: show what we actually received
+    if (empty($rawRecords)) {
+        echo json_encode([
+            'result' => 'error',
+            'message' => 'No DNS records provided',
+            'debug' => [
+                'post_keys' => array_keys($_POST),
+                'post_val_type' => gettype($_POST['dnsrecords'] ?? null),
+                'post_val' => substr(print_r($_POST['dnsrecords'] ?? 'MISSING', true), 0, 300),
+                'request_val' => substr(print_r($_REQUEST['dnsrecords'] ?? 'MISSING', true), 0, 300),
+            ],
+        ]);
+        exit;
+    }
+
     // WHMCS may add backslashes (magic quotes) — strip them before json_decode
     if (is_string($rawRecords)) {
         $rawRecords = stripslashes($rawRecords);
@@ -227,7 +247,12 @@ if ($action === 'GetDNS') {
 
     $dnsRecords = is_string($rawRecords) ? json_decode($rawRecords, true) : $rawRecords;
     if (!is_array($dnsRecords) || empty($dnsRecords)) {
-        echo json_encode(['result' => 'error', 'message' => 'No DNS records provided']);
+        echo json_encode([
+            'result' => 'error',
+            'message' => 'Failed to parse DNS records JSON',
+            'debug_raw' => substr($rawRecords, 0, 500),
+            'json_error' => json_last_error_msg(),
+        ]);
         exit;
     }
 
