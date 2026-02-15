@@ -230,19 +230,14 @@ if ($action === 'GetDNS') {
         echo json_encode([
             'result' => 'error',
             'message' => 'No DNS records provided',
-            'debug' => [
-                'post_keys' => array_keys($_POST),
-                'post_val_type' => gettype($_POST['dnsrecords'] ?? null),
-                'post_val' => substr(print_r($_POST['dnsrecords'] ?? 'MISSING', true), 0, 300),
-                'request_val' => substr(print_r($_REQUEST['dnsrecords'] ?? 'MISSING', true), 0, 300),
-            ],
         ]);
         exit;
     }
 
-    // WHMCS may add backslashes (magic quotes) — strip them before json_decode
+    // WHMCS sanitises POST values: adds backslashes (magic quotes) AND html-encodes them.
+    // Undo both transformations before json_decode.
     if (is_string($rawRecords)) {
-        $rawRecords = stripslashes($rawRecords);
+        $rawRecords = html_entity_decode(stripslashes($rawRecords), ENT_QUOTES, 'UTF-8');
     }
 
     $dnsRecords = is_string($rawRecords) ? json_decode($rawRecords, true) : $rawRecords;
