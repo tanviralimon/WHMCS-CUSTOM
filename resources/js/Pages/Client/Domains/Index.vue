@@ -16,7 +16,7 @@ defineProps({
 const statusOptions = ['', 'Active', 'Pending', 'Expired', 'Cancelled'];
 
 function filterByStatus(val) {
-    router.get(route('client.domains.index'), { status: val || undefined }, { preserveState: true });
+    router.get(route('client.domains.index'), { status: val || undefined }, { preserveState: false, preserveScroll: true });
 }
 </script>
 

@@ -3,7 +3,7 @@ import { ref, computed } from 'vue';
 import { router, Link } from '@inertiajs/vue3';
 import ClientLayout from '@/Layouts/ClientLayout.vue';
 import Card from '@/Components/Card.vue';
-import CurrencySwitcher from '@/Components/CurrencySwitcher.vue';
+
 
 const props = defineProps({
     query: { type: String, default: '' },
@@ -124,7 +124,6 @@ async function addDomainToCart(domain, type = 'register') {
             </div>
         </template>
         <template #actions>
-            <CurrencySwitcher />
             <Link :href="route('client.domains.pricing')" class="inline-flex items-center gap-1.5 px-3 py-1.5 text-[13px] font-medium text-gray-700 bg-white rounded-lg border border-gray-300 hover:bg-gray-50 transition-colors">
                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z" /></svg>
                 View Pricing

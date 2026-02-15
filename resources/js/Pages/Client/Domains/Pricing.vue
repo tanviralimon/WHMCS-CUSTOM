@@ -3,7 +3,7 @@ import { ref, computed } from 'vue';
 import { Link, router } from '@inertiajs/vue3';
 import ClientLayout from '@/Layouts/ClientLayout.vue';
 import Card from '@/Components/Card.vue';
-import CurrencySwitcher from '@/Components/CurrencySwitcher.vue';
+
 
 const props = defineProps({
     pricing: { type: Array, default: () => [] },
@@ -87,7 +87,6 @@ function switchCurrency(id) {
             </div>
         </template>
         <template #actions>
-            <CurrencySwitcher />
             <Link :href="route('client.domains.search')" class="inline-flex items-center gap-1.5 px-3 py-1.5 text-[13px] font-medium text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 transition-colors shadow-sm">
                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" /></svg>
                 Search Domains
