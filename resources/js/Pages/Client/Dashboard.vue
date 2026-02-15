@@ -1,6 +1,5 @@
 <script setup>
-import { Link, usePage } from '@inertiajs/vue3';
-import { computed } from 'vue';
+import { Link } from '@inertiajs/vue3';
 import ClientLayout from '@/Layouts/ClientLayout.vue';
 import StatCard from '@/Components/StatCard.vue';
 import StatusBadge from '@/Components/StatusBadge.vue';
@@ -14,8 +13,6 @@ defineProps({
     domains: Array,
     features: Object,
 });
-
-const whmcsUrl = computed(() => usePage().props.whmcsUrl || '');
 </script>
 
 <template>
@@ -28,7 +25,7 @@ const whmcsUrl = computed(() => usePage().props.whmcsUrl || '');
         </template>
 
         <template #actions>
-            <a v-if="whmcsUrl" :href="whmcsUrl + '/clientarea.php'" target="_blank"
+            <a v-if="features?.sso" :href="route('client.sso', { destination: 'clientarea:services' })"
                 class="inline-flex items-center gap-2 px-4 py-2 text-[13px] font-medium text-amber-700 bg-amber-50 border border-amber-200 rounded-xl hover:bg-amber-100 hover:border-amber-300 transition-all">
                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M7.5 21L3 16.5m0 0L7.5 12M3 16.5h13.5m0-13.5L21 7.5m0 0L16.5 12M21 7.5H7.5" />
