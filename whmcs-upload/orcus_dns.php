@@ -302,8 +302,8 @@ if ($action === 'GetDNS') {
     }
 
     // ── Populate $_POST the way WHMCS admin DNS page does ──
-    // WHMCS admin clientsdomaindns.php sets these POST vars and then 
-    // its internal code builds $params['dnsrecords'] from them.
+    // The registrar module reads from $_POST directly to build its DNS records.
+    // WHMCS admin page uses: dnsrecordhost[], dnsrecordtype[], dnsrecordaddress[], dnsrecordpriority[]
     $_POST['dnsrecordhost'] = [];
     $_POST['dnsrecordtype'] = [];
     $_POST['dnsrecordaddress'] = [];
@@ -323,13 +323,66 @@ if ($action === 'GetDNS') {
         $_REQUEST['dnsrecordpriority'][$i] = $rec['priority'];
     }
 
-    // ── Try using RegCallFunction (WHMCS internal registrar caller) ──
     $errors = [];
     $success = false;
+    $fn = $registrar . '_SaveDNS';
 
-    if (function_exists('RegCallFunction')) {
+    // ── Approach 1: Direct call — the registrar module likely reads $_POST internally ──
+    if (function_exists($fn)) {
+        // First try WITHOUT $params['dnsrecords'] — let module read from $_POST
+        $tryParams = $params;
+        unset($tryParams['dnsrecords']);
         try {
-            $regResult = RegCallFunction($params, 'SaveDNS');
+            $result = call_user_func($fn, $tryParams);
+            if (is_array($result) && empty($result['error'])) {
+                // Verify records actually changed by fetching them
+                $getDnsFn = $registrar . '_GetDNS';
+                if (function_exists($getDnsFn)) {
+                    $verify = call_user_func($getDnsFn, $params);
+                    $verifyCount = 0;
+                    if (is_array($verify)) {
+                        foreach ($verify as $r) {
+                            if (is_array($r) && isset($r['hostname'])) $verifyCount++;
+                        }
+                    }
+                    if ($verifyCount === count($desired)) {
+                        $success = true;
+                    }
+                    // If counts don't match, fall through to approach 2
+                } else {
+                    $success = true;
+                }
+            } elseif (is_array($result) && !empty($result['error'])) {
+                $errors[] = 'Approach1: ' . $result['error'];
+            }
+        } catch (\Exception $e) {
+            $errors[] = 'Approach1 exception: ' . $e->getMessage();
+        }
+    }
+
+    // ── Approach 2: Direct call with $params['dnsrecords'] ──
+    if (!$success && function_exists($fn)) {
+        $params['dnsrecords'] = $desired;
+        $errors = []; // reset errors from approach 1
+        try {
+            $result = call_user_func($fn, $params);
+            if (is_array($result) && empty($result['error'])) {
+                $success = true;
+            } elseif (is_array($result) && !empty($result['error'])) {
+                $errors[] = 'Approach2: ' . $result['error'];
+            }
+        } catch (\Exception $e) {
+            $errors[] = 'Approach2 exception: ' . $e->getMessage();
+        }
+    }
+
+    // ── Approach 3: Use RegCallFunction ──
+    if (!$success && function_exists('RegCallFunction')) {
+        $errors = []; // reset
+        try {
+            $regParams = $params;
+            unset($regParams['dnsrecords']);
+            $regResult = RegCallFunction($regParams, 'SaveDNS');
             if (is_array($regResult) && empty($regResult['error'])) {
                 $success = true;
             } elseif (is_array($regResult) && !empty($regResult['error'])) {
@@ -337,25 +390,6 @@ if ($action === 'GetDNS') {
             }
         } catch (\Exception $e) {
             $errors[] = 'RegCall exception: ' . $e->getMessage();
-        }
-    }
-
-    // ── Fallback: direct registrar function call ──
-    if (!$success) {
-        $fn = $registrar . '_SaveDNS';
-        if (function_exists($fn)) {
-            // Pass records in $params
-            $params['dnsrecords'] = $desired;
-            try {
-                $result = call_user_func($fn, $params);
-                if (is_array($result) && empty($result['error'])) {
-                    $success = true;
-                } elseif (is_array($result) && !empty($result['error'])) {
-                    $errors[] = 'Direct: ' . $result['error'];
-                }
-            } catch (\Exception $e) {
-                $errors[] = 'Direct exception: ' . $e->getMessage();
-            }
         }
     }
 
