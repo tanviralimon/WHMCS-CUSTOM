@@ -2,6 +2,7 @@
 
 namespace App\Http\Middleware;
 
+use App\Services\Whmcs\WhmcsService;
 use Illuminate\Http\Request;
 use Inertia\Middleware;
 
@@ -40,6 +41,19 @@ class HandleInertiaRequests extends Middleware
             ],
             'features' => config('client-features'),
             'whmcsUrl' => rtrim(config('whmcs.base_url'), '/'),
+            'currencies' => fn () => $this->getCurrencies(),
+            'activeCurrencyId' => fn () => (int) ($request->session()->get('currency_id', 1)),
         ];
+    }
+
+    private function getCurrencies(): array
+    {
+        try {
+            $whmcs = app(WhmcsService::class);
+            $result = $whmcs->getCurrencies();
+            return $result['currencies']['currency'] ?? [];
+        } catch (\Throwable) {
+            return [];
+        }
     }
 }

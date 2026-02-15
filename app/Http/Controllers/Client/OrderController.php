@@ -128,18 +128,54 @@ class OrderController extends Controller
             'paymentmethod' => $request->paymentmethod,
         ];
 
-        // Build product arrays
+        // Build product arrays and domain arrays
         $pids    = [];
         $domains = [];
         $cycles  = [];
+        $domainItems = [];
+
         foreach ($cart['items'] as $item) {
-            $pids[]    = $item['pid'];
-            $domains[] = $item['domain'] ?? '';
-            $cycles[]  = $item['billingcycle'];
+            if (($item['type'] ?? '') === 'domain') {
+                $domainItems[] = $item;
+            } else {
+                $pids[]    = $item['pid'];
+                $domains[] = $item['domain'] ?? '';
+                $cycles[]  = $item['billingcycle'];
+            }
         }
-        $orderData['pid']          = implode(',', $pids);
-        $orderData['domain']       = implode(',', $domains);
-        $orderData['billingcycle'] = implode(',', $cycles);
+
+        if (!empty($pids)) {
+            $orderData['pid']          = implode(',', $pids);
+            $orderData['domain']       = implode(',', $domains);
+            $orderData['billingcycle'] = implode(',', $cycles);
+        }
+
+        // Add domain registrations
+        if (!empty($domainItems)) {
+            $regDomains = [];
+            $regPeriods = [];
+            $transferDomains = [];
+            $transferPeriods = [];
+
+            foreach ($domainItems as $d) {
+                if (($d['domaintype'] ?? 'register') === 'transfer') {
+                    $transferDomains[] = $d['domain'];
+                    $transferPeriods[] = $d['regperiod'] ?? 1;
+                } else {
+                    $regDomains[] = $d['domain'];
+                    $regPeriods[] = $d['regperiod'] ?? 1;
+                }
+            }
+
+            if (!empty($regDomains)) {
+                $orderData['domainregister'] = $regDomains;
+                $orderData['domainregperiod'] = $regPeriods;
+            }
+            if (!empty($transferDomains)) {
+                $orderData['domaintransfer'] = $transferDomains;
+                $orderData['domaintransferperiod'] = $transferPeriods;
+            }
+        }
 
         if (!empty($cart['promo'])) {
             $orderData['promocode'] = $cart['promo']['code'] ?? '';

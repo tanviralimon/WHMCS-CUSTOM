@@ -5,6 +5,7 @@ use App\Http\Controllers\Client\AddonController;
 use App\Http\Controllers\Client\AffiliateController;
 use App\Http\Controllers\Client\AnnouncementController;
 use App\Http\Controllers\Client\BillingController;
+use App\Http\Controllers\Client\CurrencyController;
 use App\Http\Controllers\Client\DashboardController;
 use App\Http\Controllers\Client\DomainController;
 use App\Http\Controllers\Client\DownloadController;
@@ -44,6 +45,9 @@ Route::prefix('services')->name('services.')->group(function () {
 Route::middleware('feature:domains')->prefix('domains')->name('domains.')->group(function () {
     Route::get('/', [DomainController::class, 'index'])->name('index');
     Route::get('/search', [DomainController::class, 'searchDomain'])->name('search');
+    Route::post('/check', [DomainController::class, 'checkAvailability'])->name('check');
+    Route::get('/pricing', [DomainController::class, 'pricing'])->name('pricing');
+    Route::post('/cart/add', [DomainController::class, 'addToCart'])->name('cart.add');
     Route::get('/{id}', [DomainController::class, 'show'])->name('show')
         ->middleware('whmcs.own:domain,id');
     Route::post('/{id}/renew', [DomainController::class, 'renew'])->name('renew')
@@ -55,6 +59,10 @@ Route::middleware('feature:domains')->prefix('domains')->name('domains.')->group
     Route::post('/{id}/epp', [DomainController::class, 'requestEpp'])->name('epp')
         ->middleware(['whmcs.own:domain,id', 'throttle:3,1']);
 });
+
+// ─── Currency ───────────────────────────────────────────────
+Route::post('/currency/switch', [CurrencyController::class, 'switch'])->name('currency.switch');
+Route::get('/currency/list', [CurrencyController::class, 'list'])->name('currency.list');
 
 // ─── Invoices ───────────────────────────────────────────────
 Route::prefix('invoices')->name('invoices.')->group(function () {

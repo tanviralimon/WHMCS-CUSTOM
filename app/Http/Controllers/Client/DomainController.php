@@ -5,11 +5,14 @@ namespace App\Http\Controllers\Client;
 use App\Http\Controllers\Controller;
 use App\Services\Whmcs\WhmcsService;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 use Inertia\Inertia;
 
 class DomainController extends Controller
 {
     public function __construct(protected WhmcsService $whmcs) {}
+
+    // ─── My Domains (existing) ─────────────────────────────
 
     public function index(Request $request)
     {
@@ -39,9 +42,7 @@ class DomainController extends Controller
             abort(404);
         }
 
-        // Get nameservers
-        $ns = $this->whmcs->domainGetNameservers($id);
-        // Get lock status
+        $ns   = $this->whmcs->domainGetNameservers($id);
         $lock = $this->whmcs->domainGetLockingStatus($id);
 
         return Inertia::render('Client/Domains/Show', [
@@ -102,15 +103,145 @@ class DomainController extends Controller
         return back()->with('success', 'EPP/Authorization code has been sent to your email.');
     }
 
+    // ─── Domain Search Page ────────────────────────────────
+
     public function searchDomain(Request $request)
+    {
+        $currencyId = (int) ($request->get('currency') ?: session('currency_id', 1));
+        $currencies = $this->whmcs->getCurrencies();
+        $currencyList = $currencies['currencies']['currency'] ?? [];
+
+        // Get TLD pricing so the search page can show suggestions with pricing
+        $tldResult = $this->whmcs->getTLDPricing($currencyId);
+        $tlds = [];
+        foreach ($tldResult['pricing'] ?? [] as $tld => $pricing) {
+            $registerPrice = null;
+            if (isset($pricing['register']) && is_array($pricing['register'])) {
+                // Get the first (1-year) price
+                foreach ($pricing['register'] as $years => $price) {
+                    $registerPrice = $price;
+                    break;
+                }
+            }
+            $tlds[$tld] = [
+                'tld'   => $tld,
+                'register' => $registerPrice,
+                'transfer' => isset($pricing['transfer']) ? (array_values((array) $pricing['transfer'])[0] ?? null) : null,
+                'renew'    => isset($pricing['renew']) ? (array_values((array) $pricing['renew'])[0] ?? null) : null,
+            ];
+        }
+
+        // Find active currency symbol
+        $activeCurrency = collect($currencyList)->firstWhere('id', $currencyId) ?? ($currencyList[0] ?? null);
+
+        return Inertia::render('Client/Domains/Search', [
+            'query'          => $request->get('domain', ''),
+            'result'         => null, // Will be populated via AJAX check
+            'tlds'           => $tlds,
+            'currencies'     => $currencyList,
+            'activeCurrency' => $activeCurrency,
+            'currencyId'     => $currencyId,
+        ]);
+    }
+
+    // ─── AJAX: Check domain availability ───────────────────
+
+    public function checkAvailability(Request $request)
     {
         $request->validate(['domain' => 'required|string|max:255']);
 
-        $result = $this->whmcs->domainCheck($request->domain);
+        $domain = trim($request->domain);
 
-        return Inertia::render('Client/Domains/Search', [
-            'query'  => $request->domain,
-            'result' => $result,
+        // If no TLD, check popular ones
+        if (!str_contains($domain, '.')) {
+            $popularTlds = ['.com', '.net', '.org', '.io', '.dev', '.co', '.info', '.xyz', '.online', '.tech'];
+            $results = [];
+            foreach ($popularTlds as $tld) {
+                $check = $this->whmcs->domainCheck($domain . $tld);
+                $results[] = [
+                    'domain' => $domain . $tld,
+                    'status' => $check['status'] ?? 'unknown',
+                ];
+            }
+            return response()->json(['results' => $results, 'multi' => true]);
+        }
+
+        // Single domain check
+        $check = $this->whmcs->domainCheck($domain);
+        return response()->json([
+            'results' => [[
+                'domain' => $domain,
+                'status' => $check['status'] ?? 'unknown',
+            ]],
+            'multi' => false,
         ]);
+    }
+
+    // ─── Domain Pricing Page ───────────────────────────────
+
+    public function pricing(Request $request)
+    {
+        $currencyId = (int) ($request->get('currency') ?: session('currency_id', 1));
+        $currencies = $this->whmcs->getCurrencies();
+        $currencyList = $currencies['currencies']['currency'] ?? [];
+
+        $tldResult = $this->whmcs->getTLDPricing($currencyId);
+
+        // Build structured pricing table
+        $pricingTable = [];
+        foreach ($tldResult['pricing'] ?? [] as $tld => $pricing) {
+            $row = ['tld' => $tld];
+
+            foreach (['register', 'transfer', 'renew'] as $type) {
+                if (isset($pricing[$type]) && is_array($pricing[$type])) {
+                    $row[$type] = [];
+                    foreach ($pricing[$type] as $years => $price) {
+                        $row[$type][$years] = $price;
+                    }
+                } else {
+                    $row[$type] = null;
+                }
+            }
+
+            $pricingTable[] = $row;
+        }
+
+        // Sort by TLD name
+        usort($pricingTable, fn($a, $b) => strcmp($a['tld'], $b['tld']));
+
+        $activeCurrency = collect($currencyList)->firstWhere('id', $currencyId) ?? ($currencyList[0] ?? null);
+
+        return Inertia::render('Client/Domains/Pricing', [
+            'pricing'        => $pricingTable,
+            'currencies'     => $currencyList,
+            'activeCurrency' => $activeCurrency,
+            'currencyId'     => $currencyId,
+        ]);
+    }
+
+    // ─── Add domain to cart ────────────────────────────────
+
+    public function addToCart(Request $request)
+    {
+        $request->validate([
+            'domain'  => 'required|string|max:255',
+            'type'    => 'required|in:register,transfer',
+            'years'   => 'required|integer|min:1|max:10',
+            'price'   => 'required|string',
+        ]);
+
+        $cart = session('cart', ['items' => [], 'promo' => null]);
+        $cart['items'][] = [
+            'type'         => 'domain',
+            'domain'       => $request->domain,
+            'domaintype'   => $request->type,
+            'regperiod'    => $request->years,
+            'name'         => ($request->type === 'register' ? 'Register ' : 'Transfer ') . $request->domain,
+            'price'        => $request->price,
+            'billingcycle' => $request->years . ' Year(s)',
+        ];
+        session(['cart' => $cart]);
+
+        return response()->json(['success' => true, 'cartCount' => count($cart['items'])]);
     }
 }
