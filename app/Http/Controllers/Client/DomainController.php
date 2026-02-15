@@ -182,7 +182,7 @@ class DomainController extends Controller
     public function saveDnsRecords(Request $request, int $id)
     {
         $request->validate([
-            'records'          => 'required|array',
+            'records'          => 'required|array|min:1',
             'records.*.name'   => 'required|string|max:255',
             'records.*.type'   => 'required|string|in:A,AAAA,CNAME,MX,TXT,NS,SRV,CAA',
             'records.*.address' => 'required|string|max:255',
@@ -198,14 +198,24 @@ class DomainController extends Controller
                 'type'     => $record['type'],
                 'address'  => $record['address'],
             ];
-            if (isset($record['priority'])) {
-                $entry['priority'] = $record['priority'];
+            if (!empty($record['priority'])) {
+                $entry['priority'] = (string) $record['priority'];
+            } else {
+                $entry['priority'] = '';
             }
             $dnsRecords[] = $entry;
         }
 
+        \Illuminate\Support\Facades\Log::info('DNS Save Request', [
+            'domain_id' => $id,
+            'records_count' => count($dnsRecords),
+            'records' => $dnsRecords,
+        ]);
+
         try {
             $result = $this->whmcs->domainSetDNS($id, $dnsRecords);
+
+            \Illuminate\Support\Facades\Log::info('DNS Save Result', ['result' => $result]);
 
             if (($result['result'] ?? '') !== 'success') {
                 return back()->withErrors(['whmcs' => $result['message'] ?? 'Failed to save DNS records.']);
@@ -213,6 +223,7 @@ class DomainController extends Controller
 
             return back()->with('success', 'DNS records updated successfully.');
         } catch (\App\Exceptions\WhmcsApiException $e) {
+            \Illuminate\Support\Facades\Log::error('DNS Save Exception', ['error' => $e->getMessage()]);
             return back()->withErrors(['whmcs' => $e->getMessage()]);
         }
     }

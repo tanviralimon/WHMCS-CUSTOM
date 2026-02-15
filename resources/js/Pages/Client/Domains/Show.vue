@@ -229,19 +229,55 @@ function removeDnsRecord(idx) {
     dnsRecordList.value.splice(idx, 1);
 }
 
+const dnsStatus = ref('');   // 'success' | 'error' | ''
+const dnsMessage = ref('');
+
 function saveDns() {
     dnsSaving.value = true;
+    dnsStatus.value = '';
+    dnsMessage.value = '';
+
     const records = dnsRecordList.value
         .filter(r => r.name && r.address)
         .map(r => ({
             name: r.name,
             type: r.type,
             address: r.address,
-            priority: r.priority !== '' ? parseInt(r.priority) : null,
-            ttl: r.ttl !== '' ? parseInt(r.ttl) : null,
+            priority: r.priority !== '' && r.priority !== null ? parseInt(r.priority) : null,
+            ttl: r.ttl !== '' && r.ttl !== null ? parseInt(r.ttl) : null,
         }));
+
+    if (records.length === 0) {
+        dnsSaving.value = false;
+        dnsStatus.value = 'error';
+        dnsMessage.value = 'Add at least one record with a hostname and address.';
+        return;
+    }
+
     router.put(route('client.domains.dns.update', d.id), { records }, {
         preserveScroll: true,
+        onSuccess: (page) => {
+            const flash = page.props?.flash || {};
+            if (flash.success) {
+                dnsStatus.value = 'success';
+                dnsMessage.value = flash.success;
+            }
+            // Refresh the DNS record list from the newly loaded props
+            const freshRecords = page.props?.dnsRecords || [];
+            dnsRecordList.value = freshRecords.map((r, i) => ({
+                _key: i,
+                name: r.hostname || r.name || '',
+                type: r.type || 'A',
+                address: r.address || r.destination || r.content || '',
+                priority: r.priority ?? '',
+                ttl: r.ttl ?? '',
+            }));
+            dnsKeyCounter = dnsRecordList.value.length;
+        },
+        onError: (errors) => {
+            dnsStatus.value = 'error';
+            dnsMessage.value = errors.whmcs || errors.records || Object.values(errors).flat().join(', ') || 'Failed to save DNS records.';
+        },
         onFinish: () => (dnsSaving.value = false),
     });
 }
@@ -538,6 +574,14 @@ const iconPaths = {
                 <!-- ═══ DNS MANAGEMENT ═══ -->
                 <Card v-if="activeTab === 'dns'" title="DNS Management" description="Manage DNS records for your domain directly from this panel — it's free!">
                     <div>
+                        <!-- Status messages -->
+                        <div v-if="dnsStatus === 'success'" class="mb-4 p-3 bg-emerald-50 border border-emerald-200 rounded-lg text-[13px] text-emerald-700">
+                            ✓ {{ dnsMessage }}
+                        </div>
+                        <div v-if="dnsStatus === 'error'" class="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-[13px] text-red-700">
+                            ✗ {{ dnsMessage }}
+                        </div>
+
                         <!-- Records Table -->
                         <div class="overflow-x-auto">
                             <table class="w-full text-[13px]">
