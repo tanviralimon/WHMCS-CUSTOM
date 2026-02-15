@@ -38,40 +38,30 @@ if (empty($identifier) || empty($secret)) {
     exit;
 }
 
-// Validate API credentials via WHMCS localAPI
-$authCheck = localAPI('GetAdminDetails', []);
-// Alternative: validate against tblapi credentials
-$apiCred = Capsule::table('tblapikeys')
-    ->where('identifier', $identifier)
-    ->where('secret', $secret)
-    ->first();
+// Validate credentials by calling WHMCS API internally
+$ch = curl_init();
+curl_setopt_array($ch, [
+    CURLOPT_URL            => (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? 'https' : 'http') . '://127.0.0.1/includes/api.php',
+    CURLOPT_POST           => true,
+    CURLOPT_POSTFIELDS     => http_build_query([
+        'action'       => 'WhmcsDetails',
+        'identifier'   => $identifier,
+        'secret'       => $secret,
+        'responsetype' => 'json',
+    ]),
+    CURLOPT_RETURNTRANSFER => true,
+    CURLOPT_TIMEOUT        => 10,
+    CURLOPT_SSL_VERIFYPEER => false,
+    CURLOPT_HTTPHEADER     => ['Host: ' . $_SERVER['HTTP_HOST']],
+]);
+$authResponse = curl_exec($ch);
+$curlError    = curl_error($ch);
+curl_close($ch);
 
-// If tblapikeys doesn't exist or no match, try tblapi_roles or just use localAPI
-if (!$apiCred) {
-    // Fallback: try validating by making a simple localAPI call with credentials
-    // The external API authenticates differently, so let's verify by calling the actual API
-    $ch = curl_init();
-    curl_setopt_array($ch, [
-        CURLOPT_URL            => 'http://127.0.0.1' . parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH) . '/../includes/api.php',
-        CURLOPT_POST           => true,
-        CURLOPT_POSTFIELDS     => http_build_query([
-            'action'       => 'WhmcsDetails',
-            'identifier'   => $identifier,
-            'secret'       => $secret,
-            'responsetype' => 'json',
-        ]),
-        CURLOPT_RETURNTRANSFER => true,
-        CURLOPT_TIMEOUT        => 10,
-        CURLOPT_SSL_VERIFYPEER => false,
-    ]);
-    $authResponse = curl_exec($ch);
-    curl_close($ch);
-
-    $authData = json_decode($authResponse, true);
-    if (!$authData || ($authData['result'] ?? '') !== 'success') {
-        echo json_encode(['result' => 'error', 'message' => 'Invalid API credentials']);
-        exit;
-    }
+$authData = json_decode($authResponse, true);
+if (!$authData || ($authData['result'] ?? '') !== 'success') {
+    echo json_encode(['result' => 'error', 'message' => 'Invalid API credentials']);
+    exit;
 }
 
 // ── Route action ───────────────────────────────────────────
