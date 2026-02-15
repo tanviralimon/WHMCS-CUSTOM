@@ -284,8 +284,6 @@ if ($action === 'GetDNS') {
         echo json_encode([
             'result' => 'error',
             'message' => 'Failed to parse DNS records JSON',
-            'debug_raw' => substr(is_string($rawRecords) ? $rawRecords : '', 0, 500),
-            'json_error' => json_last_error_msg(),
         ]);
         exit;
     }
@@ -301,102 +299,73 @@ if ($action === 'GetDNS') {
         ];
     }
 
-    // ── Populate $_POST the way WHMCS admin DNS page does ──
-    // The registrar module reads from $_POST directly to build its DNS records.
-    // WHMCS admin page uses: dnsrecordhost[], dnsrecordtype[], dnsrecordaddress[], dnsrecordpriority[]
+    // ── Populate $_POST exactly like WHMCS admin DNS page (clientsdomaindns.php) ──
+    $_POST['sub'] = 'save';
     $_POST['dnsrecordhost'] = [];
     $_POST['dnsrecordtype'] = [];
     $_POST['dnsrecordaddress'] = [];
     $_POST['dnsrecordpriority'] = [];
-    $_REQUEST['dnsrecordhost'] = [];
-    $_REQUEST['dnsrecordtype'] = [];
-    $_REQUEST['dnsrecordaddress'] = [];
-    $_REQUEST['dnsrecordpriority'] = [];
     foreach ($desired as $i => $rec) {
         $_POST['dnsrecordhost'][$i] = $rec['hostname'];
         $_POST['dnsrecordtype'][$i] = $rec['type'];
         $_POST['dnsrecordaddress'][$i] = $rec['address'];
         $_POST['dnsrecordpriority'][$i] = $rec['priority'];
-        $_REQUEST['dnsrecordhost'][$i] = $rec['hostname'];
-        $_REQUEST['dnsrecordtype'][$i] = $rec['type'];
-        $_REQUEST['dnsrecordaddress'][$i] = $rec['address'];
-        $_REQUEST['dnsrecordpriority'][$i] = $rec['priority'];
     }
+    // Mirror to $_REQUEST
+    $_REQUEST = array_merge($_REQUEST, $_POST);
 
     $errors = [];
     $success = false;
-    $fn = $registrar . '_SaveDNS';
 
-    // ── Approach 1: Direct call — the registrar module likely reads $_POST internally ──
-    if (function_exists($fn)) {
-        // First try WITHOUT $params['dnsrecords'] — let module read from $_POST
-        $tryParams = $params;
-        unset($tryParams['dnsrecords']);
+    // ── Try WHMCS\Module\Registrar class (the proper internal way) ──
+    if (class_exists('WHMCS\\Module\\Registrar')) {
         try {
-            $result = call_user_func($fn, $tryParams);
-            if (is_array($result) && empty($result['error'])) {
-                // Verify records actually changed by fetching them
-                $getDnsFn = $registrar . '_GetDNS';
-                if (function_exists($getDnsFn)) {
-                    $verify = call_user_func($getDnsFn, $params);
-                    $verifyCount = 0;
-                    if (is_array($verify)) {
-                        foreach ($verify as $r) {
-                            if (is_array($r) && isset($r['hostname'])) $verifyCount++;
-                        }
-                    }
-                    if ($verifyCount === count($desired)) {
-                        $success = true;
-                    }
-                    // If counts don't match, fall through to approach 2
-                } else {
-                    $success = true;
+            $regModule = new \WHMCS\Module\Registrar();
+            $regModule->load($registrar);
+
+            // Try calling saveDNS through the module class
+            if (method_exists($regModule, 'call')) {
+                // Build a domain model params array
+                $moduleParams = $regModule->getParams($domain);
+                if (!is_array($moduleParams)) {
+                    $moduleParams = $params;
                 }
-            } elseif (is_array($result) && !empty($result['error'])) {
-                $errors[] = 'Approach1: ' . $result['error'];
+                $moduleParams['dnsrecords'] = $desired;
+                $modResult = $regModule->call('SaveDNS', $moduleParams);
+                if ($modResult === true || (is_array($modResult) && empty($modResult['error']))) {
+                    $success = true;
+                } elseif (is_array($modResult) && !empty($modResult['error'])) {
+                    $errors[] = 'Module: ' . $modResult['error'];
+                }
             }
         } catch (\Exception $e) {
-            $errors[] = 'Approach1 exception: ' . $e->getMessage();
+            $errors[] = 'Module exception: ' . $e->getMessage();
         }
     }
 
-    // ── Approach 2: Direct call with $params['dnsrecords'] ──
-    if (!$success && function_exists($fn)) {
-        $params['dnsrecords'] = $desired;
-        $errors = []; // reset errors from approach 1
-        try {
-            $result = call_user_func($fn, $params);
-            if (is_array($result) && empty($result['error'])) {
-                $success = true;
-            } elseif (is_array($result) && !empty($result['error'])) {
-                $errors[] = 'Approach2: ' . $result['error'];
+    // ── Fallback: Direct registrar function call with $params['dnsrecords'] ──
+    if (!$success) {
+        $fn = $registrar . '_SaveDNS';
+        if (function_exists($fn)) {
+            $params['dnsrecords'] = $desired;
+            $errors = []; // reset
+            try {
+                $result = call_user_func($fn, $params);
+                if (is_array($result) && empty($result['error'])) {
+                    $success = true;
+                } elseif (is_array($result) && !empty($result['error'])) {
+                    $errors[] = $result['error'];
+                }
+            } catch (\Exception $e) {
+                $errors[] = $e->getMessage();
             }
-        } catch (\Exception $e) {
-            $errors[] = 'Approach2 exception: ' . $e->getMessage();
-        }
-    }
-
-    // ── Approach 3: Use RegCallFunction ──
-    if (!$success && function_exists('RegCallFunction')) {
-        $errors = []; // reset
-        try {
-            $regParams = $params;
-            unset($regParams['dnsrecords']);
-            $regResult = RegCallFunction($regParams, 'SaveDNS');
-            if (is_array($regResult) && empty($regResult['error'])) {
-                $success = true;
-            } elseif (is_array($regResult) && !empty($regResult['error'])) {
-                $errors[] = 'RegCall: ' . $regResult['error'];
-            }
-        } catch (\Exception $e) {
-            $errors[] = 'RegCall exception: ' . $e->getMessage();
         }
     }
 
     if ($success) {
         echo json_encode(['result' => 'success', 'message' => 'DNS records saved successfully']);
     } else {
-        echo json_encode(['result' => 'error', 'message' => implode('; ', $errors)]);
+        echo json_encode(['result' => 'error', 'message' => implode('; ', $errors ?: ['Unknown error'])]);
     }
 
 } else {
