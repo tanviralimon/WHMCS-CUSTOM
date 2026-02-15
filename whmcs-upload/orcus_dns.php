@@ -209,30 +209,42 @@ if ($action === 'GetDNS') {
     echo json_encode(['result' => 'success', 'registrar' => $registrar, 'functions' => array_values($regFns)]);
 
 } elseif ($action === 'DebugSaveDNS') {
-    // Debug: read the SaveDNS function source from the registrar module
-    $modulePath = $whmcsDir . '/modules/registrars/' . $registrar . '/' . $registrar . '.php';
-    $src = file_get_contents($modulePath);
-    $lines = explode("\n", $src);
-    $capture = false;
-    $captured = [];
-    $braceCount = 0;
-    foreach ($lines as $line) {
-        if (!$capture && stripos($line, 'function') !== false && stripos($line, 'savedns') !== false) {
-            $capture = true;
-        }
-        if ($capture) {
-            $captured[] = $line;
-            $braceCount += substr_count($line, '{') - substr_count($line, '}');
-            if ($braceCount <= 0 && count($captured) > 1) break;
-            if (count($captured) > 200) break; // safety limit
+    // Debug: find where SaveDNS is defined
+    $modulePath = $whmcsDir . '/modules/registrars/' . $registrar . '/';
+    
+    // List all PHP files in the registrar dir
+    $files = glob($modulePath . '*.php');
+    $subFiles = glob($modulePath . '*/*.php');
+    $allFiles = array_merge($files ?: [], $subFiles ?: []);
+    
+    // Check if the function exists in memory (loaded via require)
+    $fn = $registrar . '_SaveDNS';
+    $fnExists = function_exists($fn);
+    
+    // Try reflection to find where it's defined
+    $definedIn = '';
+    $fnSource = '';
+    if ($fnExists) {
+        try {
+            $ref = new ReflectionFunction($fn);
+            $definedIn = $ref->getFileName() . ':' . $ref->getStartLine() . '-' . $ref->getEndLine();
+            // Read the source
+            $srcLines = file($ref->getFileName());
+            $start = $ref->getStartLine() - 1;
+            $end = $ref->getEndLine();
+            $fnSource = implode('', array_slice($srcLines, $start, $end - $start));
+        } catch (\Exception $e) {
+            $definedIn = 'Reflection error: ' . $e->getMessage();
         }
     }
-    if (empty($captured)) {
-        // Fallback: search case-insensitive
-        echo json_encode(['result' => 'error', 'message' => 'Could not find SaveDNS function', 'file_size' => strlen($src), 'has_savedns' => stripos($src, 'savedns') !== false ? 'yes at pos ' . stripos($src, 'savedns') : 'no']);
-    } else {
-        echo json_encode(['result' => 'success', 'source' => implode("\n", $captured)]);
-    }
+    
+    echo json_encode([
+        'result' => 'success',
+        'function_exists' => $fnExists,
+        'defined_in' => $definedIn,
+        'source' => $fnSource,
+        'files_in_dir' => array_map(function($f) use ($modulePath) { return str_replace($modulePath, '', $f); }, $allFiles),
+    ]);
 
 } elseif ($action === 'SaveDNS') {
 
