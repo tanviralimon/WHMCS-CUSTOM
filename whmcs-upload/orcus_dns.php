@@ -209,49 +209,40 @@ if ($action === 'GetDNS') {
     echo json_encode(['result' => 'success', 'registrar' => $registrar, 'functions' => array_values($regFns)]);
 
 } elseif ($action === 'DebugSaveDNS') {
-    // Debug: check what internal WHMCS classes/functions exist for DNS management
+    // Debug: inspect the stargate module's API config and behavior
     $info = [
         'registrar' => $registrar,
-        'savedns_exists' => function_exists($registrar . '_SaveDNS'),
-        'getdns_exists' => function_exists($registrar . '_GetDNS'),
+        'whmcs_version' => defined('WHMCS_VERSION') ? WHMCS_VERSION : 'unknown',
     ];
     
-    // Check if WHMCS has localAPI
-    $info['localapi_exists'] = function_exists('localAPI');
+    // Get the registrar config to find API endpoint/credentials
+    $info['config_keys'] = array_keys($registrarConfig);
     
-    // Check for WHMCS DNS management classes  
-    $dnsClasses = [
-        'WHMCS\\Module\\Registrar\\RegistrarDNS',
-        'WHMCS\\Domains\\DomainDNS',
-        'WHMCS\\Module\\Registrar',
-        'WHMCS\\Domains\\Domain',
-    ];
-    foreach ($dnsClasses as $cls) {
-        $info['class_' . str_replace('\\', '_', $cls)] = class_exists($cls);
+    // Check if the registrar has a whmcs.json with supported functions
+    $jsonPath = $whmcsDir . '/modules/registrars/' . $registrar . '/whmcs.json';
+    if (file_exists($jsonPath)) {
+        $info['whmcs_json'] = json_decode(file_get_contents($jsonPath), true);
     }
     
-    // Check WHMCS version
-    if (defined('WHMCS_VERSION')) {
-        $info['whmcs_version'] = WHMCS_VERSION;
+    // Check if the stargate module is based on enom
+    $moduleSrc = file_get_contents($whmcsDir . '/modules/registrars/' . $registrar . '/' . $registrar . '.php');
+    $info['module_size'] = strlen($moduleSrc);
+    $info['has_enom_ref'] = stripos($moduleSrc, 'enom') !== false;
+    $info['has_resellerclub'] = stripos($moduleSrc, 'resellerclub') !== false;
+    $info['has_httpapi'] = stripos($moduleSrc, 'httpapi') !== false;
+    $info['has_api_url'] = stripos($moduleSrc, 'api.') !== false || stripos($moduleSrc, 'ApiUrl') !== false;
+    $info['has_stargate_api'] = stripos($moduleSrc, 'stargate') !== false;
+    
+    // Try to find the API base URL in the config
+    foreach ($registrarConfig as $k => $v) {
+        if (stripos($k, 'url') !== false || stripos($k, 'api') !== false || stripos($k, 'host') !== false || stripos($k, 'endpoint') !== false) {
+            $info['config_' . $k] = $v;
+        }
     }
     
-    // Try to get the registrar module file list
-    $modulePath = $whmcsDir . '/modules/registrars/' . $registrar . '/';
-    $files = glob($modulePath . '*');
-    $info['module_files'] = array_map(function($f) use ($modulePath) { return str_replace($modulePath, '', $f); }, $files ?: []);
-    
-    // Check if clientsdomaindns.php exists and search for how it handles DNS
-    $adminDnsFile = $whmcsDir . '/clientsdomaindns.php';
-    if (!file_exists($adminDnsFile)) {
-        $adminDnsFile = $whmcsDir . '/admin/clientsdomaindns.php';
-    }
-    $info['admin_dns_file'] = file_exists($adminDnsFile) ? 'found' : 'not found';
-    
-    // Check if modulecall function exists (used internally by WHMCS)
-    $info['modulecall_exists'] = function_exists('ModuleCallFunction');
-    
-    // Check for RegCallFunction
-    $info['regcallfunction_exists'] = function_exists('RegCallFunction');
+    // Look for SoapClient or curl usage
+    $info['has_soap'] = stripos($moduleSrc, 'SoapClient') !== false;
+    $info['has_curl'] = stripos($moduleSrc, 'curl') !== false;
     
     echo json_encode(['result' => 'success'] + $info);
 
