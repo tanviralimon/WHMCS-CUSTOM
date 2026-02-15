@@ -42,13 +42,31 @@ class DomainController extends Controller
             abort(404);
         }
 
+        // Fetch all domain data in parallel-safe manner
         $ns   = $this->whmcs->domainGetNameservers($id);
         $lock = $this->whmcs->domainGetLockingStatus($id);
+
+        // Get WHOIS contact info
+        $whois = $this->whmcs->domainGetWhoisInfo($id);
+
+        // Get DNS records
+        $dns = $this->whmcs->domainGetDNS($id);
+
+        // Get addons for this domain (from the domain data itself)
+        $addons = [];
+        foreach (['dnsmanagement', 'emailforwarding', 'idprotection'] as $addon) {
+            if (isset($domain[$addon])) {
+                $addons[$addon] = $domain[$addon] === 'on' || $domain[$addon] === '1' || $domain[$addon] === 1;
+            }
+        }
 
         return Inertia::render('Client/Domains/Show', [
             'domain'      => $domain,
             'nameservers' => $ns,
             'lockStatus'  => $lock['lockstatus'] ?? null,
+            'whois'       => $whois,
+            'dnsRecords'  => $dns['dns']['record'] ?? $dns['dnsrecords'] ?? [],
+            'addons'      => $addons,
         ]);
     }
 
@@ -100,7 +118,134 @@ class DomainController extends Controller
             return back()->withErrors(['whmcs' => $result['message'] ?? 'Failed to retrieve EPP code.']);
         }
 
-        return back()->with('success', 'EPP/Authorization code has been sent to your email.');
+        // WHMCS DomainRequestEPP returns the EPP code in the 'eppcode' field
+        $eppCode = $result['eppcode'] ?? null;
+
+        if ($eppCode) {
+            return back()->with('eppCode', $eppCode);
+        }
+
+        return back()->with('success', 'EPP/Authorization code request submitted. Check your email if not displayed.');
+    }
+
+    // ─── Toggle Auto Renew ─────────────────────────────────
+
+    public function toggleAutoRenew(Request $request, int $id)
+    {
+        $request->validate(['autorenew' => 'required|boolean']);
+
+        $result = $this->whmcs->updateClientDomain($id, [
+            'autorecurring' => $request->boolean('autorenew') ? 1 : 0,
+        ]);
+
+        if (($result['result'] ?? '') !== 'success') {
+            return back()->withErrors(['whmcs' => $result['message'] ?? 'Failed to update auto-renew.']);
+        }
+
+        return back()->with('success', $request->boolean('autorenew') ? 'Auto-renewal enabled.' : 'Auto-renewal disabled.');
+    }
+
+    // ─── Update WHOIS Contact Info ─────────────────────────
+
+    public function updateWhoisContact(Request $request, int $id)
+    {
+        $request->validate([
+            'contactdetails' => 'required|array',
+        ]);
+
+        $result = $this->whmcs->domainUpdateWhoisInfo($id, $request->contactdetails);
+
+        if (($result['result'] ?? '') !== 'success') {
+            return back()->withErrors(['whmcs' => $result['message'] ?? 'Failed to update contact information.']);
+        }
+
+        return back()->with('success', 'Contact information updated successfully.');
+    }
+
+    // ─── DNS Record Management ─────────────────────────────
+
+    public function saveDnsRecords(Request $request, int $id)
+    {
+        $request->validate([
+            'records'          => 'required|array',
+            'records.*.name'   => 'required|string|max:255',
+            'records.*.type'   => 'required|string|in:A,AAAA,CNAME,MX,TXT,NS,SRV,CAA',
+            'records.*.address' => 'required|string|max:255',
+            'records.*.priority' => 'nullable|integer',
+            'records.*.ttl'     => 'nullable|integer|min:60',
+        ]);
+
+        // Build DNS records for WHMCS API
+        $dnsRecords = [];
+        foreach ($request->records as $record) {
+            $entry = [
+                'hostname' => $record['name'],
+                'type'     => $record['type'],
+                'address'  => $record['address'],
+            ];
+            if (isset($record['priority'])) {
+                $entry['priority'] = $record['priority'];
+            }
+            $dnsRecords[] = $entry;
+        }
+
+        $result = $this->whmcs->domainSetDNS($id, $dnsRecords);
+
+        if (($result['result'] ?? '') !== 'success') {
+            return back()->withErrors(['whmcs' => $result['message'] ?? 'Failed to save DNS records.']);
+        }
+
+        return back()->with('success', 'DNS records updated successfully.');
+    }
+
+    // ─── Private Nameservers ───────────────────────────────
+
+    public function registerPrivateNameserver(Request $request, int $id)
+    {
+        $request->validate([
+            'nameserver' => 'required|string|max:255',
+            'ipaddress'  => 'required|ip',
+        ]);
+
+        $result = $this->whmcs->domainRegisterNameserver($request->nameserver, $request->ipaddress);
+
+        if (($result['result'] ?? '') !== 'success') {
+            return back()->withErrors(['whmcs' => $result['message'] ?? 'Failed to register nameserver.']);
+        }
+
+        return back()->with('success', 'Private nameserver registered successfully.');
+    }
+
+    public function modifyPrivateNameserver(Request $request, int $id)
+    {
+        $request->validate([
+            'nameserver' => 'required|string|max:255',
+            'currentip'  => 'required|ip',
+            'newip'      => 'required|ip',
+        ]);
+
+        $result = $this->whmcs->domainModifyNameserver($request->nameserver, $request->currentip, $request->newip);
+
+        if (($result['result'] ?? '') !== 'success') {
+            return back()->withErrors(['whmcs' => $result['message'] ?? 'Failed to modify nameserver.']);
+        }
+
+        return back()->with('success', 'Private nameserver IP updated successfully.');
+    }
+
+    public function deletePrivateNameserver(Request $request, int $id)
+    {
+        $request->validate([
+            'nameserver' => 'required|string|max:255',
+        ]);
+
+        $result = $this->whmcs->domainDeleteNameserver($request->nameserver);
+
+        if (($result['result'] ?? '') !== 'success') {
+            return back()->withErrors(['whmcs' => $result['message'] ?? 'Failed to delete nameserver.']);
+        }
+
+        return back()->with('success', 'Private nameserver deleted.');
     }
 
     // ─── Domain Search Page ────────────────────────────────

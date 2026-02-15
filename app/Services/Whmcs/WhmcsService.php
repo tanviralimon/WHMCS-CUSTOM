@@ -204,12 +204,33 @@ class WhmcsService
 
     public function domainGetEPPCode(int $domainId): array
     {
-        return $this->client->call('DomainRequestEPP', ['domainid' => $domainId]);
+        return $this->client->callSafe('DomainRequestEPP', ['domainid' => $domainId]);
     }
 
     public function domainWhois(string $domain): array
     {
         return $this->client->callSafe('DomainWhois', ['domain' => $domain]);
+    }
+
+    public function domainGetWhoisInfo(int $domainId): array
+    {
+        return $this->client->callSafe('DomainGetWhoisInfo', ['domainid' => $domainId]);
+    }
+
+    public function domainUpdateWhoisInfo(int $domainId, array $contactDetails): array
+    {
+        $params = ['domainid' => $domainId];
+
+        // WHMCS expects contactdetails[SectionName][FieldName] = value
+        foreach ($contactDetails as $section => $fields) {
+            if (is_array($fields)) {
+                foreach ($fields as $field => $value) {
+                    $params["contactdetails[{$section}][{$field}]"] = $value;
+                }
+            }
+        }
+
+        return $this->client->call('DomainUpdateWhoisInfo', $params);
     }
 
     public function domainGetDNS(int $domainId): array
@@ -222,6 +243,32 @@ class WhmcsService
         return $this->client->call('SetDomainDNSRecords', [
             'domainid'   => $domainId,
             'dnsrecords' => $records,
+        ]);
+    }
+
+    // ─── Private Nameservers ───────────────────────────────
+
+    public function domainRegisterNameserver(string $nameserver, string $ipaddress): array
+    {
+        return $this->client->call('RegisterNameserver', [
+            'nameserver' => $nameserver,
+            'ipaddress'  => $ipaddress,
+        ]);
+    }
+
+    public function domainModifyNameserver(string $nameserver, string $currentIp, string $newIp): array
+    {
+        return $this->client->call('ModifyNameserver', [
+            'nameserver'       => $nameserver,
+            'currentipaddress' => $currentIp,
+            'newipaddress'     => $newIp,
+        ]);
+    }
+
+    public function domainDeleteNameserver(string $nameserver): array
+    {
+        return $this->client->call('DeleteNameserver', [
+            'nameserver' => $nameserver,
         ]);
     }
 

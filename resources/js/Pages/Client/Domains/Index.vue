@@ -1,22 +1,30 @@
 <script setup>
+import { ref, watch } from 'vue';
 import { Link, router } from '@inertiajs/vue3';
 import ClientLayout from '@/Layouts/ClientLayout.vue';
 import StatusBadge from '@/Components/StatusBadge.vue';
 import Pagination from '@/Components/Pagination.vue';
 import EmptyState from '@/Components/EmptyState.vue';
 
-defineProps({
+const props = defineProps({
     domains: Array,
     total: Number,
     page: Number,
     perPage: Number,
-    status: String,
+    status: { type: String, default: '' },
 });
 
-const statusOptions = ['', 'Active', 'Pending', 'Expired', 'Cancelled'];
+const statusOptions = ['Active', 'Pending', 'Expired', 'Cancelled'];
+
+const selectedStatus = ref(props.status || '');
+
+watch(() => props.status, (val) => {
+    selectedStatus.value = val || '';
+});
 
 function filterByStatus(val) {
-    router.get(route('client.domains.index'), { status: val || undefined }, { preserveState: false, preserveScroll: true });
+    selectedStatus.value = val;
+    router.get(route('client.domains.index'), val ? { status: val } : {}, { preserveState: false, preserveScroll: true });
 }
 </script>
 
@@ -33,9 +41,9 @@ function filterByStatus(val) {
         </template>
 
         <div class="mb-6 flex items-center gap-3">
-            <select :value="status" @change="filterByStatus($event.target.value)" class="text-[13px] rounded-lg border-gray-300 focus:border-indigo-500 focus:ring-indigo-500 pr-8">
+            <select v-model="selectedStatus" @change="filterByStatus(selectedStatus)" class="text-[13px] rounded-lg border-gray-300 focus:border-indigo-500 focus:ring-indigo-500 pr-8">
                 <option value="">All Statuses</option>
-                <option v-for="s in statusOptions.filter(s => s)" :key="s" :value="s">{{ s }}</option>
+                <option v-for="s in statusOptions" :key="s" :value="s">{{ s }}</option>
             </select>
             <span class="text-[13px] text-gray-500">{{ total }} domain{{ total !== 1 ? 's' : '' }}</span>
         </div>

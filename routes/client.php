@@ -58,6 +58,18 @@ Route::middleware('feature:domains')->prefix('domains')->name('domains.')->group
         ->middleware('whmcs.own:domain,id');
     Route::post('/{id}/epp', [DomainController::class, 'requestEpp'])->name('epp')
         ->middleware(['whmcs.own:domain,id', 'throttle:3,1']);
+    Route::post('/{id}/autorenew', [DomainController::class, 'toggleAutoRenew'])->name('autorenew')
+        ->middleware('whmcs.own:domain,id');
+    Route::put('/{id}/whois', [DomainController::class, 'updateWhoisContact'])->name('whois.update')
+        ->middleware('whmcs.own:domain,id');
+    Route::put('/{id}/dns', [DomainController::class, 'saveDnsRecords'])->name('dns.update')
+        ->middleware('whmcs.own:domain,id');
+    Route::post('/{id}/private-ns/register', [DomainController::class, 'registerPrivateNameserver'])->name('privatens.register')
+        ->middleware(['whmcs.own:domain,id', 'throttle:10,1']);
+    Route::post('/{id}/private-ns/modify', [DomainController::class, 'modifyPrivateNameserver'])->name('privatens.modify')
+        ->middleware(['whmcs.own:domain,id', 'throttle:10,1']);
+    Route::post('/{id}/private-ns/delete', [DomainController::class, 'deletePrivateNameserver'])->name('privatens.delete')
+        ->middleware(['whmcs.own:domain,id', 'throttle:10,1']);
 });
 
 // ─── Currency ───────────────────────────────────────────────
