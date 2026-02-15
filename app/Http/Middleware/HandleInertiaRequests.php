@@ -43,8 +43,34 @@ class HandleInertiaRequests extends Middleware
             'features' => config('client-features'),
             'whmcsUrl' => rtrim(config('whmcs.base_url'), '/'),
             'currencies' => fn () => $this->getCurrencies(),
-            'activeCurrencyId' => fn () => (int) ($request->session()->get('currency_id', 1)),
+            'activeCurrencyId' => fn () => $this->getActiveCurrencyId($request),
         ];
+    }
+
+    /**
+     * Get the active currency ID — uses session if set, otherwise fetches from WHMCS client profile.
+     */
+    private function getActiveCurrencyId(Request $request): int
+    {
+        // If already set in session, use it
+        if ($request->session()->has('currency_id')) {
+            return (int) $request->session()->get('currency_id');
+        }
+
+        // If user is authenticated, fetch their default currency from WHMCS
+        if ($user = $request->user()) {
+            try {
+                $whmcs = app(WhmcsService::class);
+                $details = $whmcs->getClientsDetails($user->whmcs_client_id);
+                $currencyId = (int) ($details['currency'] ?? $details['client']['currency'] ?? 1);
+                $request->session()->put('currency_id', $currencyId);
+                return $currencyId;
+            } catch (\Throwable) {
+                // Fallback to 1
+            }
+        }
+
+        return 1;
     }
 
     private function getCurrencies(): array

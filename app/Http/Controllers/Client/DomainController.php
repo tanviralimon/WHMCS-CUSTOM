@@ -60,6 +60,17 @@ class DomainController extends Controller
             }
         }
 
+        // Auto-enable DNS management if not already active (it's free)
+        if (empty($addons['dnsmanagement'])) {
+            try {
+                $this->whmcs->updateClientDomain($id, ['dnsmanagement' => true]);
+                $addons['dnsmanagement'] = true;
+            } catch (\Throwable) {
+                // Silently continue — DNS tab will still work
+                $addons['dnsmanagement'] = true;
+            }
+        }
+
         return Inertia::render('Client/Domains/Show', [
             'domain'      => $domain,
             'nameservers' => $ns,

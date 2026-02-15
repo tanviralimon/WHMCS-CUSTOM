@@ -68,7 +68,7 @@ function filterByStatus(val) {
                             <Link :href="route('client.domains.show', d.id)" class="text-[13px] font-medium text-gray-900 hover:text-indigo-600">{{ d.domainname }}</Link>
                             <p class="text-[12px] text-gray-500 mt-0.5">{{ d.autorecurring ? 'Auto-renew' : 'Manual renewal' }}</p>
                         </td>
-                        <td class="px-5 py-3.5 hidden md:table-cell text-[13px] text-gray-600">{{ d.registrationdate }}</td>
+                        <td class="px-5 py-3.5 hidden md:table-cell text-[13px] text-gray-600">{{ d.regdate || d.registrationdate }}</td>
                         <td class="px-5 py-3.5 hidden md:table-cell text-[13px] text-gray-600">{{ d.expirydate }}</td>
                         <td class="px-5 py-3.5"><StatusBadge :status="d.status" /></td>
                         <td class="px-5 py-3.5 text-right">

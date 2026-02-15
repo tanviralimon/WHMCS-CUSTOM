@@ -5,6 +5,9 @@ import ClientLayout from '@/Layouts/ClientLayout.vue';
 import StatusBadge from '@/Components/StatusBadge.vue';
 import Card from '@/Components/Card.vue';
 import ConfirmModal from '@/Components/ConfirmModal.vue';
+import { useCurrency } from '@/Composables/useCurrency.js';
+
+const { formatCurrency } = useCurrency();
 
 const props = defineProps({
     domain: Object,
@@ -35,10 +38,10 @@ const activeTab = ref('overview');
 const details = [
     { label: 'Domain Name', value: d.domainname },
     { label: 'Status', value: d.status, badge: true },
-    { label: 'Registration Date', value: d.registrationdate },
+    { label: 'Registration Date', value: d.regdate || d.registrationdate },
     { label: 'Expiry Date', value: d.expirydate },
     { label: 'Next Due Date', value: d.nextduedate },
-    { label: 'Recurring Amount', value: `$${d.recurringamount || '0.00'}` },
+    { label: 'Recurring Amount', value: formatCurrency(d.recurringamount || '0.00') },
     { label: 'Auto Renew', value: d.autorecurring ? 'Enabled' : 'Disabled' },
     { label: 'Registrar Lock', value: props.lockStatus === 'locked' ? 'Locked' : 'Unlocked' },
 ];
@@ -99,7 +102,7 @@ function toggleAutoRenew() {
 
 // ─── Addons ────────────────────────────────────────────────
 const addonList = computed(() => [
-    { key: 'dnsmanagement', label: 'DNS Management', desc: 'Manage DNS records directly from this panel.' },
+    { key: 'dnsmanagement', label: 'DNS Management', desc: 'Manage DNS records directly from this panel. This feature is free.' },
     { key: 'emailforwarding', label: 'Email Forwarding', desc: 'Forward emails for your domain.' },
     { key: 'idprotection', label: 'ID Protection', desc: 'Hide your WHOIS contact details from public lookups.' },
 ]);
@@ -533,13 +536,8 @@ const iconPaths = {
                 </div>
 
                 <!-- ═══ DNS MANAGEMENT ═══ -->
-                <Card v-if="activeTab === 'dns'" title="DNS Management" description="Manage DNS records for your domain. DNS Management addon must be active.">
-                    <div v-if="!addons.dnsmanagement" class="text-center py-8">
-                        <svg class="w-10 h-10 mx-auto text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" /></svg>
-                        <p class="mt-3 text-[13px] text-gray-500">DNS Management addon is not active for this domain.</p>
-                        <p class="text-[12px] text-gray-400 mt-1">Enable DNS Management addon to manage records here.</p>
-                    </div>
-                    <div v-else>
+                <Card v-if="activeTab === 'dns'" title="DNS Management" description="Manage DNS records for your domain directly from this panel — it's free!">
+                    <div>
                         <!-- Records Table -->
                         <div class="overflow-x-auto">
                             <table class="w-full text-[13px]">

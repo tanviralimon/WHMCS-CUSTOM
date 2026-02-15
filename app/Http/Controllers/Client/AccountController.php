@@ -23,35 +23,8 @@ class AccountController extends Controller
 
     public function updateProfile(Request $request)
     {
-        $request->validate([
-            'firstname'   => 'required|string|max:100',
-            'lastname'    => 'required|string|max:100',
-            'companyname' => 'nullable|string|max:100',
-            'email'       => 'required|email|max:255',
-            'address1'    => 'nullable|string|max:255',
-            'address2'    => 'nullable|string|max:255',
-            'city'        => 'nullable|string|max:100',
-            'state'       => 'nullable|string|max:100',
-            'postcode'    => 'nullable|string|max:20',
-            'country'     => 'nullable|string|max:2',
-            'phonenumber' => 'nullable|string|max:30',
-        ]);
-
-        $clientId = $request->user()->whmcs_client_id;
-
-        $this->whmcs->updateClient($clientId, $request->only([
-            'firstname', 'lastname', 'companyname', 'email',
-            'address1', 'address2', 'city', 'state', 'postcode',
-            'country', 'phonenumber',
-        ]));
-
-        // Sync name/email to local user
-        $request->user()->update([
-            'name'  => $request->firstname . ' ' . $request->lastname,
-            'email' => $request->email,
-        ]);
-
-        return back()->with('success', 'Profile updated successfully.');
+        // Profile fields are locked — only admin can update via WHMCS admin panel
+        return back()->with('error', 'Profile information can only be updated by an administrator. Please open a support ticket to request changes.');
     }
 
     public function changePassword(Request $request)

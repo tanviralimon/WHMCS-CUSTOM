@@ -5,6 +5,9 @@ import ClientLayout from '@/Layouts/ClientLayout.vue';
 import StatusBadge from '@/Components/StatusBadge.vue';
 import Card from '@/Components/Card.vue';
 import ConfirmModal from '@/Components/ConfirmModal.vue';
+import { useCurrency } from '@/Composables/useCurrency.js';
+
+const { formatCurrency } = useCurrency();
 
 const props = defineProps({ service: Object });
 
@@ -40,7 +43,7 @@ const details = [
     { label: 'Domain', value: s.domain || '—' },
     { label: 'Status', value: s.status, badge: true },
     { label: 'Billing Cycle', value: s.billingcycle },
-    { label: 'Amount', value: `$${s.recurringamount}` },
+    { label: 'Amount', value: formatCurrency(s.recurringamount) },
     { label: 'Next Due', value: s.nextduedate },
     { label: 'Registration Date', value: s.regdate },
     { label: 'Dedicated IP', value: s.dedicatedip || '—' },
