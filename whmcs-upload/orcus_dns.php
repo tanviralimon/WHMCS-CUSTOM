@@ -105,7 +105,44 @@ if (empty($registrar)) {
     exit;
 }
 
-// Load the registrar module
+// Load WHMCS registrar helper functions first, then the registrar module
+// This ensures injectDomainObjectIfNecessary() and other helpers are available
+$registrarFunctionsFile = $whmcsDir . '/includes/registrarfunctions.php';
+if (file_exists($registrarFunctionsFile)) {
+    require_once $registrarFunctionsFile;
+}
+
+// Also load any common includes the registrar modules depend on
+$moduleFunctions = $whmcsDir . '/includes/modulefunctions.php';
+if (file_exists($moduleFunctions)) {
+    require_once $moduleFunctions;
+}
+
+// Use WHMCS's built-in function to get registrar module params
+// This properly loads the module and decrypts configs
+if (function_exists('getregistrarconfigoptions')) {
+    $registrarConfig = getregistrarconfigoptions($registrar);
+} else {
+    // Manual fallback
+    $registrarConfig = [];
+    $configRows = Capsule::table('tblregistrars')->where('registrar', $registrar)->get();
+    foreach ($configRows as $row) {
+        $value = $row->value;
+        if (!empty($value)) {
+            try {
+                $decrypted = localAPI('DecryptPassword', ['password2' => $value]);
+                if (!empty($decrypted['password'])) {
+                    $value = $decrypted['password'];
+                }
+            } catch (\Exception $e) {
+                // Use raw value
+            }
+        }
+        $registrarConfig[$row->setting] = $value;
+    }
+}
+
+// Load the registrar module file
 $modulePath = $whmcsDir . '/modules/registrars/' . $registrar . '/' . $registrar . '.php';
 if (!file_exists($modulePath)) {
     echo json_encode(['result' => 'error', 'message' => "Registrar module file not found: {$registrar}"]);
@@ -115,24 +152,6 @@ require_once $modulePath;
 
 // ── Build registrar params ─────────────────────────────────
 $parts = explode('.', $domain->domain, 2);
-
-// Load registrar config from DB and decrypt
-$registrarConfig = [];
-$configRows = Capsule::table('tblregistrars')->where('registrar', $registrar)->get();
-foreach ($configRows as $row) {
-    $value = $row->value;
-    if (!empty($value)) {
-        try {
-            $decrypted = localAPI('DecryptPassword', ['password2' => $value]);
-            if (!empty($decrypted['password'])) {
-                $value = $decrypted['password'];
-            }
-        } catch (\Exception $e) {
-            // Use raw value
-        }
-    }
-    $registrarConfig[$row->setting] = $value;
-}
 
 $params = array_merge($registrarConfig, [
     'domainid'   => $domainId,
