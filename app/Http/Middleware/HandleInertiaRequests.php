@@ -39,6 +39,7 @@ class HandleInertiaRequests extends Middleware
                 'error'   => fn () => $request->session()->get('error'),
             ],
             'features' => config('client-features'),
+            'whmcsUrl' => rtrim(config('whmcs.base_url'), '/'),
         ];
     }
 }
