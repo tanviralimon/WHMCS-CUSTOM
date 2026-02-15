@@ -209,42 +209,51 @@ if ($action === 'GetDNS') {
     echo json_encode(['result' => 'success', 'registrar' => $registrar, 'functions' => array_values($regFns)]);
 
 } elseif ($action === 'DebugSaveDNS') {
-    // Debug: find where SaveDNS is defined
-    $modulePath = $whmcsDir . '/modules/registrars/' . $registrar . '/';
+    // Debug: check what internal WHMCS classes/functions exist for DNS management
+    $info = [
+        'registrar' => $registrar,
+        'savedns_exists' => function_exists($registrar . '_SaveDNS'),
+        'getdns_exists' => function_exists($registrar . '_GetDNS'),
+    ];
     
-    // List all PHP files in the registrar dir
-    $files = glob($modulePath . '*.php');
-    $subFiles = glob($modulePath . '*/*.php');
-    $allFiles = array_merge($files ?: [], $subFiles ?: []);
+    // Check if WHMCS has localAPI
+    $info['localapi_exists'] = function_exists('localAPI');
     
-    // Check if the function exists in memory (loaded via require)
-    $fn = $registrar . '_SaveDNS';
-    $fnExists = function_exists($fn);
-    
-    // Try reflection to find where it's defined
-    $definedIn = '';
-    $fnSource = '';
-    if ($fnExists) {
-        try {
-            $ref = new ReflectionFunction($fn);
-            $definedIn = $ref->getFileName() . ':' . $ref->getStartLine() . '-' . $ref->getEndLine();
-            // Read the source
-            $srcLines = file($ref->getFileName());
-            $start = $ref->getStartLine() - 1;
-            $end = $ref->getEndLine();
-            $fnSource = implode('', array_slice($srcLines, $start, $end - $start));
-        } catch (\Exception $e) {
-            $definedIn = 'Reflection error: ' . $e->getMessage();
-        }
+    // Check for WHMCS DNS management classes  
+    $dnsClasses = [
+        'WHMCS\\Module\\Registrar\\RegistrarDNS',
+        'WHMCS\\Domains\\DomainDNS',
+        'WHMCS\\Module\\Registrar',
+        'WHMCS\\Domains\\Domain',
+    ];
+    foreach ($dnsClasses as $cls) {
+        $info['class_' . str_replace('\\', '_', $cls)] = class_exists($cls);
     }
     
-    echo json_encode([
-        'result' => 'success',
-        'function_exists' => $fnExists,
-        'defined_in' => $definedIn,
-        'source' => $fnSource,
-        'files_in_dir' => array_map(function($f) use ($modulePath) { return str_replace($modulePath, '', $f); }, $allFiles),
-    ]);
+    // Check WHMCS version
+    if (defined('WHMCS_VERSION')) {
+        $info['whmcs_version'] = WHMCS_VERSION;
+    }
+    
+    // Try to get the registrar module file list
+    $modulePath = $whmcsDir . '/modules/registrars/' . $registrar . '/';
+    $files = glob($modulePath . '*');
+    $info['module_files'] = array_map(function($f) use ($modulePath) { return str_replace($modulePath, '', $f); }, $files ?: []);
+    
+    // Check if clientsdomaindns.php exists and search for how it handles DNS
+    $adminDnsFile = $whmcsDir . '/clientsdomaindns.php';
+    if (!file_exists($adminDnsFile)) {
+        $adminDnsFile = $whmcsDir . '/admin/clientsdomaindns.php';
+    }
+    $info['admin_dns_file'] = file_exists($adminDnsFile) ? 'found' : 'not found';
+    
+    // Check if modulecall function exists (used internally by WHMCS)
+    $info['modulecall_exists'] = function_exists('ModuleCallFunction');
+    
+    // Check for RegCallFunction
+    $info['regcallfunction_exists'] = function_exists('RegCallFunction');
+    
+    echo json_encode(['result' => 'success'] + $info);
 
 } elseif ($action === 'SaveDNS') {
 
