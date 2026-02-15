@@ -49,8 +49,12 @@ class DomainController extends Controller
         // Get WHOIS contact info
         $whois = $this->whmcs->domainGetWhoisInfo($id);
 
-        // Get DNS records
+        // Get DNS records via custom proxy
         $dns = $this->whmcs->domainGetDNS($id);
+        $dnsRecords = [];
+        if (($dns['result'] ?? '') === 'success' && !empty($dns['records'])) {
+            $dnsRecords = $dns['records'];
+        }
 
         // Get addons for this domain (from the domain data itself)
         $addons = [];
@@ -76,7 +80,7 @@ class DomainController extends Controller
             'nameservers' => $ns,
             'lockStatus'  => $lock['lockstatus'] ?? null,
             'whois'       => $whois,
-            'dnsRecords'  => $dns['dns']['record'] ?? $dns['dnsrecords'] ?? [],
+            'dnsRecords'  => $dnsRecords,
             'addons'      => $addons,
         ]);
     }
@@ -186,7 +190,7 @@ class DomainController extends Controller
             'records.*.ttl'     => 'nullable|integer|min:60',
         ]);
 
-        // Build DNS records for WHMCS API
+        // Build DNS records for the proxy (hostname, type, address, priority)
         $dnsRecords = [];
         foreach ($request->records as $record) {
             $entry = [
@@ -200,13 +204,17 @@ class DomainController extends Controller
             $dnsRecords[] = $entry;
         }
 
-        $result = $this->whmcs->domainSetDNS($id, $dnsRecords);
+        try {
+            $result = $this->whmcs->domainSetDNS($id, $dnsRecords);
 
-        if (($result['result'] ?? '') !== 'success') {
-            return back()->withErrors(['whmcs' => $result['message'] ?? 'Failed to save DNS records.']);
+            if (($result['result'] ?? '') !== 'success') {
+                return back()->withErrors(['whmcs' => $result['message'] ?? 'Failed to save DNS records.']);
+            }
+
+            return back()->with('success', 'DNS records updated successfully.');
+        } catch (\App\Exceptions\WhmcsApiException $e) {
+            return back()->withErrors(['whmcs' => $e->getMessage()]);
         }
-
-        return back()->with('success', 'DNS records updated successfully.');
     }
 
     // ─── Private Nameservers ───────────────────────────────

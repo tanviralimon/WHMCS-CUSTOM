@@ -235,14 +235,14 @@ class WhmcsService
 
     public function domainGetDNS(int $domainId): array
     {
-        return $this->client->callSafe('GetDomainDNSRecords', ['domainid' => $domainId]);
+        return $this->client->callDnsProxySafe('GetDNS', ['domainid' => $domainId]);
     }
 
     public function domainSetDNS(int $domainId, array $records): array
     {
-        return $this->client->call('SetDomainDNSRecords', [
+        return $this->client->callDnsProxy('SaveDNS', [
             'domainid'   => $domainId,
-            'dnsrecords' => $records,
+            'dnsrecords' => json_encode($records),
         ]);
     }
 
