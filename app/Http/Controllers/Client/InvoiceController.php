@@ -37,9 +37,8 @@ class InvoiceController extends Controller
             abort(404);
         }
 
-        // Build WHMCS pay URL — this redirects to the payment gateway
-        $whmcsBase = rtrim(config('whmcs.base_url'), '/');
-        $payUrl = $whmcsBase . '/viewinvoice.php?id=' . $id;
+        // Pay URL goes through our SSO-authenticated route (not direct WHMCS link)
+        $payUrl = route('client.invoices.pay', $id);
 
         // Get available payment methods
         $paymentMethods = $this->whmcs->getPaymentMethods();
@@ -82,21 +81,23 @@ class InvoiceController extends Controller
     public function pay(Request $request, int $id)
     {
         $whmcsBase = rtrim(config('whmcs.base_url'), '/');
+        $invoiceUrl = $whmcsBase . '/viewinvoice.php?id=' . $id;
 
-        // If client has SSO enabled, create an SSO token to auto-login at WHMCS
-        if (config('client-features.sso')) {
-            $clientId = $request->user()->whmcs_client_id;
-            try {
-                $sso = $this->whmcs->createSsoToken($clientId, 'clientarea:invoices');
-                if (!empty($sso['redirect_url'])) {
-                    // Redirect to WHMCS SSO which will then redirect to the invoice
-                    return redirect()->away($sso['redirect_url']);
-                }
-            } catch (\Exception $e) {
-                // Fall through to direct link
+        // Create SSO token to auto-login at WHMCS, then redirect to the invoice
+        $clientId = $request->user()->whmcs_client_id;
+        try {
+            $sso = $this->whmcs->createClientSsoToken($clientId, 'clientarea:invoices');
+            if (!empty($sso['redirect_url'])) {
+                // The SSO redirect_url logs the user in and takes them to clientarea.
+                // We append a goto param so WHMCS redirects to the specific invoice after SSO login.
+                $ssoUrl = $sso['redirect_url'];
+                $separator = str_contains($ssoUrl, '?') ? '&' : '?';
+                return redirect()->away($ssoUrl . $separator . 'goto=' . urlencode('viewinvoice.php?id=' . $id));
             }
+        } catch (\Exception $e) {
+            // Fall through to direct link
         }
 
-        return redirect()->away($whmcsBase . '/viewinvoice.php?id=' . $id);
+        return redirect()->away($invoiceUrl);
     }
 }

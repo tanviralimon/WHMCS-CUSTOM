@@ -55,18 +55,18 @@ class BillingController extends Controller
 
         $clientId = $request->user()->whmcs_client_id;
 
-        $result = $this->whmcs->addCredit($clientId, (float) $request->amount, $request->payment_method);
+        try {
+            $result = $this->whmcs->addCredit($clientId, (float) $request->amount, $request->payment_method);
 
-        if (($result['result'] ?? '') === 'success') {
-            // If an invoice was created, redirect to it for payment
-            if (!empty($result['invoiceid'])) {
+            if (($result['result'] ?? '') === 'success' && !empty($result['invoiceid'])) {
                 return redirect()->route('client.invoices.show', $result['invoiceid'])
-                    ->with('success', 'Add funds invoice created. Please complete the payment.');
+                    ->with('success', 'Invoice created for your funds. Please complete the payment.');
             }
-            return back()->with('success', 'Funds added successfully.');
-        }
 
-        return back()->withErrors(['whmcs' => $result['message'] ?? 'Failed to add funds.']);
+            return back()->with('success', 'Funds added successfully.');
+        } catch (\Exception $e) {
+            return back()->withErrors(['amount' => 'Failed to create invoice. Please try again.']);
+        }
     }
 
     public function quotes(Request $request)

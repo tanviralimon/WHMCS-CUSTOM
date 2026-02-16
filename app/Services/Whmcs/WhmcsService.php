@@ -142,6 +142,18 @@ class WhmcsService
     }
 
     /**
+     * Create SSO token for client-level access (no service required).
+     * Used for invoice payments, billing pages, etc.
+     */
+    public function createClientSsoToken(int $clientId, string $destination = 'clientarea:invoices'): array
+    {
+        return $this->client->call('CreateSsoToken', [
+            'client_id'   => $clientId,
+            'destination' => $destination,
+        ]);
+    }
+
+    /**
      * Get service info from SSO proxy (module type, panel URLs, etc.)
      */
     public function getServiceInfo(int $serviceId, int $clientId = 0): array
@@ -571,14 +583,17 @@ class WhmcsService
     public function addCredit(int $clientId, float $amount, string $paymentMethod = ''): array
     {
         $params = [
-            'clientid'    => $clientId,
-            'description' => 'Add Funds',
-            'amount'      => $amount,
+            'clientid'      => $clientId,
+            'itemdescription1' => 'Add Funds',
+            'itemamount1'   => $amount,
+            'itemtaxed1'    => false,
+            'autoapplycredit' => false,
+            'sendinvoice'   => true,
         ];
         if ($paymentMethod) {
             $params['paymentmethod'] = $paymentMethod;
         }
-        return $this->client->call('AddBillableItem', $params);
+        return $this->client->call('CreateInvoice', $params);
     }
 
     /**
