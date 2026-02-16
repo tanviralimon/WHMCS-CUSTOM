@@ -121,6 +121,16 @@ function selectedGatewayName() {
     const pm = props.paymentMethods?.find(p => p.module === selectedGateway.value);
     return pm?.displayname || selectedGateway.value;
 }
+
+function friendlyGatewayName() {
+    const m = (selectedGateway.value || '').toLowerCase();
+    if (m.includes('sslcommerz')) return 'SSLCommerz';
+    if (m.includes('stripe')) return 'Stripe';
+    if (m.includes('paypal')) return 'PayPal';
+    if (m.includes('razorpay')) return 'Razorpay';
+    if (m.includes('bank') || m.includes('wire')) return 'Bank Transfer';
+    return selectedGatewayName();
+}
 </script>
 
 <template>
@@ -278,11 +288,11 @@ function selectedGatewayName() {
                                 class="w-full inline-flex items-center justify-center gap-2 px-4 py-3 text-[13px] font-semibold text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 transition-colors shadow-sm disabled:opacity-50">
                                 <svg v-if="!processingPay" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.25 8.25h19.5M2.25 9h19.5m-16.5 5.25h6m-6 2.25h3m-3.75 3h15a2.25 2.25 0 002.25-2.25V6.75A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25v10.5A2.25 2.25 0 004.5 19.5z" /></svg>
                                 <svg v-else class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" /><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
-                                {{ processingPay ? 'Processing...' : `Pay ${formatCurrency(balance)} via ${selectedGatewayName()}` }}
+                                {{ processingPay ? 'Processing...' : `Pay ${formatCurrency(balance)} Now` }}
                             </button>
 
                             <p class="text-[11px] text-gray-400 text-center">
-                                You'll be redirected to {{ selectedGatewayName() }} to complete payment
+                                You'll be redirected to {{ friendlyGatewayName() }} to complete payment
                             </p>
                         </div>
 
