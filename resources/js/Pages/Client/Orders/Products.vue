@@ -3,6 +3,9 @@ import { Link, router } from '@inertiajs/vue3';
 import ClientLayout from '@/Layouts/ClientLayout.vue';
 import Card from '@/Components/Card.vue';
 import EmptyState from '@/Components/EmptyState.vue';
+import { useCurrency } from '@/Composables/useCurrency.js';
+
+const { formatCurrency } = useCurrency();
 
 defineProps({
     groups: Array,
@@ -48,7 +51,7 @@ function filterGroup(gid) {
                         <div class="flex items-end justify-between">
                             <div>
                                 <p v-if="p.pricing" class="text-xl font-bold text-gray-900">
-                                    ${{ p.pricing.monthly || p.pricing.annually || p.pricing.onetime || '—' }}
+                                    {{ formatCurrency(p.pricing.monthly || p.pricing.annually || p.pricing.onetime || 0) }}
                                 </p>
                                 <p v-if="p.pricing?.monthly" class="text-[11px] text-gray-400">/month</p>
                             </div>

@@ -564,6 +564,44 @@ class WhmcsService
         });
     }
 
+    /**
+     * Add credit to a client's account (Add Funds).
+     * Creates an invoice for the credit amount that the client can pay.
+     */
+    public function addCredit(int $clientId, float $amount, string $paymentMethod = ''): array
+    {
+        $params = [
+            'clientid'    => $clientId,
+            'description' => 'Add Funds',
+            'amount'      => $amount,
+        ];
+        if ($paymentMethod) {
+            $params['paymentmethod'] = $paymentMethod;
+        }
+        return $this->client->call('AddBillableItem', $params);
+    }
+
+    /**
+     * Update the payment method on an invoice.
+     */
+    public function updateInvoicePaymentMethod(int $invoiceId, string $paymentMethod): array
+    {
+        return $this->client->call('UpdateInvoice', [
+            'invoiceid'     => $invoiceId,
+            'paymentmethod' => $paymentMethod,
+        ]);
+    }
+
+    /**
+     * Get credit log entries for a client.
+     */
+    public function getCredits(int $clientId): array
+    {
+        return $this->client->callSafe('GetCredits', [
+            'clientid' => $clientId,
+        ]);
+    }
+
     // ─── TLD Pricing ───────────────────────────────────────
 
     public function getTLDPricing(?int $currencyId = null): array

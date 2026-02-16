@@ -1,9 +1,12 @@
 <script setup>
-import { computed } from 'vue';
+import { ref, computed } from 'vue';
 import { router } from '@inertiajs/vue3';
 import ClientLayout from '@/Layouts/ClientLayout.vue';
 import StatusBadge from '@/Components/StatusBadge.vue';
 import Card from '@/Components/Card.vue';
+import { useCurrency } from '@/Composables/useCurrency.js';
+
+const { formatCurrency } = useCurrency();
 
 const props = defineProps({
     invoice: Object,
@@ -16,6 +19,21 @@ const items = computed(() => inv.items?.item || []);
 const transactions = computed(() => inv.transactions?.transaction || []);
 const isUnpaid = computed(() => inv.status === 'Unpaid');
 const balance = computed(() => parseFloat(inv.balance || 0));
+
+// Payment method selection
+const selectedPaymentMethod = ref(inv.paymentmethod || '');
+const changingMethod = ref(false);
+
+function changePaymentMethod() {
+    if (!selectedPaymentMethod.value || selectedPaymentMethod.value === inv.paymentmethod) return;
+    changingMethod.value = true;
+    router.post(route('client.invoices.paymentmethod', inv.invoiceid), {
+        paymentmethod: selectedPaymentMethod.value,
+    }, {
+        preserveScroll: true,
+        onFinish: () => { changingMethod.value = false; },
+    });
+}
 
 function payNow() {
     window.open(props.payUrl, '_blank');
@@ -66,25 +84,25 @@ function payNow() {
                         <tbody>
                             <tr v-for="item in items" :key="item.id" class="border-b border-gray-50">
                                 <td class="px-6 py-3 text-[13px] text-gray-900">{{ item.description }}</td>
-                                <td class="px-6 py-3 text-[13px] text-gray-900 text-right font-medium">${{ item.amount }}</td>
+                                <td class="px-6 py-3 text-[13px] text-gray-900 text-right font-medium">{{ formatCurrency(item.amount) }}</td>
                             </tr>
                         </tbody>
                         <tfoot class="bg-gray-50/50">
                             <tr class="border-t border-gray-200">
                                 <td class="px-6 py-2 text-[13px] text-gray-600 text-right">Subtotal</td>
-                                <td class="px-6 py-2 text-[13px] text-gray-900 text-right font-medium">${{ inv.subtotal }}</td>
+                                <td class="px-6 py-2 text-[13px] text-gray-900 text-right font-medium">{{ formatCurrency(inv.subtotal) }}</td>
                             </tr>
                             <tr v-if="parseFloat(inv.tax) > 0">
                                 <td class="px-6 py-2 text-[13px] text-gray-600 text-right">Tax</td>
-                                <td class="px-6 py-2 text-[13px] text-gray-900 text-right font-medium">${{ inv.tax }}</td>
+                                <td class="px-6 py-2 text-[13px] text-gray-900 text-right font-medium">{{ formatCurrency(inv.tax) }}</td>
                             </tr>
                             <tr v-if="parseFloat(inv.credit) > 0">
                                 <td class="px-6 py-2 text-[13px] text-gray-600 text-right">Credit</td>
-                                <td class="px-6 py-2 text-[13px] text-emerald-600 text-right font-medium">-${{ inv.credit }}</td>
+                                <td class="px-6 py-2 text-[13px] text-emerald-600 text-right font-medium">-{{ formatCurrency(inv.credit) }}</td>
                             </tr>
                             <tr class="border-t border-gray-200">
                                 <td class="px-6 py-3 text-[14px] font-semibold text-gray-900 text-right">Total</td>
-                                <td class="px-6 py-3 text-[14px] font-bold text-gray-900 text-right">${{ inv.total }}</td>
+                                <td class="px-6 py-3 text-[14px] font-bold text-gray-900 text-right">{{ formatCurrency(inv.total) }}</td>
                             </tr>
                         </tfoot>
                     </table>
@@ -98,7 +116,7 @@ function payNow() {
                                 <p class="text-[13px] font-medium text-gray-900">{{ t.gateway }}</p>
                                 <p class="text-[12px] text-gray-500">{{ t.date }} · {{ t.transid }}</p>
                             </div>
-                            <p class="text-[13px] font-semibold text-emerald-600">${{ t.amountin || t.amount }}</p>
+                            <p class="text-[13px] font-semibold text-emerald-600">{{ formatCurrency(t.amountin || t.amount) }}</p>
                         </div>
                     </div>
                 </Card>
@@ -114,11 +132,11 @@ function payNow() {
                         </div>
                         <div class="flex justify-between">
                             <dt class="text-[13px] text-gray-500">Total</dt>
-                            <dd class="text-[13px] font-semibold text-gray-900">${{ inv.total }}</dd>
+                            <dd class="text-[13px] font-semibold text-gray-900">{{ formatCurrency(inv.total) }}</dd>
                         </div>
                         <div class="flex justify-between">
                             <dt class="text-[13px] text-gray-500">Balance</dt>
-                            <dd class="text-[13px] font-semibold" :class="balance > 0 ? 'text-red-600' : 'text-emerald-600'">${{ inv.balance }}</dd>
+                            <dd class="text-[13px] font-semibold" :class="balance > 0 ? 'text-red-600' : 'text-emerald-600'">{{ formatCurrency(inv.balance) }}</dd>
                         </div>
                         <div class="flex justify-between">
                             <dt class="text-[13px] text-gray-500">Payment</dt>
@@ -131,25 +149,33 @@ function payNow() {
                 <Card v-if="isUnpaid && balance > 0" title="Pay Invoice">
                     <div class="space-y-4">
                         <div class="text-center">
-                            <p class="text-2xl font-bold text-gray-900">${{ inv.balance }}</p>
+                            <p class="text-2xl font-bold text-gray-900">{{ formatCurrency(inv.balance) }}</p>
                             <p class="text-[12px] text-gray-500 mt-1">Amount Due</p>
                         </div>
 
-                        <!-- Available Payment Methods -->
-                        <div v-if="paymentMethods && paymentMethods.length" class="space-y-2">
-                            <p class="text-[12px] font-semibold text-gray-500 uppercase tracking-wider">Available Methods</p>
+                        <!-- Payment Method Selector -->
+                        <div v-if="paymentMethods && paymentMethods.length" class="space-y-3">
+                            <label class="text-[12px] font-semibold text-gray-500 uppercase tracking-wider block">Choose Payment Method</label>
                             <div class="space-y-1.5">
-                                <div v-for="pm in paymentMethods" :key="pm.module" class="flex items-center gap-2 px-3 py-2 bg-gray-50 rounded-lg">
-                                    <svg class="w-4 h-4 text-gray-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.25 8.25h19.5M2.25 9h19.5m-16.5 5.25h6m-6 2.25h3m-3.75 3h15a2.25 2.25 0 002.25-2.25V6.75A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25v10.5A2.25 2.25 0 004.5 19.5z" /></svg>
-                                    <span class="text-[13px] text-gray-700">{{ pm.displayname }}</span>
-                                </div>
+                                <label v-for="pm in paymentMethods" :key="pm.module"
+                                    class="flex items-center gap-3 px-3 py-2.5 rounded-lg border cursor-pointer transition-all"
+                                    :class="selectedPaymentMethod === pm.module ? 'border-indigo-300 bg-indigo-50/60 ring-1 ring-indigo-200' : 'border-gray-200 bg-gray-50 hover:bg-gray-100'">
+                                    <input type="radio" :value="pm.module" v-model="selectedPaymentMethod"
+                                        class="text-indigo-600 focus:ring-indigo-500 h-4 w-4" />
+                                    <span class="text-[13px] font-medium" :class="selectedPaymentMethod === pm.module ? 'text-indigo-700' : 'text-gray-700'">{{ pm.displayname }}</span>
+                                </label>
                             </div>
+                            <button v-if="selectedPaymentMethod && selectedPaymentMethod !== inv.paymentmethod"
+                                @click="changePaymentMethod" :disabled="changingMethod"
+                                class="w-full text-[12px] font-medium text-indigo-600 hover:text-indigo-700 py-1.5 transition-colors disabled:opacity-50">
+                                {{ changingMethod ? 'Updating...' : 'Update Payment Method' }}
+                            </button>
                         </div>
 
                         <button @click="payNow"
                             class="w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 text-[13px] font-semibold text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 transition-colors shadow-sm">
                             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.25 8.25h19.5M2.25 9h19.5m-16.5 5.25h6m-6 2.25h3m-3.75 3h15a2.25 2.25 0 002.25-2.25V6.75A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25v10.5A2.25 2.25 0 004.5 19.5z" /></svg>
-                            Pay Now — ${{ inv.balance }}
+                            Pay Now — {{ formatCurrency(inv.balance) }}
                         </button>
 
                         <p class="text-[11px] text-gray-400 text-center">You will be redirected to the payment gateway</p>

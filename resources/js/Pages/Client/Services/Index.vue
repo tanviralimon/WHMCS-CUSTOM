@@ -4,6 +4,9 @@ import ClientLayout from '@/Layouts/ClientLayout.vue';
 import StatusBadge from '@/Components/StatusBadge.vue';
 import Pagination from '@/Components/Pagination.vue';
 import EmptyState from '@/Components/EmptyState.vue';
+import { useCurrency } from '@/Composables/useCurrency.js';
+
+const { formatCurrency } = useCurrency();
 
 defineProps({
     services: Array,
@@ -60,7 +63,7 @@ function filterByStatus(val) {
                             </Link>
                         </td>
                         <td class="px-5 py-3.5 hidden md:table-cell">
-                            <p class="text-[13px] text-gray-900">${{ s.recurringamount }}/{{ s.billingcycle }}</p>
+                            <p class="text-[13px] text-gray-900">{{ formatCurrency(s.recurringamount) }}/{{ s.billingcycle }}</p>
                         </td>
                         <td class="px-5 py-3.5 hidden lg:table-cell">
                             <p class="text-[13px] text-gray-600">{{ s.nextduedate }}</p>

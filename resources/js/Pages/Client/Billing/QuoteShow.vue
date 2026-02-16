@@ -3,6 +3,9 @@ import { router } from '@inertiajs/vue3';
 import ClientLayout from '@/Layouts/ClientLayout.vue';
 import StatusBadge from '@/Components/StatusBadge.vue';
 import Card from '@/Components/Card.vue';
+import { useCurrency } from '@/Composables/useCurrency.js';
+
+const { formatCurrency } = useCurrency();
 
 const props = defineProps({ quote: Object });
 const q = props.quote;
@@ -46,7 +49,7 @@ function acceptQuote() {
                         </div>
                         <div>
                             <dt class="text-[12px] font-medium text-gray-500">Total</dt>
-                            <dd class="text-[14px] font-semibold text-gray-900 mt-1">${{ q.total }}</dd>
+                            <dd class="text-[14px] font-semibold text-gray-900 mt-1">{{ formatCurrency(q.total) }}</dd>
                         </div>
                     </dl>
                     <div v-if="q.proposal" class="prose prose-sm max-w-none text-gray-700" v-html="q.proposal" />
@@ -57,15 +60,15 @@ function acceptQuote() {
                     <dl class="space-y-3">
                         <div class="flex justify-between">
                             <dt class="text-[13px] text-gray-500">Subtotal</dt>
-                            <dd class="text-[13px] font-medium text-gray-900">${{ q.subtotal || q.total }}</dd>
+                            <dd class="text-[13px] font-medium text-gray-900">{{ formatCurrency(q.subtotal || q.total) }}</dd>
                         </div>
                         <div v-if="q.tax" class="flex justify-between">
                             <dt class="text-[13px] text-gray-500">Tax</dt>
-                            <dd class="text-[13px] font-medium text-gray-900">${{ q.tax }}</dd>
+                            <dd class="text-[13px] font-medium text-gray-900">{{ formatCurrency(q.tax) }}</dd>
                         </div>
                         <div class="flex justify-between pt-2 border-t border-gray-100">
                             <dt class="text-[14px] font-semibold text-gray-900">Total</dt>
-                            <dd class="text-[14px] font-bold text-gray-900">${{ q.total }}</dd>
+                            <dd class="text-[14px] font-bold text-gray-900">{{ formatCurrency(q.total) }}</dd>
                         </div>
                     </dl>
                 </Card>

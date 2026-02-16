@@ -32,10 +32,41 @@ class BillingController extends Controller
         $clientId = $request->user()->whmcs_client_id;
         $profile  = $this->whmcs->getClientsDetails($clientId);
 
+        // Get credit log/history
+        $credits = $this->whmcs->getCredits($clientId);
+
+        // Get available payment methods for add funds
+        $paymentMethods = $this->whmcs->getPaymentMethods();
+
         return Inertia::render('Client/Billing/Credit', [
-            'credit'   => $profile['credit'] ?? '0.00',
-            'currency' => $profile['currency_code'] ?? 'USD',
+            'credit'         => $profile['credit'] ?? '0.00',
+            'currency'       => $profile['currency_code'] ?? 'USD',
+            'credits'        => $credits['credits']['credit'] ?? [],
+            'paymentMethods' => $paymentMethods['paymentmethods']['paymentmethod'] ?? [],
         ]);
+    }
+
+    public function addFunds(Request $request)
+    {
+        $request->validate([
+            'amount'         => 'required|numeric|min:1|max:10000',
+            'payment_method' => 'required|string',
+        ]);
+
+        $clientId = $request->user()->whmcs_client_id;
+
+        $result = $this->whmcs->addCredit($clientId, (float) $request->amount, $request->payment_method);
+
+        if (($result['result'] ?? '') === 'success') {
+            // If an invoice was created, redirect to it for payment
+            if (!empty($result['invoiceid'])) {
+                return redirect()->route('client.invoices.show', $result['invoiceid'])
+                    ->with('success', 'Add funds invoice created. Please complete the payment.');
+            }
+            return back()->with('success', 'Funds added successfully.');
+        }
+
+        return back()->withErrors(['whmcs' => $result['message'] ?? 'Failed to add funds.']);
     }
 
     public function quotes(Request $request)

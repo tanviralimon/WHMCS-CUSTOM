@@ -4,6 +4,9 @@ import { router, useForm, Link } from '@inertiajs/vue3';
 import ClientLayout from '@/Layouts/ClientLayout.vue';
 import Card from '@/Components/Card.vue';
 import EmptyState from '@/Components/EmptyState.vue';
+import { useCurrency } from '@/Composables/useCurrency.js';
+
+const { formatCurrency } = useCurrency();
 
 const props = defineProps({
     cart: Object,
@@ -72,7 +75,7 @@ function checkout() {
                             </div>
                         </div>
                         <div class="flex items-center gap-4 ml-4">
-                            <p class="text-[16px] font-bold text-gray-900">${{ item.price }}</p>
+                            <p class="text-[16px] font-bold text-gray-900">{{ formatCurrency(item.price) }}</p>
                             <button @click="removeItem(i)" class="p-2 text-gray-400 hover:text-red-500 transition-colors rounded-lg hover:bg-red-50">
                                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
                             </button>
@@ -110,11 +113,11 @@ function checkout() {
                     <dl class="space-y-2.5 mb-5">
                         <div class="flex justify-between">
                             <dt class="text-[13px] text-gray-500">Items ({{ items.length }})</dt>
-                            <dd class="text-[13px] font-medium text-gray-900">${{ total }}</dd>
+                            <dd class="text-[13px] font-medium text-gray-900">{{ formatCurrency(total) }}</dd>
                         </div>
                         <div class="border-t border-gray-200 pt-2.5 flex justify-between">
                             <dt class="text-[14px] font-semibold text-gray-900">Total</dt>
-                            <dd class="text-[16px] font-bold text-gray-900">${{ total }}</dd>
+                            <dd class="text-[16px] font-bold text-gray-900">{{ formatCurrency(total) }}</dd>
                         </div>
                     </dl>
                     <button @click="checkout" :disabled="checkingOut || !selectedPayment"

@@ -87,12 +87,16 @@ Route::prefix('invoices')->name('invoices.')->group(function () {
         ->middleware('whmcs.own:invoice,id');
     Route::post('/{id}/pay', [InvoiceController::class, 'pay'])->name('pay')
         ->middleware(['whmcs.own:invoice,id', 'throttle:10,1']);
+    Route::post('/{id}/payment-method', [InvoiceController::class, 'updatePaymentMethod'])->name('paymentmethod')
+        ->middleware(['whmcs.own:invoice,id', 'throttle:10,1']);
 });
 
 // ─── Billing ────────────────────────────────────────────────
 Route::prefix('billing')->name('billing.')->group(function () {
     Route::get('/transactions', [BillingController::class, 'transactions'])->name('transactions');
     Route::get('/credit', [BillingController::class, 'credit'])->name('credit');
+    Route::post('/credit/add-funds', [BillingController::class, 'addFunds'])->name('credit.addFunds')
+        ->middleware('throttle:5,1');
 
     Route::middleware('feature:quotes')->group(function () {
         Route::get('/quotes', [BillingController::class, 'quotes'])->name('quotes');

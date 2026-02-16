@@ -4,6 +4,9 @@ import ClientLayout from '@/Layouts/ClientLayout.vue';
 import StatusBadge from '@/Components/StatusBadge.vue';
 import Pagination from '@/Components/Pagination.vue';
 import EmptyState from '@/Components/EmptyState.vue';
+import { useCurrency } from '@/Composables/useCurrency.js';
+
+const { formatCurrency } = useCurrency();
 
 defineProps({
     orders: Array,
@@ -43,7 +46,7 @@ defineProps({
                     <tr v-for="o in orders" :key="o.id" class="border-b border-gray-50 last:border-0 hover:bg-gray-50/50 transition-colors">
                         <td class="px-5 py-3.5 text-[13px] font-medium text-gray-900">#{{ o.ordernum || o.id }}</td>
                         <td class="px-5 py-3.5 hidden md:table-cell text-[13px] text-gray-600">{{ o.date }}</td>
-                        <td class="px-5 py-3.5 text-right text-[13px] font-semibold text-gray-900">${{ o.amount }}</td>
+                        <td class="px-5 py-3.5 text-right text-[13px] font-semibold text-gray-900">{{ formatCurrency(o.amount) }}</td>
                         <td class="px-5 py-3.5 hidden md:table-cell text-[13px] text-gray-600 capitalize">{{ o.paymentmethod }}</td>
                         <td class="px-5 py-3.5"><StatusBadge :status="o.status" /></td>
                     </tr>

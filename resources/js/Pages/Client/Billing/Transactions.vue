@@ -2,6 +2,9 @@
 import ClientLayout from '@/Layouts/ClientLayout.vue';
 import Pagination from '@/Components/Pagination.vue';
 import EmptyState from '@/Components/EmptyState.vue';
+import { useCurrency } from '@/Composables/useCurrency.js';
+
+const { formatCurrency } = useCurrency();
 
 defineProps({
     transactions: Array,
@@ -38,9 +41,9 @@ defineProps({
                         <td class="px-5 py-3.5 hidden md:table-cell text-[13px] text-gray-500 font-mono">{{ t.transid || '—' }}</td>
                         <td class="px-5 py-3.5 hidden md:table-cell text-[13px] text-gray-600">{{ t.invoiceid ? '#' + t.invoiceid : '—' }}</td>
                         <td class="px-5 py-3.5 text-right">
-                            <span v-if="parseFloat(t.amountin || 0) > 0" class="text-[13px] font-semibold text-emerald-600">+${{ t.amountin }}</span>
-                            <span v-else-if="parseFloat(t.amountout || 0) > 0" class="text-[13px] font-semibold text-red-600">-${{ t.amountout }}</span>
-                            <span v-else class="text-[13px] text-gray-500">$0.00</span>
+                            <span v-if="parseFloat(t.amountin || 0) > 0" class="text-[13px] font-semibold text-emerald-600">+{{ formatCurrency(t.amountin) }}</span>
+                            <span v-else-if="parseFloat(t.amountout || 0) > 0" class="text-[13px] font-semibold text-red-600">-{{ formatCurrency(t.amountout) }}</span>
+                            <span v-else class="text-[13px] text-gray-500">{{ formatCurrency(0) }}</span>
                         </td>
                     </tr>
                 </tbody>

@@ -4,6 +4,9 @@ import ClientLayout from '@/Layouts/ClientLayout.vue';
 import StatusBadge from '@/Components/StatusBadge.vue';
 import Pagination from '@/Components/Pagination.vue';
 import EmptyState from '@/Components/EmptyState.vue';
+import { useCurrency } from '@/Composables/useCurrency.js';
+
+const { formatCurrency } = useCurrency();
 
 defineProps({
     invoices: Array,
@@ -58,7 +61,7 @@ function filterByStatus(val) {
                         </td>
                         <td class="px-5 py-3.5 hidden md:table-cell text-[13px] text-gray-600">{{ inv.date }}</td>
                         <td class="px-5 py-3.5 hidden md:table-cell text-[13px] text-gray-600">{{ inv.duedate }}</td>
-                        <td class="px-5 py-3.5 text-right text-[13px] font-semibold text-gray-900">${{ inv.total }}</td>
+                        <td class="px-5 py-3.5 text-right text-[13px] font-semibold text-gray-900">{{ formatCurrency(inv.total) }}</td>
                         <td class="px-5 py-3.5"><StatusBadge :status="inv.status" /></td>
                         <td class="px-5 py-3.5 text-right">
                             <Link :href="route('client.invoices.show', inv.id)" class="text-[12px] font-medium text-indigo-600 hover:text-indigo-700">View →</Link>

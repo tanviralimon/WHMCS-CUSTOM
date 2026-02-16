@@ -59,6 +59,24 @@ class InvoiceController extends Controller
     }
 
     /**
+     * Update the payment method for an unpaid invoice.
+     */
+    public function updatePaymentMethod(Request $request, int $id)
+    {
+        $request->validate([
+            'paymentmethod' => 'required|string',
+        ]);
+
+        $result = $this->whmcs->updateInvoicePaymentMethod($id, $request->paymentmethod);
+
+        if (($result['result'] ?? '') === 'success') {
+            return back()->with('success', 'Payment method updated.');
+        }
+
+        return back()->withErrors(['whmcs' => $result['message'] ?? 'Failed to update payment method.']);
+    }
+
+    /**
      * Redirect to WHMCS payment gateway for a specific invoice.
      */
     public function pay(Request $request, int $id)

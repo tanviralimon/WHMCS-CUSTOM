@@ -3,6 +3,9 @@ import { ref } from 'vue';
 import { router } from '@inertiajs/vue3';
 import ClientLayout from '@/Layouts/ClientLayout.vue';
 import Card from '@/Components/Card.vue';
+import { useCurrency } from '@/Composables/useCurrency.js';
+
+const { formatCurrency } = useCurrency();
 
 const props = defineProps({
     product: Object,
@@ -73,7 +76,7 @@ function addToCart() {
                                 :class="selectedCycle === c.key ? 'bg-indigo-50 ring-1 ring-indigo-200' : 'hover:bg-gray-50'">
                                 <input type="radio" v-model="selectedCycle" :value="c.key" class="text-indigo-600 focus:ring-indigo-500" />
                                 <span class="flex-1 text-[13px] text-gray-900">{{ c.label }}</span>
-                                <span class="text-[13px] font-semibold text-gray-900">${{ getPrice(c.key) }}</span>
+                                <span class="text-[13px] font-semibold text-gray-900">{{ formatCurrency(getPrice(c.key)) }}</span>
                             </label>
                         </template>
                     </div>
