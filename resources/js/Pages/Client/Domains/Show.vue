@@ -238,11 +238,11 @@ function saveDns() {
     dnsMessage.value = '';
 
     const records = dnsRecordList.value
-        .filter(r => r.name && r.address)
+        .filter(r => r.address && r.address.trim() !== '')
         .map(r => ({
-            name: r.name,
+            name: !r.name || r.name.trim() === '' ? '@' : r.name.trim(),
             type: r.type,
-            address: r.address,
+            address: r.address.trim(),
             priority: r.priority !== '' && r.priority !== null ? parseInt(r.priority) : null,
             ttl: r.ttl !== '' && r.ttl !== null ? parseInt(r.ttl) : null,
         }));
@@ -250,7 +250,7 @@ function saveDns() {
     if (records.length === 0) {
         dnsSaving.value = false;
         dnsStatus.value = 'error';
-        dnsMessage.value = 'Add at least one record with a hostname and address.';
+        dnsMessage.value = 'Add at least one record with an address/value.';
         return;
     }
 

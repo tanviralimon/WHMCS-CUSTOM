@@ -183,7 +183,7 @@ class DomainController extends Controller
     {
         $request->validate([
             'records'          => 'required|array|min:1',
-            'records.*.name'   => 'required|string|max:255',
+            'records.*.name'   => 'nullable|string|max:255',
             'records.*.type'   => 'required|string|in:A,AAAA,CNAME,MX,TXT,NS,SRV,CAA',
             'records.*.address' => 'required|string|max:255',
             'records.*.priority' => 'nullable|integer',
@@ -194,7 +194,7 @@ class DomainController extends Controller
         $dnsRecords = [];
         foreach ($request->records as $record) {
             $entry = [
-                'hostname' => $record['name'],
+                'hostname' => !empty($record['name']) ? $record['name'] : '@',
                 'type'     => $record['type'],
                 'address'  => $record['address'],
             ];
