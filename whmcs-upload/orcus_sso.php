@@ -227,9 +227,9 @@ if ($action === 'SsoLogin') {
 }
 
 if ($action === 'GetGatewayConfig') {
-    // Return payment gateway module configuration from tblpaymentgateways
-    // This allows the custom portal to read Stripe/SSLCommerz credentials
-    // that are already configured in WHMCS admin, without duplicating them.
+    // Return payment gateway module configuration.
+    // Uses WHMCS's built-in getGatewayVariables() which handles decryption
+    // of password-type fields (API keys, secrets, etc.) automatically.
     $gatewayModule = trim($_POST['gateway'] ?? '');
 
     if (empty($gatewayModule)) {
@@ -238,30 +238,27 @@ if ($action === 'GetGatewayConfig') {
     }
 
     try {
-        // Check if the gateway module is active
-        $isActive = Capsule::table('tblpaymentgateways')
-            ->where('gateway', $gatewayModule)
-            ->where('setting', 'visible')
-            ->where('value', 'on')
-            ->exists();
+        // Load WHMCS gateway functions (includes getGatewayVariables)
+        App::load_function('gateway');
 
-        if (!$isActive) {
+        // getGatewayVariables() reads tblpaymentgateways AND decrypts
+        // password-type fields automatically. Returns all config params.
+        $params = getGatewayVariables($gatewayModule);
+
+        if (empty($params) || empty($params['type'])) {
             echo json_encode(['result' => 'error', 'message' => 'Gateway module is not active: ' . $gatewayModule]);
             exit;
         }
 
-        // Read all settings for this gateway module
-        $rows = Capsule::table('tblpaymentgateways')
-            ->where('gateway', $gatewayModule)
-            ->get();
-
+        // Filter out internal WHMCS fields, keep only module config settings
+        $skip = ['type', 'visible', 'name', 'paymentmethod', 'companyname',
+                 'systemurl', 'langpaynow', 'whmcsVersion', 'convertto'];
         $settings = [];
-        foreach ($rows as $row) {
-            // Skip internal WHMCS settings that aren't needed
-            if (in_array($row->setting, ['visible', 'name', 'type'])) {
+        foreach ($params as $key => $value) {
+            if (in_array($key, $skip)) {
                 continue;
             }
-            $settings[$row->setting] = $row->value;
+            $settings[$key] = $value;
         }
 
         echo json_encode([

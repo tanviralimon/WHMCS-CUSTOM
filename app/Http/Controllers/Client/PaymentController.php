@@ -5,11 +5,36 @@ namespace App\Http\Controllers\Client;
 use App\Http\Controllers\Controller;
 use App\Services\Whmcs\WhmcsService;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 
 class PaymentController extends Controller
 {
     public function __construct(protected WhmcsService $whmcs) {}
+
+    /**
+     * Temporary debug: show what fields WHMCS returns for a gateway module.
+     * Visit /payment/debug-gateway/stripe or /payment/debug-gateway/sslcommerz
+     * DELETE THIS after confirming field names work.
+     */
+    public function debugGateway(string $module)
+    {
+        // Clear the cache first so we get fresh data
+        Cache::forget("whmcs.gateway_config.{$module}");
+
+        $config = $this->whmcs->getGatewayConfig($module);
+
+        // Mask sensitive values for display (show first 6 + last 4 chars)
+        if (!empty($config['settings']) && is_array($config['settings'])) {
+            foreach ($config['settings'] as $key => $value) {
+                if (is_string($value) && strlen($value) > 12) {
+                    $config['settings'][$key] = substr($value, 0, 6) . '***' . substr($value, -4);
+                }
+            }
+        }
+
+        return response()->json($config, 200, [], JSON_PRETTY_PRINT);
+    }
 
     /**
      * Apply account credit to an invoice.
