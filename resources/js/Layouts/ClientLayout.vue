@@ -46,6 +46,7 @@ const navigation = computed(() => {
         children: [
             { name: 'Invoices', href: 'client.invoices.index' },
             { name: 'Transactions', href: 'client.billing.transactions' },
+            { name: 'Credit / Add Funds', href: 'client.billing.credit' },
             ...(features.value.quotes ? [{ name: 'Quotes', href: 'client.billing.quotes' }] : []),
         ],
     });
