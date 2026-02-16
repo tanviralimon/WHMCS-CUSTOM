@@ -88,12 +88,24 @@ class PaymentController extends Controller
      */
     private function handleStripe(Request $request, int $id, array $invoice)
     {
-        $stripeConfig = $this->getStripeCredentials();
-        if (!$stripeConfig) {
-            return response()->json(['error' => 'Stripe is not configured in WHMCS. Please contact support.'], 500);
+        // 1. Try .env override first (full sk_live_* / sk_test_* key)
+        $secretKey = config('payment.stripe_secret_key');
+
+        // 2. Fall back to WHMCS gateway config
+        if (empty($secretKey)) {
+            $stripeConfig = $this->getStripeCredentials();
+            $secretKey = $stripeConfig['secret_key'] ?? null;
         }
 
-        $secretKey = $stripeConfig['secret_key'];
+        // 3. If key is a restricted key (rk_*), it can't create Checkout Sessions
+        //    → fall back to SSO so WHMCS handles the payment natively
+        if (empty($secretKey) || str_starts_with($secretKey, 'rk_')) {
+            if (!empty($secretKey)) {
+                Log::info('Stripe key is restricted (rk_*), falling back to SSO payment', ['invoice' => $id]);
+            }
+            return $this->handleSsoFallback($request, $id);
+        }
+
         $balance = (float) ($invoice['balance'] ?? $invoice['total']);
         $currency = strtolower($invoice['currencycode'] ?? 'usd');
 
@@ -126,6 +138,11 @@ class PaymentController extends Controller
 
             return response()->json(['url' => $session->url]);
         } catch (\Exception $e) {
+            // If permissions error, fall back to SSO
+            if (str_contains($e->getMessage(), 'permission') || str_contains($e->getMessage(), 'not have the required')) {
+                Log::info('Stripe key lacks Checkout permission, falling back to SSO', ['invoice' => $id]);
+                return $this->handleSsoFallback($request, $id);
+            }
             Log::error('Stripe session failed', ['invoice' => $id, 'error' => $e->getMessage()]);
             return response()->json(['error' => 'Failed to create Stripe session. ' . $e->getMessage()], 500);
         }

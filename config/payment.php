@@ -19,4 +19,15 @@ return [
         'sslcommerzs'      => 'sslcommerz',
         'banktransfer'     => 'banktransfer',
     ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Stripe Secret Key Override
+    |--------------------------------------------------------------------------
+    | If WHMCS uses a restricted key (rk_live_*), it can't create Checkout
+    | Sessions. Set a full secret key (sk_live_* / sk_test_*) here to enable
+    | native Stripe Checkout. If empty, Stripe payments fall back to SSO
+    | (paying through WHMCS directly).
+    */
+    'stripe_secret_key' => env('STRIPE_SECRET_KEY', ''),
 ];
