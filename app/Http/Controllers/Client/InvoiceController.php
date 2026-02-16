@@ -47,27 +47,17 @@ class InvoiceController extends Controller
         $paymentMethods = $this->whmcs->getPaymentMethods();
         $gateways = $paymentMethods['paymentmethods']['paymentmethod'] ?? [];
 
-        // Build SSO pay URL for unpaid invoices
-        $payUrl = null;
-        if ($result['status'] === 'Unpaid') {
-            try {
-                $sso = $this->whmcs->createClientSsoToken($clientId, 'clientarea:invoices');
-                if (!empty($sso['redirect_url'])) {
-                    $ssoUrl = $sso['redirect_url'];
-                    $sep = str_contains($ssoUrl, '?') ? '&' : '?';
-                    $payUrl = $ssoUrl . $sep . 'goto=' . urlencode('viewinvoice.php?id=' . $id);
-                }
-            } catch (\Exception $e) {
-                // Fallback: direct WHMCS link (user may need to log in)
-                $payUrl = rtrim(config('whmcs.base_url'), '/') . '/viewinvoice.php?id=' . $id;
-            }
+        // Check which gateways we handle natively vs SSO fallback
+        $supportedMap = config('payment.supported_gateways', []);
+        foreach ($gateways as &$gw) {
+            $handler = $supportedMap[strtolower($gw['module'] ?? '')] ?? null;
+            $gw['native'] = $handler !== null; // true = we handle it directly, false = SSO fallback
         }
 
         return Inertia::render('Client/Invoices/Show', [
             'invoice'        => $result,
             'creditBalance'  => $creditBalance,
             'paymentMethods' => $gateways,
-            'payUrl'         => $payUrl,
         ]);
     }
 

@@ -13,7 +13,6 @@ const props = defineProps({
     invoice: Object,
     creditBalance: Number,
     paymentMethods: Array,
-    payUrl: String,
 });
 
 const inv = props.invoice;
@@ -28,31 +27,43 @@ const hasGateways = computed(() => props.paymentMethods && props.paymentMethods.
 const flashSuccess = computed(() => page.props.flash?.success);
 const flashErrors = computed(() => page.props.errors);
 
-// Payment tab: 'gateway' | 'credit'
+// Payment tab
 const activeTab = ref(hasGateways.value ? 'gateway' : (hasCredit.value ? 'credit' : 'gateway'));
 
-// ── Gateway payment (SSO → WHMCS → Stripe/SSLCommerz/etc.) ──
+// ── Gateway payment ──
 const selectedGateway = ref(inv.paymentmethod || (props.paymentMethods?.[0]?.module ?? ''));
 const processingPay = ref(false);
+const payError = ref('');
 
 function payWithGateway() {
-    if (!props.payUrl) return;
+    if (!selectedGateway.value) return;
     processingPay.value = true;
-    // Open the SSO-authenticated WHMCS invoice page in same tab
-    // WHMCS handles the gateway redirect (Stripe Checkout, SSLCommerz, etc.)
-    window.location.href = props.payUrl;
-}
+    payError.value = '';
 
-// Update payment method on the invoice before paying
-const changingMethod = ref(false);
-function changePaymentMethod() {
-    if (!selectedGateway.value || selectedGateway.value === inv.paymentmethod) return;
-    changingMethod.value = true;
-    router.post(route('client.invoices.paymentmethod', inv.invoiceid), {
-        paymentmethod: selectedGateway.value,
-    }, {
-        preserveScroll: true,
-        onFinish: () => { changingMethod.value = false; },
+    const csrfToken = document.querySelector('meta[name="csrf-token"]')?.content;
+
+    fetch(route('client.payment.pay', inv.invoiceid), {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRF-TOKEN': csrfToken,
+            'Accept': 'application/json',
+            'X-Requested-With': 'XMLHttpRequest',
+        },
+        body: JSON.stringify({ gateway: selectedGateway.value }),
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.url) {
+            window.location.href = data.url;
+        } else {
+            payError.value = data.error || 'Failed to initiate payment.';
+            processingPay.value = false;
+        }
+    })
+    .catch(() => {
+        payError.value = 'Something went wrong. Please try again.';
+        processingPay.value = false;
     });
 }
 
@@ -79,6 +90,11 @@ function gatewayIcon(module) {
     if (m.includes('bank') || m.includes('wire')) return '🏧';
     if (m.includes('razorpay')) return '💳';
     return '💰';
+}
+
+function selectedGatewayName() {
+    const pm = props.paymentMethods?.find(p => p.module === selectedGateway.value);
+    return pm?.displayname || selectedGateway.value;
 }
 </script>
 
@@ -213,9 +229,8 @@ function gatewayIcon(module) {
                             </button>
                         </div>
 
-                        <!-- ── Pay via Gateway (WHMCS SSO) ── -->
+                        <!-- ── Pay via Gateway ── -->
                         <div v-if="activeTab === 'gateway' && hasGateways" class="space-y-3">
-                            <!-- Gateway selector -->
                             <label class="text-[12px] font-semibold text-gray-500 uppercase tracking-wider block">Choose Payment Method</label>
                             <div class="space-y-1.5">
                                 <label v-for="pm in paymentMethods" :key="pm.module"
@@ -228,23 +243,21 @@ function gatewayIcon(module) {
                                 </label>
                             </div>
 
-                            <!-- Update method if changed -->
-                            <button v-if="selectedGateway && selectedGateway !== inv.paymentmethod"
-                                @click="changePaymentMethod" :disabled="changingMethod"
-                                class="w-full text-[12px] font-medium text-indigo-600 hover:text-indigo-700 py-1 transition-colors disabled:opacity-50">
-                                {{ changingMethod ? 'Updating...' : 'Set as payment method' }}
-                            </button>
+                            <!-- Error message -->
+                            <div v-if="payError" class="p-2.5 rounded-lg bg-red-50 border border-red-200 text-[12px] text-red-700">
+                                {{ payError }}
+                            </div>
 
                             <!-- Pay Now button -->
-                            <button @click="payWithGateway" :disabled="processingPay || !payUrl"
+                            <button @click="payWithGateway" :disabled="processingPay || !selectedGateway"
                                 class="w-full inline-flex items-center justify-center gap-2 px-4 py-3 text-[13px] font-semibold text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 transition-colors shadow-sm disabled:opacity-50">
                                 <svg v-if="!processingPay" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.25 8.25h19.5M2.25 9h19.5m-16.5 5.25h6m-6 2.25h3m-3.75 3h15a2.25 2.25 0 002.25-2.25V6.75A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25v10.5A2.25 2.25 0 004.5 19.5z" /></svg>
                                 <svg v-else class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" /><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
-                                {{ processingPay ? 'Redirecting...' : `Pay ${formatCurrency(balance)} Now` }}
+                                {{ processingPay ? 'Processing...' : `Pay ${formatCurrency(balance)} via ${selectedGatewayName()}` }}
                             </button>
 
                             <p class="text-[11px] text-gray-400 text-center">
-                                You'll be securely redirected to complete payment
+                                You'll be redirected to {{ selectedGatewayName() }} to complete payment
                             </p>
                         </div>
 

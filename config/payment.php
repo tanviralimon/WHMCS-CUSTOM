@@ -5,28 +5,38 @@ return [
     |--------------------------------------------------------------------------
     | Stripe Configuration
     |--------------------------------------------------------------------------
+    | Handles gateways: stripe, stripe_checkout
     */
     'stripe' => [
-        'enabled'        => (bool) env('STRIPE_ENABLED', false),
-        'publishable_key' => env('STRIPE_PUBLISHABLE_KEY', ''),
         'secret_key'     => env('STRIPE_SECRET_KEY', ''),
+        'publishable_key' => env('STRIPE_PUBLISHABLE_KEY', ''),
         'currency'       => env('STRIPE_CURRENCY', 'usd'),
         'webhook_secret' => env('STRIPE_WEBHOOK_SECRET', ''),
     ],
 
     /*
     |--------------------------------------------------------------------------
-    | Bank Transfer Configuration
+    | SSLCommerz Configuration
     |--------------------------------------------------------------------------
+    | Handles gateway: sslcommerz
     */
-    'bank_transfer' => [
-        'enabled'      => (bool) env('BANK_TRANSFER_ENABLED', false),
-        'bank_name'    => env('BANK_NAME', ''),
-        'account_name' => env('BANK_ACCOUNT_NAME', ''),
-        'account_number' => env('BANK_ACCOUNT_NUMBER', ''),
-        'routing_number' => env('BANK_ROUTING_NUMBER', ''),
-        'swift_code'   => env('BANK_SWIFT_CODE', ''),
-        'iban'         => env('BANK_IBAN', ''),
-        'instructions' => env('BANK_INSTRUCTIONS', 'Please include your invoice number as the payment reference.'),
+    'sslcommerz' => [
+        'store_id'       => env('SSLCOMMERZ_STORE_ID', ''),
+        'store_password' => env('SSLCOMMERZ_STORE_PASSWORD', ''),
+        'sandbox'        => (bool) env('SSLCOMMERZ_SANDBOX', false),
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Gateway Module Mapping
+    |--------------------------------------------------------------------------
+    | Maps WHMCS gateway module names to our internal handlers.
+    | Any gateway not listed here will fall back to SSO-based WHMCS redirect.
+    */
+    'supported_gateways' => [
+        'stripe'           => 'stripe',
+        'stripe_checkout'  => 'stripe',
+        'stripecheckout'   => 'stripe',
+        'sslcommerz'       => 'sslcommerz',
     ],
 ];

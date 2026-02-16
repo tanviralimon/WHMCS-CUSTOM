@@ -96,12 +96,10 @@ Route::prefix('invoices')->name('invoices.')->group(function () {
 Route::prefix('payment')->name('payment.')->group(function () {
     Route::post('/{id}/apply-credit', [PaymentController::class, 'applyCredit'])->name('applyCredit')
         ->middleware(['whmcs.own:invoice,id', 'throttle:10,1']);
-    Route::post('/{id}/stripe/create-session', [PaymentController::class, 'createStripeSession'])->name('stripe.create')
+    Route::post('/{id}/pay', [PaymentController::class, 'pay'])->name('pay')
         ->middleware(['whmcs.own:invoice,id', 'throttle:10,1']);
-    Route::get('/{id}/stripe/success', [PaymentController::class, 'stripeSuccess'])->name('stripe.success')
+    Route::match(['get', 'post'], '/{id}/callback/{gateway}', [PaymentController::class, 'callback'])->name('callback')
         ->middleware('whmcs.own:invoice,id');
-    Route::post('/{id}/bank-transfer', [PaymentController::class, 'bankTransferNotify'])->name('bank.notify')
-        ->middleware(['whmcs.own:invoice,id', 'throttle:5,1']);
 });
 
 // ─── Billing ────────────────────────────────────────────────
