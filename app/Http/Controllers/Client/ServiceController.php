@@ -15,13 +15,27 @@ class ServiceController extends Controller
     {
         $clientId = $request->user()->whmcs_client_id;
         $page     = max(1, (int) $request->get('page', 1));
-        $status   = $request->get('status', '');
+        $status   = $request->get('status', 'Active');
         $perPage  = 25;
 
-        $result = $this->whmcs->getClientsProducts($clientId, ($page - 1) * $perPage, $perPage, $status ?: null);
+        // Pass status to WHMCS; 'all' means no filter
+        $apiStatus = strtolower($status) === 'all' ? null : ($status ?: null);
+        $result = $this->whmcs->getClientsProducts($clientId, ($page - 1) * $perPage, $perPage, $apiStatus);
+
+        $services = $result['products']['product'] ?? [];
+
+        // When showing all, sort active services to the top
+        if (!$apiStatus && is_array($services)) {
+            usort($services, function ($a, $b) {
+                $order = ['Active' => 0, 'Pending' => 1, 'Suspended' => 2, 'Terminated' => 3, 'Cancelled' => 4];
+                $aOrder = $order[$a['status'] ?? ''] ?? 5;
+                $bOrder = $order[$b['status'] ?? ''] ?? 5;
+                return $aOrder - $bOrder;
+            });
+        }
 
         return Inertia::render('Client/Services/Index', [
-            'services' => $result['products']['product'] ?? [],
+            'services' => $services,
             'total'    => (int) ($result['totalresults'] ?? 0),
             'page'     => $page,
             'perPage'  => $perPage,

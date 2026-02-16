@@ -13,10 +13,10 @@ defineProps({
     status: String,
 });
 
-const statusOptions = ['', 'Active', 'Pending', 'Suspended', 'Terminated', 'Cancelled'];
+const statusOptions = ['All', 'Active', 'Pending', 'Suspended', 'Terminated', 'Cancelled'];
 
 function filterByStatus(val) {
-    router.get(route('client.services.index'), { status: val || undefined }, { preserveState: true });
+    router.get(route('client.services.index'), { status: val || 'Active' }, { preserveState: true });
 }
 </script>
 
@@ -28,12 +28,11 @@ function filterByStatus(val) {
 
         <div class="mb-6 flex items-center gap-3">
             <select
-                :value="status"
+                :value="status || 'Active'"
                 @change="filterByStatus($event.target.value)"
                 class="text-[13px] rounded-lg border-gray-300 focus:border-indigo-500 focus:ring-indigo-500 pr-8"
             >
-                <option value="">All Statuses</option>
-                <option v-for="s in statusOptions.filter(s => s)" :key="s" :value="s">{{ s }}</option>
+                <option v-for="s in statusOptions" :key="s" :value="s">{{ s === 'All' ? 'All Statuses' : s }}</option>
             </select>
             <span class="text-[13px] text-gray-500">{{ total }} service{{ total !== 1 ? 's' : '' }}</span>
         </div>
