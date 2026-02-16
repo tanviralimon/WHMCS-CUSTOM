@@ -27,6 +27,11 @@ return Application::configure(basePath: dirname(__DIR__))
             'whmcs.own' => \App\Http\Middleware\EnsureWhmcsOwnership::class,
             'feature'   => \App\Http\Middleware\EnsureFeatureEnabled::class,
         ]);
+
+        // Exclude payment gateway callbacks from CSRF (server-to-server POSTs)
+        $middleware->validateCsrfTokens(except: [
+            'client/payment/*/callback/*',
+        ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         $exceptions->renderable(function (\App\Exceptions\WhmcsApiException $e, $request) {

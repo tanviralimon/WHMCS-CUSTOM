@@ -98,8 +98,7 @@ Route::prefix('payment')->name('payment.')->group(function () {
         ->middleware(['whmcs.own:invoice,id', 'throttle:10,1']);
     Route::post('/{id}/pay', [PaymentController::class, 'pay'])->name('pay')
         ->middleware(['whmcs.own:invoice,id', 'throttle:10,1']);
-    Route::match(['get', 'post'], '/{id}/callback/{gateway}', [PaymentController::class, 'callback'])->name('callback')
-        ->middleware('whmcs.own:invoice,id');
+    // Callbacks are handled publicly in web.php (SSLCommerz needs no auth/CSRF)
 });
 
 // ─── Billing ────────────────────────────────────────────────
