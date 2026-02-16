@@ -14,29 +14,42 @@ class ServiceController extends Controller
     public function index(Request $request)
     {
         $clientId = $request->user()->whmcs_client_id;
-        $page     = max(1, (int) $request->get('page', 1));
         $status   = $request->get('status', 'Active');
-        $perPage  = 25;
 
-        // Pass status to WHMCS; 'all' means no filter
-        $apiStatus = strtolower($status) === 'all' ? null : ($status ?: null);
-        $result = $this->whmcs->getClientsProducts($clientId, ($page - 1) * $perPage, $perPage, $apiStatus);
+        // Fetch ALL services from WHMCS (no status filter — WHMCS API filtering is unreliable)
+        $result = $this->whmcs->getClientsProducts($clientId, 0, 250, null);
 
-        $services = $result['products']['product'] ?? [];
+        $allServices = $result['products']['product'] ?? [];
 
-        // When showing all, sort active services to the top
-        if (!$apiStatus && is_array($services)) {
-            usort($services, function ($a, $b) {
-                $order = ['Active' => 0, 'Pending' => 1, 'Suspended' => 2, 'Terminated' => 3, 'Cancelled' => 4];
-                $aOrder = $order[$a['status'] ?? ''] ?? 5;
-                $bOrder = $order[$b['status'] ?? ''] ?? 5;
-                return $aOrder - $bOrder;
-            });
+        // Normalize: WHMCS returns object (not array) when there's only 1 result
+        if (!empty($allServices) && !isset($allServices[0])) {
+            $allServices = [$allServices];
         }
+
+        // Sort: Active first, then Pending → Suspended → Terminated → Cancelled
+        $statusOrder = ['Active' => 0, 'Pending' => 1, 'Suspended' => 2, 'Terminated' => 3, 'Cancelled' => 4, 'Fraud' => 5];
+        usort($allServices, function ($a, $b) use ($statusOrder) {
+            $aOrder = $statusOrder[$a['status'] ?? ''] ?? 9;
+            $bOrder = $statusOrder[$b['status'] ?? ''] ?? 9;
+            return $aOrder - $bOrder;
+        });
+
+        // Apply filter (unless "All")
+        if (strtolower($status) !== 'all' && $status !== '') {
+            $allServices = array_values(array_filter($allServices, function ($s) use ($status) {
+                return strcasecmp($s['status'] ?? '', $status) === 0;
+            }));
+        }
+
+        // Manual pagination
+        $page    = max(1, (int) $request->get('page', 1));
+        $perPage = 25;
+        $total   = count($allServices);
+        $services = array_slice($allServices, ($page - 1) * $perPage, $perPage);
 
         return Inertia::render('Client/Services/Index', [
             'services' => $services,
-            'total'    => (int) ($result['totalresults'] ?? 0),
+            'total'    => $total,
             'page'     => $page,
             'perPage'  => $perPage,
             'status'   => $status,
