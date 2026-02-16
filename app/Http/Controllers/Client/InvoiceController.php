@@ -37,35 +37,37 @@ class InvoiceController extends Controller
             abort(404);
         }
 
-        // Get client credit balance
         $clientId = $request->user()->whmcs_client_id;
+
+        // Get client credit balance
         $profile  = $this->whmcs->getClientsDetails($clientId);
         $creditBalance = (float) ($profile['credit'] ?? 0);
 
-        // Get available payment methods
+        // Get available payment methods from WHMCS
         $paymentMethods = $this->whmcs->getPaymentMethods();
+        $gateways = $paymentMethods['paymentmethods']['paymentmethod'] ?? [];
 
-        // Payment gateway config (what's enabled)
-        $paymentConfig = [
-            'stripe'        => config('payment.stripe.enabled'),
-            'stripe_key'    => config('payment.stripe.publishable_key'),
-            'bank_transfer' => config('payment.bank_transfer.enabled'),
-            'bank_details'  => config('payment.bank_transfer.enabled') ? [
-                'bank_name'      => config('payment.bank_transfer.bank_name'),
-                'account_name'   => config('payment.bank_transfer.account_name'),
-                'account_number' => config('payment.bank_transfer.account_number'),
-                'routing_number' => config('payment.bank_transfer.routing_number'),
-                'swift_code'     => config('payment.bank_transfer.swift_code'),
-                'iban'           => config('payment.bank_transfer.iban'),
-                'instructions'   => config('payment.bank_transfer.instructions'),
-            ] : null,
-        ];
+        // Build SSO pay URL for unpaid invoices
+        $payUrl = null;
+        if ($result['status'] === 'Unpaid') {
+            try {
+                $sso = $this->whmcs->createClientSsoToken($clientId, 'clientarea:invoices');
+                if (!empty($sso['redirect_url'])) {
+                    $ssoUrl = $sso['redirect_url'];
+                    $sep = str_contains($ssoUrl, '?') ? '&' : '?';
+                    $payUrl = $ssoUrl . $sep . 'goto=' . urlencode('viewinvoice.php?id=' . $id);
+                }
+            } catch (\Exception $e) {
+                // Fallback: direct WHMCS link (user may need to log in)
+                $payUrl = rtrim(config('whmcs.base_url'), '/') . '/viewinvoice.php?id=' . $id;
+            }
+        }
 
         return Inertia::render('Client/Invoices/Show', [
             'invoice'        => $result,
             'creditBalance'  => $creditBalance,
-            'paymentConfig'  => $paymentConfig,
-            'paymentMethods' => $paymentMethods['paymentmethods']['paymentmethod'] ?? [],
+            'paymentMethods' => $gateways,
+            'payUrl'         => $payUrl,
         ]);
     }
 

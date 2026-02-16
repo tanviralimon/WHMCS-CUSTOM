@@ -12,8 +12,8 @@ const page = usePage();
 const props = defineProps({
     invoice: Object,
     creditBalance: Number,
-    paymentConfig: Object,
     paymentMethods: Array,
+    payUrl: String,
 });
 
 const inv = props.invoice;
@@ -22,16 +22,39 @@ const transactions = computed(() => inv.transactions?.transaction || []);
 const isUnpaid = computed(() => inv.status === 'Unpaid');
 const balance = computed(() => parseFloat(inv.balance || 0));
 const hasCredit = computed(() => (props.creditBalance || 0) > 0);
+const hasGateways = computed(() => props.paymentMethods && props.paymentMethods.length > 0);
 
 // Flash messages
 const flashSuccess = computed(() => page.props.flash?.success);
 const flashErrors = computed(() => page.props.errors);
 
-// Payment tab: 'credit' | 'card' | 'bank'
-const activeTab = ref(
-    props.paymentConfig?.stripe ? 'card' :
-    hasCredit.value ? 'credit' : 'bank'
-);
+// Payment tab: 'gateway' | 'credit'
+const activeTab = ref(hasGateways.value ? 'gateway' : (hasCredit.value ? 'credit' : 'gateway'));
+
+// ── Gateway payment (SSO → WHMCS → Stripe/SSLCommerz/etc.) ──
+const selectedGateway = ref(inv.paymentmethod || (props.paymentMethods?.[0]?.module ?? ''));
+const processingPay = ref(false);
+
+function payWithGateway() {
+    if (!props.payUrl) return;
+    processingPay.value = true;
+    // Open the SSO-authenticated WHMCS invoice page in same tab
+    // WHMCS handles the gateway redirect (Stripe Checkout, SSLCommerz, etc.)
+    window.location.href = props.payUrl;
+}
+
+// Update payment method on the invoice before paying
+const changingMethod = ref(false);
+function changePaymentMethod() {
+    if (!selectedGateway.value || selectedGateway.value === inv.paymentmethod) return;
+    changingMethod.value = true;
+    router.post(route('client.invoices.paymentmethod', inv.invoiceid), {
+        paymentmethod: selectedGateway.value,
+    }, {
+        preserveScroll: true,
+        onFinish: () => { changingMethod.value = false; },
+    });
+}
 
 // ── Credit payment ──
 const creditAmount = ref(Math.min(props.creditBalance || 0, balance.value).toFixed(2));
@@ -47,49 +70,15 @@ function applyCredit() {
     });
 }
 
-// ── Stripe payment ──
-const processingStripe = ref(false);
-
-function payWithStripe() {
-    processingStripe.value = true;
-
-    fetch(route('client.payment.stripe.create', inv.invoiceid), {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            'X-CSRF-TOKEN': page.props.csrf_token || document.querySelector('meta[name="csrf-token"]')?.content,
-            'Accept': 'application/json',
-            'X-Requested-With': 'XMLHttpRequest',
-        },
-    })
-    .then(r => r.json())
-    .then(data => {
-        if (data.url) {
-            window.location.href = data.url;
-        } else {
-            alert(data.error || 'Failed to create payment session.');
-            processingStripe.value = false;
-        }
-    })
-    .catch(() => {
-        alert('Something went wrong. Please try again.');
-        processingStripe.value = false;
-    });
-}
-
-// ── Bank transfer ──
-const bankNotified = ref(false);
-
-function confirmBankTransfer() {
-    bankNotified.value = true;
-    router.post(route('client.payment.bank.notify', inv.invoiceid), {}, {
-        preserveScroll: true,
-    });
-}
-
-// ── Copy to clipboard ──
-function copyText(text) {
-    navigator.clipboard.writeText(text);
+// ── Helpers ──
+function gatewayIcon(module) {
+    const m = (module || '').toLowerCase();
+    if (m.includes('stripe')) return '💳';
+    if (m.includes('ssl') || m.includes('sslcommerz')) return '🏦';
+    if (m.includes('paypal')) return '🅿️';
+    if (m.includes('bank') || m.includes('wire')) return '🏧';
+    if (m.includes('razorpay')) return '💳';
+    return '💰';
 }
 </script>
 
@@ -202,7 +191,7 @@ function copyText(text) {
                     </dl>
                 </Card>
 
-                <!-- ═══════ PAY INVOICE (In-Portal) ═══════ -->
+                <!-- ═══════ PAY INVOICE ═══════ -->
                 <Card v-if="isUnpaid && balance > 0" title="Pay Invoice">
                     <div class="space-y-4">
                         <div class="text-center">
@@ -211,39 +200,52 @@ function copyText(text) {
                         </div>
 
                         <!-- Payment Method Tabs -->
-                        <div class="flex rounded-lg bg-gray-100 p-0.5">
-                            <button v-if="paymentConfig?.stripe" @click="activeTab = 'card'"
+                        <div v-if="hasGateways || hasCredit" class="flex rounded-lg bg-gray-100 p-0.5">
+                            <button v-if="hasGateways" @click="activeTab = 'gateway'"
                                 class="flex-1 px-3 py-2 text-[12px] font-semibold rounded-md transition-all"
-                                :class="activeTab === 'card' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'">
-                                💳 Card
+                                :class="activeTab === 'gateway' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'">
+                                💳 Pay Online
                             </button>
                             <button v-if="hasCredit" @click="activeTab = 'credit'"
                                 class="flex-1 px-3 py-2 text-[12px] font-semibold rounded-md transition-all"
                                 :class="activeTab === 'credit' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'">
-                                🏦 Credit
-                            </button>
-                            <button v-if="paymentConfig?.bank_transfer" @click="activeTab = 'bank'"
-                                class="flex-1 px-3 py-2 text-[12px] font-semibold rounded-md transition-all"
-                                :class="activeTab === 'bank' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'">
-                                🏧 Bank
+                                🏦 Use Credit
                             </button>
                         </div>
 
-                        <!-- ── Card Payment (Stripe) ── -->
-                        <div v-if="activeTab === 'card' && paymentConfig?.stripe" class="space-y-3">
-                            <p class="text-[12px] text-gray-500">Pay securely with your credit or debit card via Stripe.</p>
+                        <!-- ── Pay via Gateway (WHMCS SSO) ── -->
+                        <div v-if="activeTab === 'gateway' && hasGateways" class="space-y-3">
+                            <!-- Gateway selector -->
+                            <label class="text-[12px] font-semibold text-gray-500 uppercase tracking-wider block">Choose Payment Method</label>
+                            <div class="space-y-1.5">
+                                <label v-for="pm in paymentMethods" :key="pm.module"
+                                    class="flex items-center gap-3 px-3 py-2.5 rounded-lg border cursor-pointer transition-all"
+                                    :class="selectedGateway === pm.module ? 'border-indigo-300 bg-indigo-50/60 ring-1 ring-indigo-200' : 'border-gray-200 bg-gray-50 hover:bg-gray-100'">
+                                    <input type="radio" :value="pm.module" v-model="selectedGateway"
+                                        class="text-indigo-600 focus:ring-indigo-500 h-4 w-4" />
+                                    <span class="text-[15px]">{{ gatewayIcon(pm.module) }}</span>
+                                    <span class="text-[13px] font-medium" :class="selectedGateway === pm.module ? 'text-indigo-700' : 'text-gray-700'">{{ pm.displayname }}</span>
+                                </label>
+                            </div>
 
-                            <button @click="payWithStripe" :disabled="processingStripe"
-                                class="w-full inline-flex items-center justify-center gap-2 px-4 py-3 text-[13px] font-semibold text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 transition-colors shadow-sm disabled:opacity-50">
-                                <svg v-if="!processingStripe" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.25 8.25h19.5M2.25 9h19.5m-16.5 5.25h6m-6 2.25h3m-3.75 3h15a2.25 2.25 0 002.25-2.25V6.75A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25v10.5A2.25 2.25 0 004.5 19.5z" /></svg>
-                                <svg v-else class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" /><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
-                                {{ processingStripe ? 'Redirecting to Stripe...' : `Pay ${formatCurrency(balance)} with Card` }}
+                            <!-- Update method if changed -->
+                            <button v-if="selectedGateway && selectedGateway !== inv.paymentmethod"
+                                @click="changePaymentMethod" :disabled="changingMethod"
+                                class="w-full text-[12px] font-medium text-indigo-600 hover:text-indigo-700 py-1 transition-colors disabled:opacity-50">
+                                {{ changingMethod ? 'Updating...' : 'Set as payment method' }}
                             </button>
 
-                            <div class="flex items-center justify-center gap-3 pt-1">
-                                <span class="text-[10px] text-gray-400 uppercase tracking-wider">Secured by</span>
-                                <span class="text-[11px] font-bold text-gray-400">Stripe</span>
-                            </div>
+                            <!-- Pay Now button -->
+                            <button @click="payWithGateway" :disabled="processingPay || !payUrl"
+                                class="w-full inline-flex items-center justify-center gap-2 px-4 py-3 text-[13px] font-semibold text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 transition-colors shadow-sm disabled:opacity-50">
+                                <svg v-if="!processingPay" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.25 8.25h19.5M2.25 9h19.5m-16.5 5.25h6m-6 2.25h3m-3.75 3h15a2.25 2.25 0 002.25-2.25V6.75A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25v10.5A2.25 2.25 0 004.5 19.5z" /></svg>
+                                <svg v-else class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" /><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
+                                {{ processingPay ? 'Redirecting...' : `Pay ${formatCurrency(balance)} Now` }}
+                            </button>
+
+                            <p class="text-[11px] text-gray-400 text-center">
+                                You'll be securely redirected to complete payment
+                            </p>
                         </div>
 
                         <!-- ── Credit Balance ── -->
@@ -269,87 +271,14 @@ function copyText(text) {
                             </button>
 
                             <p v-if="parseFloat(creditAmount) < balance" class="text-[11px] text-amber-600 text-center">
-                                Remaining {{ formatCurrency(balance - parseFloat(creditAmount || 0)) }} can be paid via card or bank transfer.
+                                Remaining {{ formatCurrency(balance - parseFloat(creditAmount || 0)) }} can be paid via online payment.
                             </p>
                         </div>
 
-                        <!-- ── Bank Transfer ── -->
-                        <div v-if="activeTab === 'bank' && paymentConfig?.bank_transfer" class="space-y-3">
-                            <p class="text-[12px] text-gray-500">Transfer the amount to the bank account below. Use your invoice number as reference.</p>
-
-                            <div class="bg-gray-50 rounded-lg p-3 space-y-2.5 text-[13px]">
-                                <div v-if="paymentConfig.bank_details.bank_name" class="flex justify-between">
-                                    <span class="text-gray-500">Bank</span>
-                                    <span class="font-medium text-gray-900">{{ paymentConfig.bank_details.bank_name }}</span>
-                                </div>
-                                <div v-if="paymentConfig.bank_details.account_name" class="flex justify-between">
-                                    <span class="text-gray-500">Name</span>
-                                    <span class="font-medium text-gray-900">{{ paymentConfig.bank_details.account_name }}</span>
-                                </div>
-                                <div v-if="paymentConfig.bank_details.account_number" class="flex justify-between items-center">
-                                    <span class="text-gray-500">Account #</span>
-                                    <div class="flex items-center gap-1.5">
-                                        <span class="font-mono font-medium text-gray-900">{{ paymentConfig.bank_details.account_number }}</span>
-                                        <button @click="copyText(paymentConfig.bank_details.account_number)" class="text-gray-400 hover:text-indigo-600" title="Copy">
-                                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.666 3.888A2.25 2.25 0 0013.5 2.25h-3c-1.03 0-1.9.693-2.166 1.638m7.332 0c.055.194.084.4.084.612v0a.75.75 0 01-.75.75H9.75a.75.75 0 01-.75-.75v0c0-.212.03-.418.084-.612m7.332 0c.646.049 1.288.11 1.927.184 1.1.128 1.907 1.077 1.907 2.185V19.5a2.25 2.25 0 01-2.25 2.25H6.75A2.25 2.25 0 014.5 19.5V6.257c0-1.108.806-2.057 1.907-2.185a48.208 48.208 0 011.927-.184" /></svg>
-                                        </button>
-                                    </div>
-                                </div>
-                                <div v-if="paymentConfig.bank_details.routing_number" class="flex justify-between items-center">
-                                    <span class="text-gray-500">Routing #</span>
-                                    <div class="flex items-center gap-1.5">
-                                        <span class="font-mono font-medium text-gray-900">{{ paymentConfig.bank_details.routing_number }}</span>
-                                        <button @click="copyText(paymentConfig.bank_details.routing_number)" class="text-gray-400 hover:text-indigo-600" title="Copy">
-                                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.666 3.888A2.25 2.25 0 0013.5 2.25h-3c-1.03 0-1.9.693-2.166 1.638m7.332 0c.055.194.084.4.084.612v0a.75.75 0 01-.75.75H9.75a.75.75 0 01-.75-.75v0c0-.212.03-.418.084-.612m7.332 0c.646.049 1.288.11 1.927.184 1.1.128 1.907 1.077 1.907 2.185V19.5a2.25 2.25 0 01-2.25 2.25H6.75A2.25 2.25 0 014.5 19.5V6.257c0-1.108.806-2.057 1.907-2.185a48.208 48.208 0 011.927-.184" /></svg>
-                                        </button>
-                                    </div>
-                                </div>
-                                <div v-if="paymentConfig.bank_details.swift_code" class="flex justify-between items-center">
-                                    <span class="text-gray-500">SWIFT</span>
-                                    <div class="flex items-center gap-1.5">
-                                        <span class="font-mono font-medium text-gray-900">{{ paymentConfig.bank_details.swift_code }}</span>
-                                        <button @click="copyText(paymentConfig.bank_details.swift_code)" class="text-gray-400 hover:text-indigo-600" title="Copy">
-                                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.666 3.888A2.25 2.25 0 0013.5 2.25h-3c-1.03 0-1.9.693-2.166 1.638m7.332 0c.055.194.084.4.084.612v0a.75.75 0 01-.75.75H9.75a.75.75 0 01-.75-.75v0c0-.212.03-.418.084-.612m7.332 0c.646.049 1.288.11 1.927.184 1.1.128 1.907 1.077 1.907 2.185V19.5a2.25 2.25 0 01-2.25 2.25H6.75A2.25 2.25 0 014.5 19.5V6.257c0-1.108.806-2.057 1.907-2.185a48.208 48.208 0 011.927-.184" /></svg>
-                                        </button>
-                                    </div>
-                                </div>
-                                <div v-if="paymentConfig.bank_details.iban" class="flex justify-between items-center">
-                                    <span class="text-gray-500">IBAN</span>
-                                    <div class="flex items-center gap-1.5">
-                                        <span class="font-mono font-medium text-gray-900 text-[11px]">{{ paymentConfig.bank_details.iban }}</span>
-                                        <button @click="copyText(paymentConfig.bank_details.iban)" class="text-gray-400 hover:text-indigo-600" title="Copy">
-                                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.666 3.888A2.25 2.25 0 0013.5 2.25h-3c-1.03 0-1.9.693-2.166 1.638m7.332 0c.055.194.084.4.084.612v0a.75.75 0 01-.75.75H9.75a.75.75 0 01-.75-.75v0c0-.212.03-.418.084-.612m7.332 0c.646.049 1.288.11 1.927.184 1.1.128 1.907 1.077 1.907 2.185V19.5a2.25 2.25 0 01-2.25 2.25H6.75A2.25 2.25 0 014.5 19.5V6.257c0-1.108.806-2.057 1.907-2.185a48.208 48.208 0 011.927-.184" /></svg>
-                                        </button>
-                                    </div>
-                                </div>
-                                <div class="border-t border-gray-200 pt-2 mt-2">
-                                    <span class="text-gray-500">Reference</span>
-                                    <div class="flex items-center gap-1.5 mt-0.5">
-                                        <span class="font-mono font-bold text-indigo-600">INV-{{ inv.invoicenum || inv.invoiceid }}</span>
-                                        <button @click="copyText('INV-' + (inv.invoicenum || inv.invoiceid))" class="text-gray-400 hover:text-indigo-600" title="Copy">
-                                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.666 3.888A2.25 2.25 0 0013.5 2.25h-3c-1.03 0-1.9.693-2.166 1.638m7.332 0c.055.194.084.4.084.612v0a.75.75 0 01-.75.75H9.75a.75.75 0 01-.75-.75v0c0-.212.03-.418.084-.612m7.332 0c.646.049 1.288.11 1.927.184 1.1.128 1.907 1.077 1.907 2.185V19.5a2.25 2.25 0 01-2.25 2.25H6.75A2.25 2.25 0 014.5 19.5V6.257c0-1.108.806-2.057 1.907-2.185a48.208 48.208 0 011.927-.184" /></svg>
-                                        </button>
-                                    </div>
-                                </div>
-                            </div>
-
-                            <p v-if="paymentConfig.bank_details.instructions" class="text-[11px] text-gray-500 italic">
-                                {{ paymentConfig.bank_details.instructions }}
-                            </p>
-
-                            <button v-if="!bankNotified" @click="confirmBankTransfer"
-                                class="w-full px-4 py-2.5 text-[13px] font-medium text-indigo-700 bg-indigo-50 rounded-lg hover:bg-indigo-100 transition-colors">
-                                I've Made the Transfer
-                            </button>
-                            <p v-else class="text-[12px] text-emerald-600 font-medium text-center">
-                                ✓ We'll update your invoice once payment is confirmed.
-                            </p>
-                        </div>
-
-                        <!-- No payment methods available fallback -->
-                        <div v-if="!paymentConfig?.stripe && !hasCredit && !paymentConfig?.bank_transfer" class="text-center py-2">
-                            <p class="text-[13px] text-gray-500">No payment methods are currently configured.</p>
-                            <p class="text-[12px] text-gray-400 mt-1">Please contact support for payment assistance.</p>
+                        <!-- No payment methods fallback -->
+                        <div v-if="!hasGateways && !hasCredit" class="text-center py-2">
+                            <p class="text-[13px] text-gray-500">No payment methods available.</p>
+                            <p class="text-[12px] text-gray-400 mt-1">Please contact support for assistance.</p>
                         </div>
                     </div>
                 </Card>
