@@ -37,6 +37,8 @@ Route::prefix('services')->name('services.')->group(function () {
         ->middleware(['whmcs.own:service,id', 'throttle:10,1']);
     Route::post('/{id}/change-password', [ServiceController::class, 'changePassword'])->name('changePassword')
         ->middleware(['whmcs.own:service,id', 'throttle:5,1']);
+    Route::get('/{id}/sso', [ServiceController::class, 'ssoLogin'])->name('sso')
+        ->middleware(['whmcs.own:service,id', 'throttle:10,1']);
     Route::post('/{id}/action', [ServiceController::class, 'moduleAction'])->name('action')
         ->middleware(['whmcs.own:service,id', 'throttle:10,1']);
 });

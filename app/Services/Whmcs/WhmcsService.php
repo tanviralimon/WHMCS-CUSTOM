@@ -87,6 +87,7 @@ class WhmcsService
         return $this->client->callSafe('GetClientsProducts', [
             'clientid'  => $clientId,
             'serviceid' => $serviceId,
+            'stats'     => true,
         ]);
     }
 
@@ -128,6 +129,15 @@ class WhmcsService
         return $this->client->call('ModuleCustom', [
             'serviceid'       => $serviceId,
             'func_name'       => $funcName,
+        ]);
+    }
+
+    public function createSsoToken(int $clientId, int $serviceId, string $destination = 'clientarea:product_details'): array
+    {
+        return $this->client->call('CreateSsoToken', [
+            'client_id'   => $clientId,
+            'service_id'  => $serviceId,
+            'destination' => $destination,
         ]);
     }
 

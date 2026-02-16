@@ -67,9 +67,46 @@ class ServiceController extends Controller
             abort(404);
         }
 
+        // Determine service type for frontend (hosting, vps, etc.)
+        $groupName  = strtolower($service['groupname'] ?? '');
+        $serverModule = strtolower($service['servermodule'] ?? '');
+        $isHosting = str_contains($groupName, 'hosting') || str_contains($groupName, 'web')
+            || in_array($serverModule, ['spanel', 'cpanel', 'plesk', 'directadmin']);
+        $isVps = str_contains($groupName, 'vps') || str_contains($groupName, 'virtual')
+            || in_array($serverModule, ['virtualizor', 'proxmox', 'solusvm']);
+
+        // Build control panel login URL for hosting
+        $controlPanelUrl = null;
+        $webmailUrl = null;
+        if ($isHosting && !empty($service['serverhostname'])) {
+            $host = $service['serverhostname'];
+            $controlPanelUrl = 'https://' . $host . ':2083';
+            $webmailUrl = 'https://' . $host . ':2096';
+        }
+
         return Inertia::render('Client/Services/Show', [
-            'service' => $service,
+            'service'         => $service,
+            'serviceType'     => $isHosting ? 'hosting' : ($isVps ? 'vps' : 'other'),
+            'controlPanelUrl' => $controlPanelUrl,
+            'webmailUrl'      => $webmailUrl,
         ]);
+    }
+
+    public function ssoLogin(Request $request, int $id)
+    {
+        $clientId = $request->user()->whmcs_client_id;
+
+        try {
+            $result = $this->whmcs->createSsoToken($clientId, $id);
+
+            if (($result['result'] ?? '') === 'success' && !empty($result['redirect_url'])) {
+                return redirect()->away($result['redirect_url']);
+            }
+
+            return back()->withErrors(['whmcs' => $result['message'] ?? 'Failed to create login session.']);
+        } catch (\Exception $e) {
+            return back()->withErrors(['whmcs' => 'SSO login failed: ' . $e->getMessage()]);
+        }
     }
 
     public function requestCancel(Request $request, int $id)
