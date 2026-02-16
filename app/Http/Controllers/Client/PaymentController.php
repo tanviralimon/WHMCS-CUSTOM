@@ -119,11 +119,29 @@ class PaymentController extends Controller
         }
 
         $balance = (float) ($invoice['balance'] ?? $invoice['total']);
-        $currency = strtolower($invoice['currencycode'] ?? 'usd');
+        $currency = strtolower($invoice['currencycode'] ?? '');
+
+        // WHMCS GetInvoice doesn't return currencycode — detect from currencyprefix
+        if (empty($currency)) {
+            $prefix = $invoice['currencyprefix'] ?? '';
+            $currency = $this->detectCurrencyCode($prefix, $request->user()->whmcs_client_id);
+        }
+
+        // Invoice number: use invoicenum if set, otherwise the invoice ID
+        $invoiceNum = !empty($invoice['invoicenum']) ? $invoice['invoicenum'] : (string) $id;
+
+        Log::info('Stripe session params', [
+            'invoice'  => $id,
+            'balance'  => $balance,
+            'currency' => $currency,
+            'invoicenum' => $invoiceNum,
+            'raw_currencycode' => $invoice['currencycode'] ?? 'NOT SET',
+            'raw_currencyprefix' => $invoice['currencyprefix'] ?? 'NOT SET',
+        ]);
 
         try {
             $stripe = new \Stripe\StripeClient($secretKey);
-            $description = 'Invoice #' . ($invoice['invoicenum'] ?? $id);
+            $description = 'Invoice #' . $invoiceNum;
 
             $session = $stripe->checkout->sessions->create([
                 'payment_method_types' => ['card'],
@@ -496,5 +514,71 @@ class PaymentController extends Controller
             Log::error('SSLCommerz validation failed', ['invoice' => $id, 'error' => $e->getMessage()]);
             return redirect(route('client.invoices.show', $id) . '?payment_error=' . urlencode('Payment verification error. Contact support.'));
         }
+    }
+
+    /**
+     * Detect ISO 4217 currency code from WHMCS currency prefix/symbol.
+     * Falls back to fetching the client's currency from WHMCS.
+     */
+    private function detectCurrencyCode(string $prefix, int $clientId): string
+    {
+        // Common symbol → ISO code mapping
+        $symbolMap = [
+            '$'  => 'usd',
+            'US$' => 'usd',
+            '£'  => 'gbp',
+            '€'  => 'eur',
+            '৳'  => 'bdt',
+            'BDT' => 'bdt',
+            '¥'  => 'jpy',
+            '₹'  => 'inr',
+            'INR' => 'inr',
+            'A$' => 'aud',
+            'C$' => 'cad',
+            'R$' => 'brl',
+            '₱'  => 'php',
+            'RM' => 'myr',
+            'S$' => 'sgd',
+            'kr' => 'sek',
+            'CHF' => 'chf',
+            'zł' => 'pln',
+            '₫'  => 'vnd',
+            '₺'  => 'try',
+            '₩'  => 'krw',
+            'R'  => 'zar',
+        ];
+
+        $trimmed = trim($prefix);
+        if (isset($symbolMap[$trimmed])) {
+            return $symbolMap[$trimmed];
+        }
+
+        // If prefix is already an ISO code (3 letters), use it directly
+        if (preg_match('/^[A-Za-z]{3}$/', $trimmed)) {
+            return strtolower($trimmed);
+        }
+
+        // Last resort: fetch client profile to get currency
+        try {
+            $profile = $this->whmcs->getClientsDetails($clientId);
+            $currencyCode = $profile['currency_code'] ?? $profile['currencycode'] ?? '';
+            if (!empty($currencyCode)) {
+                return strtolower($currencyCode);
+            }
+            // Try to get from currency ID
+            $currencyId = $profile['currency'] ?? $profile['currencyid'] ?? null;
+            if ($currencyId) {
+                $currencies = $this->whmcs->getCurrencies();
+                foreach (($currencies['currencies']['currency'] ?? []) as $c) {
+                    if (($c['id'] ?? '') == $currencyId) {
+                        return strtolower($c['code'] ?? 'usd');
+                    }
+                }
+            }
+        } catch (\Exception $e) {
+            // fall through
+        }
+
+        return 'usd'; // absolute fallback
     }
 }
