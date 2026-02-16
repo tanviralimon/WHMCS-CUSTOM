@@ -37,15 +37,34 @@ class InvoiceController extends Controller
             abort(404);
         }
 
-        // Pay URL goes through our SSO-authenticated route (not direct WHMCS link)
-        $payUrl = route('client.invoices.pay', $id);
+        // Get client credit balance
+        $clientId = $request->user()->whmcs_client_id;
+        $profile  = $this->whmcs->getClientsDetails($clientId);
+        $creditBalance = (float) ($profile['credit'] ?? 0);
 
         // Get available payment methods
         $paymentMethods = $this->whmcs->getPaymentMethods();
 
+        // Payment gateway config (what's enabled)
+        $paymentConfig = [
+            'stripe'        => config('payment.stripe.enabled'),
+            'stripe_key'    => config('payment.stripe.publishable_key'),
+            'bank_transfer' => config('payment.bank_transfer.enabled'),
+            'bank_details'  => config('payment.bank_transfer.enabled') ? [
+                'bank_name'      => config('payment.bank_transfer.bank_name'),
+                'account_name'   => config('payment.bank_transfer.account_name'),
+                'account_number' => config('payment.bank_transfer.account_number'),
+                'routing_number' => config('payment.bank_transfer.routing_number'),
+                'swift_code'     => config('payment.bank_transfer.swift_code'),
+                'iban'           => config('payment.bank_transfer.iban'),
+                'instructions'   => config('payment.bank_transfer.instructions'),
+            ] : null,
+        ];
+
         return Inertia::render('Client/Invoices/Show', [
             'invoice'        => $result,
-            'payUrl'         => $payUrl,
+            'creditBalance'  => $creditBalance,
+            'paymentConfig'  => $paymentConfig,
             'paymentMethods' => $paymentMethods['paymentmethods']['paymentmethod'] ?? [],
         ]);
     }

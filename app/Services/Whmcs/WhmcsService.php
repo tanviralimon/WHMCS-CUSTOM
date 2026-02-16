@@ -597,6 +597,34 @@ class WhmcsService
     }
 
     /**
+     * Apply existing credit balance to an invoice.
+     */
+    public function applyCredit(int $invoiceId, float $amount): array
+    {
+        return $this->client->call('ApplyCredit', [
+            'invoiceid' => $invoiceId,
+            'amount'    => $amount,
+        ]);
+    }
+
+    /**
+     * Record a payment against an invoice (e.g. after Stripe/PayPal capture).
+     */
+    public function addInvoicePayment(int $invoiceId, string $transId, float $amount, string $gateway, ?float $fees = null): array
+    {
+        $params = [
+            'invoiceid' => $invoiceId,
+            'transid'   => $transId,
+            'amount'    => $amount,
+            'gateway'   => $gateway,
+        ];
+        if ($fees !== null) {
+            $params['fees'] = $fees;
+        }
+        return $this->client->call('AddInvoicePayment', $params);
+    }
+
+    /**
      * Update the payment method on an invoice.
      */
     public function updateInvoicePaymentMethod(int $invoiceId, string $paymentMethod): array

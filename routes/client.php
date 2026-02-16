@@ -12,6 +12,7 @@ use App\Http\Controllers\Client\DownloadController;
 use App\Http\Controllers\Client\InvoiceController;
 use App\Http\Controllers\Client\KnowledgebaseController;
 use App\Http\Controllers\Client\OrderController;
+use App\Http\Controllers\Client\PaymentController;
 use App\Http\Controllers\Client\ServiceController;
 use App\Http\Controllers\Client\SsoController;
 use App\Http\Controllers\Client\TicketController;
@@ -89,6 +90,18 @@ Route::prefix('invoices')->name('invoices.')->group(function () {
         ->middleware(['whmcs.own:invoice,id', 'throttle:10,1']);
     Route::post('/{id}/payment-method', [InvoiceController::class, 'updatePaymentMethod'])->name('paymentmethod')
         ->middleware(['whmcs.own:invoice,id', 'throttle:10,1']);
+});
+
+// ─── In-Portal Payments ────────────────────────────────────
+Route::prefix('payment')->name('payment.')->group(function () {
+    Route::post('/{id}/apply-credit', [PaymentController::class, 'applyCredit'])->name('applyCredit')
+        ->middleware(['whmcs.own:invoice,id', 'throttle:10,1']);
+    Route::post('/{id}/stripe/create-session', [PaymentController::class, 'createStripeSession'])->name('stripe.create')
+        ->middleware(['whmcs.own:invoice,id', 'throttle:10,1']);
+    Route::get('/{id}/stripe/success', [PaymentController::class, 'stripeSuccess'])->name('stripe.success')
+        ->middleware('whmcs.own:invoice,id');
+    Route::post('/{id}/bank-transfer', [PaymentController::class, 'bankTransferNotify'])->name('bank.notify')
+        ->middleware(['whmcs.own:invoice,id', 'throttle:5,1']);
 });
 
 // ─── Billing ────────────────────────────────────────────────
