@@ -266,11 +266,29 @@ function handleSPanelSso($server, $service, $hostname, $username, $redirect = ''
     ];
 
     // SPanel SSO supports redirect parameter in "category/page" format
-    // e.g. "file/manager", "email/accounts", "database/databases", "domain/dns"
+    // Known working pages: file/filemanager, email/emailaccounts, database/mysqldatabases,
+    //   tool/sslcertificates, domain/addondomains, domain/dnszones
     if (!empty($redirect)) {
         $postData['redirect'] = $redirect;
     }
 
+    $ssoResult = callSPanelSsoApi($endpointUrl, $postData);
+
+    // If SSO with redirect failed (e.g. "Unknown page or category"), retry WITHOUT redirect
+    // so the user at least gets logged into the panel home
+    if ($ssoResult['result'] !== 'success' && !empty($redirect)) {
+        unset($postData['redirect']);
+        $ssoResult = callSPanelSsoApi($endpointUrl, $postData);
+    }
+
+    return $ssoResult;
+}
+
+/**
+ * Helper: Make the actual cURL call to SPanel SSO API
+ */
+function callSPanelSsoApi($endpointUrl, $postData)
+{
     $ch = curl_init();
     curl_setopt($ch, CURLOPT_URL, $endpointUrl);
     curl_setopt($ch, CURLOPT_RETURNTRANSFER, 1);

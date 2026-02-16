@@ -284,7 +284,7 @@ const vpsActions = ['reboot', 'shutdown', 'boot'];
                     <Card title="Management Tools" description="Common hosting management tasks via your control panel.">
                         <div class="grid grid-cols-2 sm:grid-cols-3 gap-3">
                             <!-- File Manager -->
-                            <a :href="ssoUrl('file/manager')" target="_blank"
+                            <a :href="ssoUrl('file/filemanager')" target="_blank"
                                 class="flex flex-col items-center gap-2.5 p-4 rounded-xl border border-gray-100 bg-gray-50/50 hover:bg-white hover:border-gray-200 hover:shadow-sm transition-all group">
                                 <div class="w-10 h-10 rounded-lg bg-blue-100 flex items-center justify-center">
                                     <svg class="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" /></svg>
@@ -293,7 +293,7 @@ const vpsActions = ['reboot', 'shutdown', 'boot'];
                             </a>
 
                             <!-- Email Accounts -->
-                            <a :href="ssoUrl('email/accounts')" target="_blank"
+                            <a :href="ssoUrl('email/emailaccounts')" target="_blank"
                                 class="flex flex-col items-center gap-2.5 p-4 rounded-xl border border-gray-100 bg-gray-50/50 hover:bg-white hover:border-gray-200 hover:shadow-sm transition-all group">
                                 <div class="w-10 h-10 rounded-lg bg-emerald-100 flex items-center justify-center">
                                     <svg class="w-5 h-5 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M16 12a4 4 0 10-8 0 4 4 0 008 0zm0 0v1.5a2.5 2.5 0 005 0V12a9 9 0 10-9 9m4.5-1.206a8.959 8.959 0 01-4.5 1.207" /></svg>
@@ -302,7 +302,7 @@ const vpsActions = ['reboot', 'shutdown', 'boot'];
                             </a>
 
                             <!-- MySQL Databases -->
-                            <a :href="ssoUrl('database/databases')" target="_blank"
+                            <a :href="ssoUrl('database/mysqldatabases')" target="_blank"
                                 class="flex flex-col items-center gap-2.5 p-4 rounded-xl border border-gray-100 bg-gray-50/50 hover:bg-white hover:border-gray-200 hover:shadow-sm transition-all group">
                                 <div class="w-10 h-10 rounded-lg bg-orange-100 flex items-center justify-center">
                                     <svg class="w-5 h-5 text-orange-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4m0 5c0 2.21-3.582 4-8 4s-8-1.79-8-4" /></svg>
@@ -311,7 +311,7 @@ const vpsActions = ['reboot', 'shutdown', 'boot'];
                             </a>
 
                             <!-- Security / SSL -->
-                            <a :href="ssoUrl('tool/ssl')" target="_blank"
+                            <a :href="ssoUrl('tool/sslcertificates')" target="_blank"
                                 class="flex flex-col items-center gap-2.5 p-4 rounded-xl border border-gray-100 bg-gray-50/50 hover:bg-white hover:border-gray-200 hover:shadow-sm transition-all group">
                                 <div class="w-10 h-10 rounded-lg bg-purple-100 flex items-center justify-center">
                                     <svg class="w-5 h-5 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" /></svg>
@@ -320,7 +320,7 @@ const vpsActions = ['reboot', 'shutdown', 'boot'];
                             </a>
 
                             <!-- Domains -->
-                            <a :href="ssoUrl('domain/domains')" target="_blank"
+                            <a :href="ssoUrl('domain/addondomains')" target="_blank"
                                 class="flex flex-col items-center gap-2.5 p-4 rounded-xl border border-gray-100 bg-gray-50/50 hover:bg-white hover:border-gray-200 hover:shadow-sm transition-all group">
                                 <div class="w-10 h-10 rounded-lg bg-cyan-100 flex items-center justify-center">
                                     <svg class="w-5 h-5 text-cyan-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9" /></svg>
@@ -329,7 +329,7 @@ const vpsActions = ['reboot', 'shutdown', 'boot'];
                             </a>
 
                             <!-- DNS Editor -->
-                            <a :href="ssoUrl('domain/dns')" target="_blank"
+                            <a :href="ssoUrl('domain/dnszones')" target="_blank"
                                 class="flex flex-col items-center gap-2.5 p-4 rounded-xl border border-gray-100 bg-gray-50/50 hover:bg-white hover:border-gray-200 hover:shadow-sm transition-all group">
                                 <div class="w-10 h-10 rounded-lg bg-indigo-100 flex items-center justify-center">
                                     <svg class="w-5 h-5 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2m-2-4h.01M17 16h.01" /></svg>
