@@ -13,12 +13,18 @@ Route::get('/sso/login', [WhmcsSsoController::class, 'redirect'])->name('sso.log
 Route::get('/sso/callback', [WhmcsSsoController::class, 'callback'])->name('sso.callback');
 Route::get('/sso/auto-login', [WhmcsSsoController::class, 'autoLogin'])->name('sso.auto-login');
 
-// ─── Payment Gateway Callbacks (public, no auth/CSRF) ──────
-// SSLCommerz, etc. send server-to-server POST callbacks without cookies/CSRF.
-// These must be outside auth middleware and CSRF protection.
+// ─── Payment Gateway Callbacks (public, no auth/CSRF/session) ──────
+// SSLCommerz redirects user's browser via cross-site POST. With SameSite=Lax,
+// session cookies aren't sent on cross-site POST, so StartSession would create
+// a new session and overwrite the old one — logging the user out.
+// Solution: exclude session middleware entirely; use query params for status.
 Route::match(['get', 'post'], '/client/payment/{id}/callback/{gateway}', [PaymentController::class, 'callback'])
     ->name('client.payment.callback')
-    ->where('gateway', '[a-z]+');
+    ->where('gateway', '[a-z]+')
+    ->withoutMiddleware([
+        \Illuminate\Session\Middleware\StartSession::class,
+        \Illuminate\View\Middleware\ShareErrorsFromSession::class,
+    ]);
 
 // Old routes redirect to new client.* routes
 Route::middleware(['auth'])->group(function () {

@@ -23,9 +23,22 @@ const balance = computed(() => parseFloat(inv.balance || 0));
 const hasCredit = computed(() => (props.creditBalance || 0) > 0);
 const hasGateways = computed(() => props.paymentMethods && props.paymentMethods.length > 0);
 
-// Flash messages
-const flashSuccess = computed(() => page.props.flash?.success);
-const flashErrors = computed(() => page.props.errors);
+// Flash messages (from session flash or query params after payment callback)
+const urlParams = new URLSearchParams(window.location.search);
+const paymentSuccessFromUrl = urlParams.get('payment_success');
+const paymentErrorFromUrl = urlParams.get('payment_error');
+
+const flashSuccess = computed(() => paymentSuccessFromUrl ? 'Payment completed successfully!' : page.props.flash?.success);
+const flashErrors = computed(() => {
+    if (paymentErrorFromUrl) return { payment: paymentErrorFromUrl };
+    return page.props.errors;
+});
+
+// Clean up query params from URL without reloading (cosmetic)
+if (paymentSuccessFromUrl || paymentErrorFromUrl) {
+    const cleanUrl = window.location.pathname;
+    window.history.replaceState({}, '', cleanUrl);
+}
 
 // Payment tab
 const activeTab = ref(hasGateways.value ? 'gateway' : (hasCredit.value ? 'credit' : 'gateway'));

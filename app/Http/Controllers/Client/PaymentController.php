@@ -351,28 +351,27 @@ class PaymentController extends Controller
 
     /**
      * Stripe success callback.
+     * Note: no session available (middleware excluded to prevent cross-site session overwrite).
+     * Uses query params for status messages instead of flash.
      */
     private function handleStripeCallback(Request $request, int $id)
     {
         $sessionId = $request->get('session_id');
         if (!$sessionId) {
-            return redirect()->route('client.invoices.show', $id)
-                ->withErrors(['payment' => 'Invalid payment session.']);
+            return redirect(route('client.invoices.show', $id) . '?payment_error=' . urlencode('Invalid payment session.'));
         }
 
         try {
             $stripeConfig = $this->getStripeCredentials();
             if (!$stripeConfig) {
-                return redirect()->route('client.invoices.show', $id)
-                    ->withErrors(['payment' => 'Stripe configuration error. Contact support.']);
+                return redirect(route('client.invoices.show', $id) . '?payment_error=' . urlencode('Stripe configuration error. Contact support.'));
             }
 
             $stripe = new \Stripe\StripeClient($stripeConfig['secret_key']);
             $session = $stripe->checkout->sessions->retrieve($sessionId);
 
             if ($session->payment_status !== 'paid') {
-                return redirect()->route('client.invoices.show', $id)
-                    ->withErrors(['payment' => 'Payment was not completed.']);
+                return redirect(route('client.invoices.show', $id) . '?payment_error=' . urlencode('Payment was not completed.'));
             }
 
             $amount = $session->amount_total / 100;
@@ -394,17 +393,16 @@ class PaymentController extends Controller
 
             $this->whmcs->addInvoicePayment($id, $transId, $amount, 'Stripe', $fees);
 
-            return redirect()->route('client.invoices.show', $id)
-                ->with('success', 'Payment completed successfully!');
+            return redirect(route('client.invoices.show', $id) . '?payment_success=1');
         } catch (\Exception $e) {
             Log::error('Stripe callback failed', ['invoice' => $id, 'error' => $e->getMessage()]);
-            return redirect()->route('client.invoices.show', $id)
-                ->withErrors(['payment' => 'Payment verification failed. Contact support if you were charged.']);
+            return redirect(route('client.invoices.show', $id) . '?payment_error=' . urlencode('Payment verification failed. Contact support if you were charged.'));
         }
     }
 
     /**
      * SSLCommerz success/fail callback.
+     * Note: no session available (middleware excluded to prevent cross-site session overwrite).
      */
     private function handleSslcommerzCallback(Request $request, int $id)
     {
@@ -415,15 +413,13 @@ class PaymentController extends Controller
 
         if ($status !== 'VALID' && $status !== 'VALIDATED') {
             $msg = $status === 'FAILED' ? 'Payment failed.' : 'Payment was cancelled.';
-            return redirect()->route('client.invoices.show', $id)
-                ->withErrors(['payment' => $msg]);
+            return redirect(route('client.invoices.show', $id) . '?payment_error=' . urlencode($msg));
         }
 
         // Validate with SSLCommerz using credentials from WHMCS
         $sslConfig = $this->getSslcommerzCredentials();
         if (!$sslConfig) {
-            return redirect()->route('client.invoices.show', $id)
-                ->withErrors(['payment' => 'SSLCommerz configuration error. Contact support.']);
+            return redirect(route('client.invoices.show', $id) . '?payment_error=' . urlencode('SSLCommerz configuration error. Contact support.'));
         }
 
         $storeId   = $sslConfig['store_id'];
@@ -452,16 +448,13 @@ class PaymentController extends Controller
                 $validAmount = (float) ($result['amount'] ?? $amount);
                 $this->whmcs->addInvoicePayment($id, $tranId, $validAmount, 'SSLCommerz');
 
-                return redirect()->route('client.invoices.show', $id)
-                    ->with('success', 'Payment completed successfully!');
+                return redirect(route('client.invoices.show', $id) . '?payment_success=1');
             }
 
-            return redirect()->route('client.invoices.show', $id)
-                ->withErrors(['payment' => 'Payment validation failed. Contact support if you were charged.']);
+            return redirect(route('client.invoices.show', $id) . '?payment_error=' . urlencode('Payment validation failed. Contact support if you were charged.'));
         } catch (\Exception $e) {
             Log::error('SSLCommerz validation failed', ['invoice' => $id, 'error' => $e->getMessage()]);
-            return redirect()->route('client.invoices.show', $id)
-                ->withErrors(['payment' => 'Payment verification error. Contact support.']);
+            return redirect(route('client.invoices.show', $id) . '?payment_error=' . urlencode('Payment verification error. Contact support.'));
         }
     }
 }
