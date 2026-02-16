@@ -91,15 +91,27 @@ class PaymentController extends Controller
         // 1. Try .env override first (full sk_live_* / sk_test_* key)
         $secretKey = config('payment.stripe_secret_key');
 
+        Log::info('Stripe key debug', [
+            'from_env' => $secretKey ? (substr($secretKey, 0, 7) . '...' . substr($secretKey, -4)) : 'EMPTY',
+            'env_raw'  => env('STRIPE_SECRET_KEY') ? 'SET' : 'NOT SET',
+        ]);
+
         // 2. Fall back to WHMCS gateway config
         if (empty($secretKey)) {
             $stripeConfig = $this->getStripeCredentials();
             $secretKey = $stripeConfig['secret_key'] ?? null;
+            Log::info('Stripe fallback to WHMCS key', [
+                'key_prefix' => $secretKey ? substr($secretKey, 0, 7) : 'EMPTY',
+            ]);
         }
 
         // 3. If key is a restricted key (rk_*), it can't create Checkout Sessions
         //    → fall back to SSO so WHMCS handles the payment natively
         if (empty($secretKey) || str_starts_with($secretKey, 'rk_')) {
+            Log::info('Stripe falling back to SSO', [
+                'reason' => empty($secretKey) ? 'no key' : 'restricted key (rk_*)',
+                'invoice' => $id,
+            ]);
             if (!empty($secretKey)) {
                 Log::info('Stripe key is restricted (rk_*), falling back to SSO payment', ['invoice' => $id]);
             }
