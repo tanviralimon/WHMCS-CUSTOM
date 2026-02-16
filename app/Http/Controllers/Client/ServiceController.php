@@ -67,28 +67,32 @@ class ServiceController extends Controller
             abort(404);
         }
 
-        // Determine service type for frontend (hosting, vps, etc.)
-        $groupName  = strtolower($service['groupname'] ?? '');
-        $serverModule = strtolower($service['servermodule'] ?? '');
-        $isHosting = str_contains($groupName, 'hosting') || str_contains($groupName, 'web')
-            || in_array($serverModule, ['spanel', 'cpanel', 'plesk', 'directadmin']);
-        $isVps = str_contains($groupName, 'vps') || str_contains($groupName, 'virtual')
-            || in_array($serverModule, ['virtualizor', 'proxmox', 'solusvm']);
+        // Get module info from SSO proxy (reads WHMCS server config directly)
+        $serviceInfo = $this->whmcs->getServiceInfo($id, $clientId);
 
-        // Build control panel login URL for hosting
-        $controlPanelUrl = null;
-        $webmailUrl = null;
-        if ($isHosting && !empty($service['serverhostname'])) {
-            $host = $service['serverhostname'];
-            $controlPanelUrl = 'https://' . $host . ':2083';
-            $webmailUrl = 'https://' . $host . ':2096';
+        $module = $serviceInfo['module'] ?? '';
+
+        // Determine service type from module
+        $hostingModules = ['spanel', 'cpanel', 'plesk', 'directadmin'];
+        $vpsModules     = ['virtualizor', 'proxmox', 'solusvm'];
+
+        $isHosting = in_array($module, $hostingModules);
+        $isVps     = in_array($module, $vpsModules);
+
+        // Fallback to group name if module not detected
+        if (!$isHosting && !$isVps) {
+            $groupName = strtolower($service['groupname'] ?? '');
+            $isHosting = str_contains($groupName, 'hosting') || str_contains($groupName, 'web');
+            $isVps     = str_contains($groupName, 'vps') || str_contains($groupName, 'virtual');
         }
 
         return Inertia::render('Client/Services/Show', [
             'service'         => $service,
             'serviceType'     => $isHosting ? 'hosting' : ($isVps ? 'vps' : 'other'),
-            'controlPanelUrl' => $controlPanelUrl,
-            'webmailUrl'      => $webmailUrl,
+            'serverModule'    => $module,
+            'controlPanelUrl' => $serviceInfo['panelUrl'] ?? null,
+            'webmailUrl'      => $serviceInfo['webmailUrl'] ?? null,
+            'ssoSupported'    => $serviceInfo['ssoSupported'] ?? false,
         ]);
     }
 
@@ -97,7 +101,8 @@ class ServiceController extends Controller
         $clientId = $request->user()->whmcs_client_id;
 
         try {
-            $result = $this->whmcs->createSsoToken($clientId, $id);
+            // Call SSO proxy — goes directly to spanel/cpanel, NOT WHMCS
+            $result = $this->whmcs->panelSsoLogin($id, $clientId);
 
             if (($result['result'] ?? '') === 'success' && !empty($result['redirect_url'])) {
                 return redirect()->away($result['redirect_url']);

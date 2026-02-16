@@ -141,6 +141,29 @@ class WhmcsService
         ]);
     }
 
+    /**
+     * Get service info from SSO proxy (module type, panel URLs, etc.)
+     */
+    public function getServiceInfo(int $serviceId, int $clientId = 0): array
+    {
+        return $this->client->callSsoProxySafe('GetServiceInfo', [
+            'serviceid' => $serviceId,
+            'clientid'  => $clientId,
+        ]);
+    }
+
+    /**
+     * Generate a direct SSO login URL for the control panel (SPanel, cPanel, etc.)
+     * This goes directly to the panel, NOT to WHMCS clientarea.
+     */
+    public function panelSsoLogin(int $serviceId, int $clientId = 0): array
+    {
+        return $this->client->callSsoProxy('SsoLogin', [
+            'serviceid' => $serviceId,
+            'clientid'  => $clientId,
+        ]);
+    }
+
     // ─── Addons ────────────────────────────────────────────
 
     public function getClientsAddons(int $clientId, int $offset = 0, int $limit = 25): array

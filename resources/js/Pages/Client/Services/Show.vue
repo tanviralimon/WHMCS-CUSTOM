@@ -13,14 +13,29 @@ const flash = computed(() => usePage().props.flash || {});
 const props = defineProps({
     service: Object,
     serviceType: { type: String, default: 'other' },
+    serverModule: { type: String, default: '' },
     controlPanelUrl: { type: String, default: null },
     webmailUrl: { type: String, default: null },
+    ssoSupported: { type: Boolean, default: false },
 });
 
 const s = props.service;
 const isHosting = props.serviceType === 'hosting';
 const isVps = props.serviceType === 'vps';
 const isActive = s.status === 'Active';
+
+// SSO login URL — use route if SSO is supported, otherwise fall back to direct panel URL
+const panelLoginUrl = computed(() => {
+    if (props.ssoSupported) return route('client.services.sso', s.id);
+    return props.controlPanelUrl;
+});
+const panelLoginIsSSO = props.ssoSupported;
+
+// Module display name
+const moduleName = computed(() => {
+    const names = { spanel: 'SPanel', cpanel: 'cPanel', plesk: 'Plesk', directadmin: 'DirectAdmin', virtualizor: 'Virtualizor', proxmox: 'Proxmox', solusvm: 'SolusVM' };
+    return names[props.serverModule] || props.serverModule || 'Control Panel';
+});
 
 // ─── Tabs ──────────────────────────────────────────────────
 const tabs = computed(() => {
@@ -140,11 +155,11 @@ const vpsActions = ['reboot', 'shutdown', 'boot'];
         <div v-if="flash.error || $page.props.errors?.whmcs" class="mb-4 px-4 py-3 bg-red-50 border border-red-200 rounded-lg text-[13px] text-red-700">{{ flash.error || $page.props.errors.whmcs }}</div>
 
         <!-- Login Buttons Bar (hosting, active) -->
-        <div v-if="isHosting && isActive" class="mb-6 flex flex-wrap gap-3">
-            <a :href="route('client.services.sso', s.id)" target="_blank"
+        <div v-if="isHosting && isActive && panelLoginUrl" class="mb-6 flex flex-wrap gap-3">
+            <a :href="panelLoginUrl" target="_blank"
                 class="inline-flex items-center gap-2 px-5 py-2.5 bg-indigo-600 text-white text-[13px] font-semibold rounded-lg hover:bg-indigo-700 shadow-sm transition-colors">
                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2zM9 9h6v6H9V9z" /></svg>
-                Login to Control Panel
+                Login to {{ moduleName }}
             </a>
             <a v-if="webmailUrl" :href="webmailUrl" target="_blank" rel="noopener"
                 class="inline-flex items-center gap-2 px-5 py-2.5 bg-white text-gray-700 text-[13px] font-semibold rounded-lg border border-gray-300 hover:bg-gray-50 shadow-sm transition-colors">
@@ -231,13 +246,13 @@ const vpsActions = ['reboot', 'shutdown', 'boot'];
                     <!-- Quick Access -->
                     <Card title="Quick Access" description="Login to your hosting control panel to manage your website.">
                         <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                            <a :href="route('client.services.sso', s.id)" target="_blank"
+                            <a v-if="panelLoginUrl" :href="panelLoginUrl" target="_blank"
                                 class="flex items-center gap-3 p-4 rounded-xl border border-gray-200 hover:border-indigo-300 hover:bg-indigo-50/60 transition-all group">
                                 <div class="w-10 h-10 rounded-lg bg-indigo-100 flex items-center justify-center flex-shrink-0">
                                     <svg class="w-5 h-5 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2zM9 9h6v6H9V9z" /></svg>
                                 </div>
                                 <div class="min-w-0">
-                                    <p class="text-[13px] font-semibold text-gray-900 group-hover:text-indigo-700">Login to Control Panel</p>
+                                    <p class="text-[13px] font-semibold text-gray-900 group-hover:text-indigo-700">Login to {{ moduleName }}</p>
                                     <p class="text-[11px] text-gray-500">Manage files, emails, databases &amp; more</p>
                                 </div>
                                 <svg class="w-4 h-4 text-gray-300 ml-auto flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" /></svg>
@@ -261,7 +276,7 @@ const vpsActions = ['reboot', 'shutdown', 'boot'];
                     <Card title="Management Tools" description="Common hosting management tasks via your control panel.">
                         <div class="grid grid-cols-2 sm:grid-cols-3 gap-3">
                             <!-- File Manager -->
-                            <a :href="route('client.services.sso', s.id)" target="_blank"
+                            <a :href="panelLoginUrl" target="_blank"
                                 class="flex flex-col items-center gap-2.5 p-4 rounded-xl border border-gray-100 bg-gray-50/50 hover:bg-white hover:border-gray-200 hover:shadow-sm transition-all group">
                                 <div class="w-10 h-10 rounded-lg bg-blue-100 flex items-center justify-center">
                                     <svg class="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" /></svg>
@@ -270,7 +285,7 @@ const vpsActions = ['reboot', 'shutdown', 'boot'];
                             </a>
 
                             <!-- Email Accounts -->
-                            <a :href="route('client.services.sso', s.id)" target="_blank"
+                            <a :href="panelLoginUrl" target="_blank"
                                 class="flex flex-col items-center gap-2.5 p-4 rounded-xl border border-gray-100 bg-gray-50/50 hover:bg-white hover:border-gray-200 hover:shadow-sm transition-all group">
                                 <div class="w-10 h-10 rounded-lg bg-emerald-100 flex items-center justify-center">
                                     <svg class="w-5 h-5 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M16 12a4 4 0 10-8 0 4 4 0 008 0zm0 0v1.5a2.5 2.5 0 005 0V12a9 9 0 10-9 9m4.5-1.206a8.959 8.959 0 01-4.5 1.207" /></svg>
@@ -279,7 +294,7 @@ const vpsActions = ['reboot', 'shutdown', 'boot'];
                             </a>
 
                             <!-- MySQL Databases -->
-                            <a :href="route('client.services.sso', s.id)" target="_blank"
+                            <a :href="panelLoginUrl" target="_blank"
                                 class="flex flex-col items-center gap-2.5 p-4 rounded-xl border border-gray-100 bg-gray-50/50 hover:bg-white hover:border-gray-200 hover:shadow-sm transition-all group">
                                 <div class="w-10 h-10 rounded-lg bg-orange-100 flex items-center justify-center">
                                     <svg class="w-5 h-5 text-orange-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4m0 5c0 2.21-3.582 4-8 4s-8-1.79-8-4" /></svg>
@@ -288,7 +303,7 @@ const vpsActions = ['reboot', 'shutdown', 'boot'];
                             </a>
 
                             <!-- Security / SSL -->
-                            <a :href="route('client.services.sso', s.id)" target="_blank"
+                            <a :href="panelLoginUrl" target="_blank"
                                 class="flex flex-col items-center gap-2.5 p-4 rounded-xl border border-gray-100 bg-gray-50/50 hover:bg-white hover:border-gray-200 hover:shadow-sm transition-all group">
                                 <div class="w-10 h-10 rounded-lg bg-purple-100 flex items-center justify-center">
                                     <svg class="w-5 h-5 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" /></svg>
@@ -297,7 +312,7 @@ const vpsActions = ['reboot', 'shutdown', 'boot'];
                             </a>
 
                             <!-- Domains -->
-                            <a :href="route('client.services.sso', s.id)" target="_blank"
+                            <a :href="panelLoginUrl" target="_blank"
                                 class="flex flex-col items-center gap-2.5 p-4 rounded-xl border border-gray-100 bg-gray-50/50 hover:bg-white hover:border-gray-200 hover:shadow-sm transition-all group">
                                 <div class="w-10 h-10 rounded-lg bg-cyan-100 flex items-center justify-center">
                                     <svg class="w-5 h-5 text-cyan-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9" /></svg>
@@ -306,7 +321,7 @@ const vpsActions = ['reboot', 'shutdown', 'boot'];
                             </a>
 
                             <!-- DNS Editor -->
-                            <a :href="route('client.services.sso', s.id)" target="_blank"
+                            <a :href="panelLoginUrl" target="_blank"
                                 class="flex flex-col items-center gap-2.5 p-4 rounded-xl border border-gray-100 bg-gray-50/50 hover:bg-white hover:border-gray-200 hover:shadow-sm transition-all group">
                                 <div class="w-10 h-10 rounded-lg bg-indigo-100 flex items-center justify-center">
                                     <svg class="w-5 h-5 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2m-2-4h.01M17 16h.01" /></svg>
@@ -314,7 +329,7 @@ const vpsActions = ['reboot', 'shutdown', 'boot'];
                                 <span class="text-[12px] font-medium text-gray-700 group-hover:text-gray-900 text-center">DNS Editor</span>
                             </a>
                         </div>
-                        <p class="mt-3 text-[11px] text-gray-400 text-center">All tools open in your control panel via SSO login.</p>
+                        <p class="mt-3 text-[11px] text-gray-400 text-center">All tools open in {{ moduleName }} via SSO login.</p>
                     </Card>
 
                     <!-- Config Options on Management tab -->
@@ -356,10 +371,10 @@ const vpsActions = ['reboot', 'shutdown', 'boot'];
                 <Card title="Actions">
                     <div class="space-y-2">
                         <!-- SSO Login shortcuts (hosting) -->
-                        <a v-if="isHosting && isActive" :href="route('client.services.sso', s.id)" target="_blank"
+                        <a v-if="isHosting && isActive && panelLoginUrl" :href="panelLoginUrl" target="_blank"
                             class="w-full flex items-center gap-2.5 px-3 py-2.5 text-[13px] font-medium text-indigo-700 bg-indigo-50 rounded-lg hover:bg-indigo-100 transition-colors">
                             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2zM9 9h6v6H9V9z" /></svg>
-                            Login to Control Panel
+                            Login to {{ moduleName }}
                         </a>
 
                         <a v-if="isHosting && isActive && webmailUrl" :href="webmailUrl" target="_blank" rel="noopener"

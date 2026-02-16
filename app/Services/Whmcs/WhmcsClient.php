@@ -170,6 +170,60 @@ class WhmcsClient
     }
 
     /**
+     * Call the SSO proxy on the WHMCS server.
+     * Generates direct SSO login URLs for control panels (SPanel, cPanel, etc.)
+     */
+    public function callSsoProxy(string $action, array $params = []): array
+    {
+        $payload = array_merge([
+            'action'     => $action,
+            'identifier' => $this->identifier,
+            'secret'     => $this->secret,
+        ], $params);
+
+        try {
+            $response = Http::timeout($this->timeout)
+                ->withOptions(['verify' => $this->verifySSL])
+                ->asForm()
+                ->post("{$this->baseUrl}/orcus_sso.php", $payload);
+
+            $data = $response->json();
+
+            if (!$data || !is_array($data)) {
+                Log::error('WHMCS SSO Proxy: Non-JSON response', [
+                    'action' => $action,
+                    'status' => $response->status(),
+                    'body'   => substr($response->body(), 0, 500),
+                ]);
+                throw new WhmcsApiException('Invalid response from SSO service', $action, []);
+            }
+
+            if (($data['result'] ?? '') === 'error') {
+                throw new WhmcsApiException($data['message'] ?? 'SSO operation failed', $action, []);
+            }
+
+            return $data;
+        } catch (WhmcsApiException $e) {
+            throw $e;
+        } catch (\Exception $e) {
+            Log::error('WHMCS SSO Proxy error', ['action' => $action, 'error' => $e->getMessage()]);
+            throw new WhmcsApiException('SSO service unavailable: ' . $e->getMessage(), $action, []);
+        }
+    }
+
+    /**
+     * Non-throwing version of callSsoProxy.
+     */
+    public function callSsoProxySafe(string $action, array $params = []): array
+    {
+        try {
+            return $this->callSsoProxy($action, $params);
+        } catch (WhmcsApiException $e) {
+            return ['result' => 'error', 'message' => $e->getMessage()];
+        }
+    }
+
+    /**
      * Remove sensitive fields from params before logging.
      */
     protected function redactParams(array $params): array
