@@ -54,10 +54,30 @@ class InvoiceController extends Controller
             $gw['native'] = $handler !== null; // true = we handle it directly, false = SSO fallback
         }
 
+        // Get bank transfer info if banktransfer is a supported gateway
+        $bankInfo = null;
+        if (isset($supportedMap['banktransfer'])) {
+            $bankConfig = $this->whmcs->getGatewayConfig('banktransfer');
+            if (($bankConfig['result'] ?? '') === 'success' && !empty($bankConfig['settings'])) {
+                $s = $bankConfig['settings'];
+                $bankInfo = array_filter([
+                    'bank_name'      => $s['bankname'] ?? $s['bank_name'] ?? '',
+                    'account_name'   => $s['bankaccount'] ?? $s['account_name'] ?? $s['accname'] ?? '',
+                    'account_number' => $s['accountnumber'] ?? $s['account_number'] ?? $s['accno'] ?? '',
+                    'branch'         => $s['bankbranch'] ?? $s['branch'] ?? '',
+                    'routing'        => $s['bankrouting'] ?? $s['routing'] ?? $s['routing_number'] ?? '',
+                    'swift'          => $s['bankswift'] ?? $s['swift'] ?? '',
+                    'iban'           => $s['bankiban'] ?? $s['iban'] ?? '',
+                    'instructions'   => $s['instructions'] ?? $s['description'] ?? '',
+                ]);
+            }
+        }
+
         return Inertia::render('Client/Invoices/Show', [
             'invoice'        => $result,
             'creditBalance'  => $creditBalance,
             'paymentMethods' => $gateways,
+            'bankInfo'       => $bankInfo,
         ]);
     }
 

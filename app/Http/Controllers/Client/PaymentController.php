@@ -44,6 +44,73 @@ class PaymentController extends Controller
     }
 
     /**
+     * Upload payment proof for bank transfer — creates a WHMCS support ticket with attachment.
+     */
+    public function uploadPaymentProof(Request $request, int $id)
+    {
+        $request->validate([
+            'proof' => 'required|file|mimes:jpg,jpeg,png,pdf,webp|max:5120', // 5MB max
+        ]);
+
+        $clientId = $request->user()->whmcs_client_id;
+        $file = $request->file('proof');
+
+        // Build attachment for WHMCS
+        $attachments = [[
+            'name' => $file->getClientOriginalName(),
+            'data' => base64_encode(file_get_contents($file->getRealPath())),
+        ]];
+
+        // Find billing department
+        $deptId = $this->getBillingDeptId();
+
+        $subject = "Payment Proof - Invoice #{$id}";
+        $message = "Payment proof uploaded for Invoice #{$id}.\n\n"
+                 . "Amount: " . ($request->amount ?? 'See invoice') . "\n"
+                 . "Invoice: #{$id}\n\n"
+                 . "Please verify and mark the invoice as paid.";
+
+        try {
+            $result = $this->whmcs->openTicket($clientId, $deptId, $subject, $message, 'High', $attachments);
+
+            if (($result['result'] ?? '') === 'success') {
+                $ticketId = $result['tid'] ?? $result['id'] ?? '';
+                return back()->with('success', "Payment proof submitted successfully! Ticket #{$ticketId} created. We'll verify your payment shortly.");
+            }
+
+            return back()->withErrors(['proof' => $result['message'] ?? 'Failed to submit payment proof.']);
+        } catch (\Exception $e) {
+            Log::error('Payment proof upload failed', ['invoice' => $id, 'error' => $e->getMessage()]);
+            return back()->withErrors(['proof' => 'Failed to upload payment proof. Please try again or contact support.']);
+        }
+    }
+
+    /**
+     * Find the billing department ID from WHMCS.
+     * Falls back to the first department if no billing dept found.
+     */
+    private function getBillingDeptId(): int
+    {
+        try {
+            $depts = $this->whmcs->getSupportDepartments();
+            $departments = $depts['departments']['department'] ?? [];
+            foreach ($departments as $d) {
+                $name = strtolower($d['name'] ?? '');
+                if (str_contains($name, 'billing') || str_contains($name, 'finance') || str_contains($name, 'payment') || str_contains($name, 'account')) {
+                    return (int) $d['id'];
+                }
+            }
+            // Fallback: use first department
+            if (!empty($departments[0]['id'])) {
+                return (int) $departments[0]['id'];
+            }
+        } catch (\Exception $e) {
+            // fall through
+        }
+        return 1; // absolute fallback
+    }
+
+    /**
      * Universal pay endpoint.
      * Routes to the correct gateway handler based on the selected module.
      * Returns JSON with { url } for the frontend to redirect to.
@@ -349,11 +416,35 @@ class PaymentController extends Controller
     private function handleBankTransfer(Request $request, int $id, array $invoice)
     {
         // Payment method is already updated in pay() above.
-        // Return a special response telling frontend to reload the page with a message.
+        // Fetch bank details from WHMCS gateway config
+        $bankInfo = $this->getBankTransferInfo();
+
         return response()->json([
-            'message' => 'Payment method updated to Bank Transfer. Please follow the bank details shown on the invoice to complete your payment.',
-            'reload' => true,
+            'message'  => 'Payment method set to Bank Transfer. Please transfer the amount using the bank details below.',
+            'bankInfo' => $bankInfo,
         ]);
+    }
+
+    /**
+     * Get bank transfer details from WHMCS banktransfer gateway config.
+     */
+    private function getBankTransferInfo(): ?array
+    {
+        $config = $this->whmcs->getGatewayConfig('banktransfer');
+        if (($config['result'] ?? '') !== 'success' || empty($config['settings'])) {
+            return null;
+        }
+        $s = $config['settings'];
+        return [
+            'bank_name'      => $s['bankname'] ?? $s['bank_name'] ?? '',
+            'account_name'   => $s['bankaccount'] ?? $s['account_name'] ?? $s['accname'] ?? '',
+            'account_number' => $s['accountnumber'] ?? $s['account_number'] ?? $s['accno'] ?? '',
+            'branch'         => $s['bankbranch'] ?? $s['branch'] ?? '',
+            'routing'        => $s['bankrouting'] ?? $s['routing'] ?? $s['routing_number'] ?? '',
+            'swift'          => $s['bankswift'] ?? $s['swift'] ?? '',
+            'iban'           => $s['bankiban'] ?? $s['iban'] ?? '',
+            'instructions'   => $s['instructions'] ?? $s['description'] ?? '',
+        ];
     }
 
     /**

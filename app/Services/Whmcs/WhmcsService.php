@@ -398,15 +398,22 @@ class WhmcsService
         return $this->client->callSafe('GetTicket', ['ticketid' => $ticketId]);
     }
 
-    public function openTicket(int $clientId, int $deptId, string $subject, string $message, string $priority = 'Medium'): array
+    public function openTicket(int $clientId, int $deptId, string $subject, string $message, string $priority = 'Medium', array $attachments = []): array
     {
-        return $this->client->call('OpenTicket', [
+        $params = [
             'clientid' => $clientId,
             'deptid'   => $deptId,
             'subject'  => $subject,
             'message'  => $message,
             'priority' => $priority,
-        ]);
+        ];
+
+        // WHMCS expects attachments as base64 encoded array: [['name' => filename, 'data' => base64data]]
+        if (!empty($attachments)) {
+            $params['attachments'] = base64_encode(json_encode($attachments));
+        }
+
+        return $this->client->call('OpenTicket', $params);
     }
 
     public function addTicketReply(int $ticketId, int $clientId, string $message): array

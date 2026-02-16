@@ -13,6 +13,7 @@ const props = defineProps({
     invoice: Object,
     creditBalance: Number,
     paymentMethods: Array,
+    bankInfo: Object,
 });
 
 const inv = props.invoice;
@@ -77,8 +78,11 @@ function payWithGateway() {
     .then(data => {
         if (data.url) {
             window.location.href = data.url;
+        } else if (data.bankInfo !== undefined) {
+            // Bank transfer — show bank details inline (no redirect needed)
+            showBankDetails.value = true;
+            processingPay.value = false;
         } else if (data.reload) {
-            // Bank transfer or similar — show message and reload
             alert(data.message || 'Payment method updated.');
             window.location.reload();
         } else {
@@ -95,6 +99,70 @@ function payWithGateway() {
 // ── Credit payment ──
 const creditAmount = ref(Math.min(props.creditBalance || 0, balance.value).toFixed(2));
 const applyingCredit = ref(false);
+
+// ── Bank transfer ──
+const isBankTransfer = computed(() => {
+    const m = (selectedGateway.value || '').toLowerCase();
+    return m.includes('bank') || m.includes('wire');
+});
+const showBankDetails = ref(isBankTransfer.value && !!props.bankInfo);
+
+// ── Payment proof upload ──
+const proofFile = ref(null);
+const uploadingProof = ref(false);
+const proofError = ref('');
+const proofSuccess = ref('');
+
+function onProofFileChange(event) {
+    const file = event.target.files[0];
+    if (file) {
+        if (file.size > 5 * 1024 * 1024) {
+            proofError.value = 'File must be under 5MB.';
+            proofFile.value = null;
+            return;
+        }
+        proofFile.value = file;
+        proofError.value = '';
+    }
+}
+
+function uploadProof() {
+    if (!proofFile.value) return;
+    uploadingProof.value = true;
+    proofError.value = '';
+    proofSuccess.value = '';
+
+    const formData = new FormData();
+    formData.append('proof', proofFile.value);
+    formData.append('amount', balance.value);
+
+    const csrfToken = document.querySelector('meta[name="csrf-token"]')?.content;
+
+    fetch(route('client.payment.uploadProof', inv.invoiceid), {
+        method: 'POST',
+        headers: {
+            'X-CSRF-TOKEN': csrfToken,
+            'Accept': 'application/json',
+            'X-Requested-With': 'XMLHttpRequest',
+        },
+        body: formData,
+    })
+    .then(r => r.json().then(data => ({ ok: r.ok, data })))
+    .then(({ ok, data }) => {
+        if (ok || data.props?.flash?.success) {
+            proofSuccess.value = data.props?.flash?.success || 'Payment proof submitted! We\'ll verify it shortly.';
+            proofFile.value = null;
+        } else {
+            proofError.value = data.props?.errors?.proof || data.message || 'Upload failed.';
+        }
+    })
+    .catch(() => {
+        proofError.value = 'Upload failed. Please try again.';
+    })
+    .finally(() => {
+        uploadingProof.value = false;
+    });
+}
 
 function applyCredit() {
     applyingCredit.value = true;
@@ -284,16 +352,86 @@ function friendlyGatewayName() {
                             </div>
 
                             <!-- Pay Now button -->
-                            <button @click="payWithGateway" :disabled="processingPay || !selectedGateway"
+                            <button v-if="!isBankTransfer || !showBankDetails" @click="payWithGateway" :disabled="processingPay || !selectedGateway"
                                 class="w-full inline-flex items-center justify-center gap-2 px-4 py-3 text-[13px] font-semibold text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 transition-colors shadow-sm disabled:opacity-50">
                                 <svg v-if="!processingPay" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.25 8.25h19.5M2.25 9h19.5m-16.5 5.25h6m-6 2.25h3m-3.75 3h15a2.25 2.25 0 002.25-2.25V6.75A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25v10.5A2.25 2.25 0 004.5 19.5z" /></svg>
                                 <svg v-else class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" /><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
-                                {{ processingPay ? 'Processing...' : `Pay ${formatCurrency(balance)} Now` }}
+                                {{ processingPay ? 'Processing...' : (isBankTransfer ? 'Show Bank Details' : `Pay ${formatCurrency(balance)} Now`) }}
                             </button>
 
-                            <p class="text-[11px] text-gray-400 text-center">
+                            <p v-if="!isBankTransfer" class="text-[11px] text-gray-400 text-center">
                                 You'll be redirected to {{ friendlyGatewayName() }} to complete payment
                             </p>
+
+                            <!-- ── Bank Transfer Details ── -->
+                            <div v-if="isBankTransfer && bankInfo" class="space-y-3 mt-2">
+                                <div class="bg-amber-50 border border-amber-200 rounded-lg p-3">
+                                    <p class="text-[12px] font-semibold text-amber-800 mb-2 flex items-center gap-1.5">
+                                        🏦 Bank Transfer Details
+                                    </p>
+                                    <dl class="space-y-1.5 text-[12px]">
+                                        <div v-if="bankInfo.bank_name" class="flex justify-between">
+                                            <dt class="text-amber-700">Bank Name</dt>
+                                            <dd class="font-medium text-amber-900">{{ bankInfo.bank_name }}</dd>
+                                        </div>
+                                        <div v-if="bankInfo.account_name" class="flex justify-between">
+                                            <dt class="text-amber-700">Account Name</dt>
+                                            <dd class="font-medium text-amber-900">{{ bankInfo.account_name }}</dd>
+                                        </div>
+                                        <div v-if="bankInfo.account_number" class="flex justify-between">
+                                            <dt class="text-amber-700">Account No.</dt>
+                                            <dd class="font-mono font-medium text-amber-900">{{ bankInfo.account_number }}</dd>
+                                        </div>
+                                        <div v-if="bankInfo.branch" class="flex justify-between">
+                                            <dt class="text-amber-700">Branch</dt>
+                                            <dd class="font-medium text-amber-900">{{ bankInfo.branch }}</dd>
+                                        </div>
+                                        <div v-if="bankInfo.routing" class="flex justify-between">
+                                            <dt class="text-amber-700">Routing No.</dt>
+                                            <dd class="font-mono font-medium text-amber-900">{{ bankInfo.routing }}</dd>
+                                        </div>
+                                        <div v-if="bankInfo.swift" class="flex justify-between">
+                                            <dt class="text-amber-700">SWIFT</dt>
+                                            <dd class="font-mono font-medium text-amber-900">{{ bankInfo.swift }}</dd>
+                                        </div>
+                                        <div v-if="bankInfo.iban" class="flex justify-between">
+                                            <dt class="text-amber-700">IBAN</dt>
+                                            <dd class="font-mono font-medium text-amber-900">{{ bankInfo.iban }}</dd>
+                                        </div>
+                                    </dl>
+                                    <div v-if="bankInfo.instructions" class="mt-2 pt-2 border-t border-amber-200">
+                                        <p class="text-[11px] text-amber-700 whitespace-pre-line">{{ bankInfo.instructions }}</p>
+                                    </div>
+                                </div>
+
+                                <div class="bg-indigo-50 border border-indigo-200 rounded-lg p-3 text-center">
+                                    <p class="text-[12px] font-semibold text-indigo-800 mb-1">Amount to Transfer</p>
+                                    <p class="text-xl font-bold text-indigo-900">{{ formatCurrency(balance) }}</p>
+                                    <p class="text-[11px] text-indigo-600 mt-1">Reference: Invoice #{{ inv.invoicenum || inv.invoiceid }}</p>
+                                </div>
+
+                                <!-- Upload Payment Proof -->
+                                <div class="border border-gray-200 rounded-lg p-3 space-y-2">
+                                    <p class="text-[12px] font-semibold text-gray-700 flex items-center gap-1.5">
+                                        📎 Upload Payment Proof
+                                    </p>
+                                    <p class="text-[11px] text-gray-500">Upload a screenshot or PDF of your transfer receipt.</p>
+
+                                    <input type="file" accept=".jpg,.jpeg,.png,.pdf,.webp"
+                                        @change="onProofFileChange"
+                                        class="w-full text-[12px] text-gray-600 file:mr-3 file:py-1.5 file:px-3 file:rounded-md file:border-0 file:text-[12px] file:font-medium file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100" />
+
+                                    <div v-if="proofError" class="text-[11px] text-red-600">{{ proofError }}</div>
+                                    <div v-if="proofSuccess" class="text-[11px] text-emerald-600 font-medium">{{ proofSuccess }}</div>
+
+                                    <button v-if="proofFile && !proofSuccess" @click="uploadProof" :disabled="uploadingProof"
+                                        class="w-full inline-flex items-center justify-center gap-2 px-3 py-2 text-[12px] font-semibold text-white bg-emerald-600 rounded-lg hover:bg-emerald-700 transition-colors disabled:opacity-50">
+                                        <svg v-if="!uploadingProof" class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" /></svg>
+                                        <svg v-else class="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" /><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
+                                        {{ uploadingProof ? 'Uploading...' : 'Submit Payment Proof' }}
+                                    </button>
+                                </div>
+                            </div>
                         </div>
 
                         <!-- ── Credit Balance ── -->
