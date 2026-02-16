@@ -20,8 +20,16 @@ const items = computed(() => inv.items?.item || []);
 const transactions = computed(() => inv.transactions?.transaction || []);
 const isUnpaid = computed(() => inv.status === 'Unpaid');
 const balance = computed(() => parseFloat(inv.balance || 0));
-const hasCredit = computed(() => (props.creditBalance || 0) > 0);
+const hasCredit = computed(() => (props.creditBalance || 0) > 0 && !isAddFundsInvoice.value);
 const hasGateways = computed(() => props.paymentMethods && props.paymentMethods.length > 0);
+
+// Detect "Add Funds" / "Add Credit" invoices — can't pay with credit balance (circular)
+const isAddFundsInvoice = computed(() => {
+    return items.value.some(item => {
+        const desc = (item.description || '').toLowerCase();
+        return desc.includes('add funds') || desc.includes('add credit') || desc.includes('credit top');
+    });
+});
 
 // Flash messages (from session flash or query params after payment callback)
 const urlParams = new URLSearchParams(window.location.search);
