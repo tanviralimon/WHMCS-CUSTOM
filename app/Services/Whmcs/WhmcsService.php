@@ -517,17 +517,6 @@ class WhmcsService
         return $this->client->callSafe('GetAffiliates', ['userid' => $clientId]);
     }
 
-    // ─── SSO ───────────────────────────────────────────────
-
-    public function createSsoToken(int $clientId, string $destination = ''): array
-    {
-        $params = ['client_id' => $clientId];
-        if ($destination) {
-            $params['destination'] = $destination;
-        }
-        return $this->client->call('CreateSsoToken', $params);
-    }
-
     // ─── Currencies ────────────────────────────────────────
 
     public function getCurrencies(): array
