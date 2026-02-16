@@ -374,6 +374,12 @@ class PaymentController extends Controller
                 return redirect(route('client.invoices.show', $id) . '?payment_error=' . urlencode('Payment was not completed.'));
             }
 
+            // Check if invoice is already paid (prevents duplicate recording)
+            $invoice = $this->whmcs->getInvoice($id);
+            if (($invoice['status'] ?? '') === 'Paid') {
+                return redirect(route('client.invoices.show', $id) . '?payment_success=1');
+            }
+
             $amount = $session->amount_total / 100;
             $transId = $session->payment_intent;
             $fees = 0;
@@ -445,8 +451,13 @@ class PaymentController extends Controller
             $result = json_decode($response, true);
 
             if (($result['status'] ?? '') === 'VALID' || ($result['status'] ?? '') === 'VALIDATED') {
-                $validAmount = (float) ($result['amount'] ?? $amount);
-                $this->whmcs->addInvoicePayment($id, $tranId, $validAmount, 'SSLCommerz');
+                // Check if invoice is already paid (prevents duplicate recording
+                // from success_url + IPN hitting this endpoint multiple times)
+                $invoice = $this->whmcs->getInvoice($id);
+                if (($invoice['status'] ?? '') !== 'Paid') {
+                    $validAmount = (float) ($result['amount'] ?? $amount);
+                    $this->whmcs->addInvoicePayment($id, $tranId, $validAmount, 'SSLCommerz');
+                }
 
                 return redirect(route('client.invoices.show', $id) . '?payment_success=1');
             }
