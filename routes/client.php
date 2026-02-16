@@ -100,8 +100,6 @@ Route::prefix('payment')->name('payment.')->group(function () {
         ->middleware(['whmcs.own:invoice,id', 'throttle:10,1']);
     Route::match(['get', 'post'], '/{id}/callback/{gateway}', [PaymentController::class, 'callback'])->name('callback')
         ->middleware('whmcs.own:invoice,id');
-    // Temporary debug: see what fields WHMCS returns for a gateway
-    Route::get('/debug-gateway/{module}', [PaymentController::class, 'debugGateway'])->name('debugGateway');
 });
 
 // ─── Billing ────────────────────────────────────────────────

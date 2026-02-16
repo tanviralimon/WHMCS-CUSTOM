@@ -56,6 +56,10 @@ function payWithGateway() {
     .then(data => {
         if (data.url) {
             window.location.href = data.url;
+        } else if (data.reload) {
+            // Bank transfer or similar — show message and reload
+            alert(data.message || 'Payment method updated.');
+            window.location.reload();
         } else {
             payError.value = data.error || 'Failed to initiate payment.';
             processingPay.value = false;

@@ -5,36 +5,11 @@ namespace App\Http\Controllers\Client;
 use App\Http\Controllers\Controller;
 use App\Services\Whmcs\WhmcsService;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 
 class PaymentController extends Controller
 {
     public function __construct(protected WhmcsService $whmcs) {}
-
-    /**
-     * Temporary debug: show what fields WHMCS returns for a gateway module.
-     * Visit /payment/debug-gateway/stripe or /payment/debug-gateway/sslcommerz
-     * DELETE THIS after confirming field names work.
-     */
-    public function debugGateway(string $module)
-    {
-        // Clear the cache first so we get fresh data
-        Cache::forget("whmcs.gateway_config.{$module}");
-
-        $config = $this->whmcs->getGatewayConfig($module);
-
-        // Mask sensitive values for display (show first 6 + last 4 chars)
-        if (!empty($config['settings']) && is_array($config['settings'])) {
-            foreach ($config['settings'] as $key => $value) {
-                if (is_string($value) && strlen($value) > 12) {
-                    $config['settings'][$key] = substr($value, 0, 6) . '***' . substr($value, -4);
-                }
-            }
-        }
-
-        return response()->json($config, 200, [], JSON_PRETTY_PRINT);
-    }
 
     /**
      * Apply account credit to an invoice.
@@ -97,6 +72,10 @@ class PaymentController extends Controller
 
         if ($handler === 'sslcommerz') {
             return $this->handleSslcommerz($request, $id, $invoice);
+        }
+
+        if ($handler === 'banktransfer') {
+            return $this->handleBankTransfer($request, $id, $invoice);
         }
 
         // Fallback: SSO redirect to WHMCS invoice page
@@ -298,10 +277,10 @@ class PaymentController extends Controller
 
             $settings = $config['settings'];
 
-            // SSLCommerz WHMCS module typically stores: store_id, store_password, sandbox/testMode
+            // Actual WHMCS SSLCommerz field names: store_id, store_password, testmode
             $storeId   = $settings['store_id'] ?? $settings['storeId'] ?? $settings['storeid'] ?? null;
             $storePass = $settings['store_password'] ?? $settings['storePassword'] ?? $settings['store_passwd'] ?? null;
-            $sandbox   = in_array(($settings['sandbox'] ?? $settings['testMode'] ?? ''), ['on', '1', 'yes', true], true);
+            $sandbox   = in_array(($settings['testmode'] ?? $settings['testMode'] ?? $settings['sandbox'] ?? ''), ['on', '1', 'yes', true], true);
 
             if (!empty($storeId) && !empty($storePass)) {
                 Log::info('SSLCommerz credentials loaded from WHMCS', ['module' => $module, 'sandbox' => $sandbox]);
@@ -314,6 +293,20 @@ class PaymentController extends Controller
         }
 
         return null;
+    }
+
+    /**
+     * Bank Transfer: just update payment method, no redirect needed.
+     * The invoice already shows bank details from WHMCS.
+     */
+    private function handleBankTransfer(Request $request, int $id, array $invoice)
+    {
+        // Payment method is already updated in pay() above.
+        // Return a special response telling frontend to reload the page with a message.
+        return response()->json([
+            'message' => 'Payment method updated to Bank Transfer. Please follow the bank details shown on the invoice to complete your payment.',
+            'reload' => true,
+        ]);
     }
 
     /**

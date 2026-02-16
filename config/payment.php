@@ -17,5 +17,6 @@ return [
         'stripecheckout'   => 'stripe',
         'sslcommerz'       => 'sslcommerz',
         'sslcommerzs'      => 'sslcommerz',
+        'banktransfer'     => 'banktransfer',
     ],
 ];
