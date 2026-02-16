@@ -110,17 +110,20 @@ if ($action === 'GetServiceInfo') {
     }
 
     // Build control panel URL based on module
-    $panelUrl  = null;
-    $webmailUrl = null;
-    $hostname  = $server->hostname ?? '';
-    $ip        = $server->ipaddress ?? '';
-    $host      = $hostname ?: $ip;
+    $panelUrl    = null;
+    $webmailUrl  = null;
+    $hostname    = $server->hostname ?? '';
+    $ip          = $server->ipaddress ?? '';
+    $host        = $hostname ?: $ip;
+    $spanelFolder = '';
 
     switch ($module) {
         case 'spanel':
-            // SPanel uses /spanel/ path on port 443
-            $panelUrl = 'https://' . $host . '/spanel/';
-            $webmailUrl = 'https://' . $host . '/spanel/';
+            // SPanel whitelabel: folder name stored in server username field
+            // (e.g. "hostpanel" instead of default "spanel")
+            $spanelFolder = !empty($server->username) ? trim($server->username) : 'spanel';
+            $panelUrl   = 'https://' . $host . '/' . $spanelFolder . '/';
+            $webmailUrl = 'https://' . $host . '/' . $spanelFolder . '/login/webmail';
             break;
         case 'cpanel':
             $panelUrl = 'https://' . $host . ':2083';
@@ -146,15 +149,16 @@ if ($action === 'GetServiceInfo') {
     }
 
     echo json_encode([
-        'result'      => 'success',
-        'module'      => $module,
-        'hostname'    => $hostname,
-        'ip'          => $ip,
-        'username'    => $service->username ?? '',
-        'panelUrl'    => $panelUrl,
-        'webmailUrl'  => $webmailUrl,
-        'serverName'  => $server->name ?? '',
-        'serverId'    => $service->server,
+        'result'       => 'success',
+        'module'       => $module,
+        'hostname'     => $hostname,
+        'ip'           => $ip,
+        'username'     => $service->username ?? '',
+        'panelUrl'     => $panelUrl,
+        'webmailUrl'   => $webmailUrl,
+        'serverName'   => $server->name ?? '',
+        'serverId'     => $service->server,
+        'spanelFolder' => $spanelFolder,
         'ssoSupported' => in_array($module, ['spanel', 'cpanel']),
     ]);
     exit;
@@ -188,6 +192,7 @@ if ($action === 'SsoLogin') {
     $module   = strtolower($server->type ?? '');
     $hostname = $server->hostname ?: $server->ipaddress;
     $username = $service->username ?? '';
+    $redirect = $_POST['redirect'] ?? ''; // SPanel: "category/page" e.g. "file/manager"
 
     if (!$username) {
         echo json_encode(['result' => 'error', 'message' => 'No username associated with this service']);
@@ -196,7 +201,7 @@ if ($action === 'SsoLogin') {
 
     switch ($module) {
         case 'spanel':
-            echo json_encode(handleSPanelSso($server, $service, $hostname, $username));
+            echo json_encode(handleSPanelSso($server, $service, $hostname, $username, $redirect));
             exit;
 
         case 'cpanel':
@@ -228,7 +233,7 @@ exit;
 // ═══════════════════════════════════════════════════════════
 // SPanel SSO Handler
 // ═══════════════════════════════════════════════════════════
-function handleSPanelSso($server, $service, $hostname, $username)
+function handleSPanelSso($server, $service, $hostname, $username, $redirect = '')
 {
     // SPanel API token is stored in the server's accesshash field
     $apiToken = '';
@@ -250,7 +255,7 @@ function handleSPanelSso($server, $service, $hostname, $username)
     // (per WHMCS module docs: "Enter your server's SPanel folder inside the Username field")
     $spanelFolder = !empty($server->username) ? trim($server->username) : 'spanel';
 
-    // Call SPanel SSO API: https://hostname/spanel/api.php
+    // Call SPanel SSO API: https://hostname/{folder}/api.php
     $endpointUrl = 'https://' . $hostname . '/' . $spanelFolder . '/api.php';
 
     $postData = [
@@ -259,6 +264,12 @@ function handleSPanelSso($server, $service, $hostname, $username)
         'role'     => 'user',
         'action'   => 'base/sso',
     ];
+
+    // SPanel SSO supports redirect parameter in "category/page" format
+    // e.g. "file/manager", "email/accounts", "database/databases", "domain/dns"
+    if (!empty($redirect)) {
+        $postData['redirect'] = $redirect;
+    }
 
     $ch = curl_init();
     curl_setopt($ch, CURLOPT_URL, $endpointUrl);

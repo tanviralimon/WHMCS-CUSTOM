@@ -99,10 +99,11 @@ class ServiceController extends Controller
     public function ssoLogin(Request $request, int $id)
     {
         $clientId = $request->user()->whmcs_client_id;
+        $redirect = $request->query('redirect', ''); // SPanel deep link: "file/manager", "email/accounts", etc.
 
         try {
             // Call SSO proxy — goes directly to spanel/cpanel, NOT WHMCS
-            $result = $this->whmcs->panelSsoLogin($id, $clientId);
+            $result = $this->whmcs->panelSsoLogin($id, $clientId, $redirect);
 
             if (($result['result'] ?? '') === 'success' && !empty($result['redirect_url'])) {
                 return redirect()->away($result['redirect_url']);

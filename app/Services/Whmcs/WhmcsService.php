@@ -156,12 +156,18 @@ class WhmcsService
      * Generate a direct SSO login URL for the control panel (SPanel, cPanel, etc.)
      * This goes directly to the panel, NOT to WHMCS clientarea.
      */
-    public function panelSsoLogin(int $serviceId, int $clientId = 0): array
+    public function panelSsoLogin(int $serviceId, int $clientId = 0, string $redirect = ''): array
     {
-        return $this->client->callSsoProxy('SsoLogin', [
+        $params = [
             'serviceid' => $serviceId,
             'clientid'  => $clientId,
-        ]);
+        ];
+
+        if ($redirect) {
+            $params['redirect'] = $redirect;
+        }
+
+        return $this->client->callSsoProxy('SsoLogin', $params);
     }
 
     // ─── Addons ────────────────────────────────────────────
