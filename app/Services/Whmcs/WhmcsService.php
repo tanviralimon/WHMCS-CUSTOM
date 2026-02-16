@@ -600,12 +600,13 @@ class WhmcsService
     public function addCredit(int $clientId, float $amount, string $paymentMethod = ''): array
     {
         $params = [
-            'clientid'      => $clientId,
+            'userid'           => $clientId,
+            'status'           => 'Unpaid',
+            'sendinvoice'      => '1',
             'itemdescription1' => 'Add Funds',
-            'itemamount1'   => $amount,
-            'itemtaxed1'    => false,
-            'autoapplycredit' => false,
-            'sendinvoice'   => true,
+            'itemamount1'      => number_format($amount, 2, '.', ''),
+            'itemtaxed1'       => '0',
+            'autoapplycredit'  => '0',
         ];
         if ($paymentMethod) {
             $params['paymentmethod'] = $paymentMethod;

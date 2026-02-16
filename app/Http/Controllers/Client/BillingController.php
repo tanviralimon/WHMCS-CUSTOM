@@ -63,9 +63,16 @@ class BillingController extends Controller
                     ->with('success', 'Invoice created for your funds. Please complete the payment.');
             }
 
-            return back()->with('success', 'Funds added successfully.');
+            $msg = $result['message'] ?? 'Failed to create invoice.';
+            return back()->withErrors(['amount' => $msg]);
         } catch (\Exception $e) {
-            return back()->withErrors(['amount' => 'Failed to create invoice. Please try again.']);
+            \Illuminate\Support\Facades\Log::error('Add funds failed', [
+                'client' => $clientId,
+                'amount' => $request->amount,
+                'method' => $request->payment_method,
+                'error'  => $e->getMessage(),
+            ]);
+            return back()->withErrors(['amount' => $e->getMessage()]);
         }
     }
 
