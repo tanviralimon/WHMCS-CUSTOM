@@ -24,6 +24,8 @@ Route::match(['get', 'post'], '/client/payment/{id}/callback/{gateway}', [Paymen
     ->withoutMiddleware([
         \Illuminate\Session\Middleware\StartSession::class,
         \Illuminate\View\Middleware\ShareErrorsFromSession::class,
+        \Illuminate\Foundation\Http\Middleware\VerifyCsrfToken::class,
+        \App\Http\Middleware\HandleInertiaRequests::class,
     ]);
 
 // Old routes redirect to new client.* routes
