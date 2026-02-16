@@ -409,12 +409,17 @@ class PaymentController extends Controller
         }
 
         try {
-            $stripeConfig = $this->getStripeCredentials();
-            if (!$stripeConfig) {
+            // Use the same key resolution as handleStripe() — .env first, then WHMCS
+            $secretKey = config('payment.stripe_secret_key');
+            if (empty($secretKey)) {
+                $stripeConfig = $this->getStripeCredentials();
+                $secretKey = $stripeConfig['secret_key'] ?? null;
+            }
+            if (empty($secretKey)) {
                 return redirect(route('client.invoices.show', $id) . '?payment_error=' . urlencode('Stripe configuration error. Contact support.'));
             }
 
-            $stripe = new \Stripe\StripeClient($stripeConfig['secret_key']);
+            $stripe = new \Stripe\StripeClient($secretKey);
             $session = $stripe->checkout->sessions->retrieve($sessionId);
 
             if ($session->payment_status !== 'paid') {
