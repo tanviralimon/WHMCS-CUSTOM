@@ -226,7 +226,59 @@ if ($action === 'SsoLogin') {
     }
 }
 
-echo json_encode(['result' => 'error', 'message' => 'Invalid action. Use: GetServiceInfo, SsoLogin']);
+if ($action === 'GetGatewayConfig') {
+    // Return payment gateway module configuration from tblpaymentgateways
+    // This allows the custom portal to read Stripe/SSLCommerz credentials
+    // that are already configured in WHMCS admin, without duplicating them.
+    $gatewayModule = trim($_POST['gateway'] ?? '');
+
+    if (empty($gatewayModule)) {
+        echo json_encode(['result' => 'error', 'message' => 'gateway parameter is required']);
+        exit;
+    }
+
+    try {
+        // Check if the gateway module is active
+        $isActive = Capsule::table('tblpaymentgateways')
+            ->where('gateway', $gatewayModule)
+            ->where('setting', 'visible')
+            ->where('value', 'on')
+            ->exists();
+
+        if (!$isActive) {
+            echo json_encode(['result' => 'error', 'message' => 'Gateway module is not active: ' . $gatewayModule]);
+            exit;
+        }
+
+        // Read all settings for this gateway module
+        $rows = Capsule::table('tblpaymentgateways')
+            ->where('gateway', $gatewayModule)
+            ->get();
+
+        $settings = [];
+        foreach ($rows as $row) {
+            // Skip internal WHMCS settings that aren't needed
+            if (in_array($row->setting, ['visible', 'name', 'type'])) {
+                continue;
+            }
+            $settings[$row->setting] = $row->value;
+        }
+
+        echo json_encode([
+            'result'   => 'success',
+            'gateway'  => $gatewayModule,
+            'settings' => $settings,
+        ]);
+    } catch (\Exception $e) {
+        echo json_encode([
+            'result'  => 'error',
+            'message' => 'Failed to read gateway config: ' . $e->getMessage(),
+        ]);
+    }
+    exit;
+}
+
+echo json_encode(['result' => 'error', 'message' => 'Invalid action. Use: GetServiceInfo, SsoLogin, GetGatewayConfig']);
 exit;
 
 

@@ -80,16 +80,18 @@ class PaymentController extends Controller
 
     /**
      * Stripe Checkout: create session and return URL.
+     * Pulls Stripe credentials directly from WHMCS gateway module configuration.
      */
     private function handleStripe(Request $request, int $id, array $invoice)
     {
-        $secretKey = config('payment.stripe.secret_key');
-        if (empty($secretKey)) {
-            return response()->json(['error' => 'Stripe is not configured. Please contact support.'], 500);
+        $stripeConfig = $this->getStripeCredentials();
+        if (!$stripeConfig) {
+            return response()->json(['error' => 'Stripe is not configured in WHMCS. Please contact support.'], 500);
         }
 
+        $secretKey = $stripeConfig['secret_key'];
         $balance = (float) ($invoice['balance'] ?? $invoice['total']);
-        $currency = strtolower(config('payment.stripe.currency', 'usd'));
+        $currency = strtolower($invoice['currencycode'] ?? 'usd');
 
         try {
             $stripe = new \Stripe\StripeClient($secretKey);
@@ -126,17 +128,74 @@ class PaymentController extends Controller
     }
 
     /**
+     * Get Stripe API credentials from WHMCS gateway configuration.
+     * Handles both 'stripe' and 'stripe_checkout' module names.
+     * Supports testMode toggle (live vs test keys).
+     *
+     * @return array|null  ['secret_key' => '...', 'publishable_key' => '...'] or null if not configured
+     */
+    private function getStripeCredentials(): ?array
+    {
+        // Try the stripe module names that WHMCS commonly uses
+        $moduleNames = ['stripe', 'stripe_checkout', 'stripecheckout'];
+
+        foreach ($moduleNames as $module) {
+            $config = $this->whmcs->getGatewayConfig($module);
+
+            if (($config['result'] ?? '') !== 'success' || empty($config['settings'])) {
+                continue;
+            }
+
+            $settings = $config['settings'];
+
+            // WHMCS Stripe modules typically have these field names:
+            // secretKey / testSecretKey / publishableKey / testPublishableKey / testMode
+            // OR: live_secret_key / test_secret_key / live_publishable_key / test_publishable_key
+            $isTestMode = in_array(($settings['testMode'] ?? ''), ['on', '1', 'yes', true], true);
+
+            // Try common Stripe module field naming patterns
+            $secretKey = null;
+            $publishableKey = null;
+
+            if ($isTestMode) {
+                $secretKey = $settings['testSecretKey'] ?? $settings['test_secret_key'] ?? null;
+                $publishableKey = $settings['testPublishableKey'] ?? $settings['test_publishable_key'] ?? null;
+            }
+
+            if (empty($secretKey)) {
+                $secretKey = $settings['secretKey'] ?? $settings['live_secret_key'] ?? $settings['secret_key'] ?? null;
+            }
+            if (empty($publishableKey)) {
+                $publishableKey = $settings['publishableKey'] ?? $settings['live_publishable_key'] ?? $settings['publishable_key'] ?? null;
+            }
+
+            if (!empty($secretKey)) {
+                Log::info('Stripe credentials loaded from WHMCS', ['module' => $module, 'testMode' => $isTestMode]);
+                return [
+                    'secret_key'      => $secretKey,
+                    'publishable_key' => $publishableKey ?? '',
+                    'test_mode'       => $isTestMode,
+                ];
+            }
+        }
+
+        return null;
+    }
+
+    /**
      * SSLCommerz: create session and return gateway URL.
+     * Pulls SSLCommerz credentials from WHMCS gateway module configuration.
      */
     private function handleSslcommerz(Request $request, int $id, array $invoice)
     {
-        $storeId   = config('payment.sslcommerz.store_id');
-        $storePass = config('payment.sslcommerz.store_password');
-        $sandbox   = config('payment.sslcommerz.sandbox', false);
-
-        if (empty($storeId) || empty($storePass)) {
-            return response()->json(['error' => 'SSLCommerz is not configured. Please contact support.'], 500);
+        $sslConfig = $this->getSslcommerzCredentials();
+        if (!$sslConfig) {
+            return response()->json(['error' => 'SSLCommerz is not configured in WHMCS. Please contact support.'], 500);
         }
+
+        $storeId   = $sslConfig['store_id'];
+        $storePass = $sslConfig['store_password'];
+        $sandbox   = $sslConfig['sandbox'];
 
         $balance = (float) ($invoice['balance'] ?? $invoice['total']);
         $user = $request->user();
@@ -165,8 +224,8 @@ class PaymentController extends Controller
             'product_name'    => 'Invoice #' . ($invoice['invoicenum'] ?? $id),
             'product_category' => 'Hosting',
             'product_profile'  => 'non-physical-goods',
-            'value_a'     => $id,               // invoice_id
-            'value_b'     => $user->whmcs_client_id, // client_id
+            'value_a'     => $id,
+            'value_b'     => $user->whmcs_client_id,
         ];
 
         try {
@@ -194,6 +253,42 @@ class PaymentController extends Controller
             Log::error('SSLCommerz error', ['invoice' => $id, 'error' => $e->getMessage()]);
             return response()->json(['error' => 'Payment gateway error. Please try again.'], 500);
         }
+    }
+
+    /**
+     * Get SSLCommerz credentials from WHMCS gateway configuration.
+     *
+     * @return array|null  ['store_id' => '...', 'store_password' => '...', 'sandbox' => bool] or null
+     */
+    private function getSslcommerzCredentials(): ?array
+    {
+        $moduleNames = ['sslcommerz', 'sslcommerzs'];
+
+        foreach ($moduleNames as $module) {
+            $config = $this->whmcs->getGatewayConfig($module);
+
+            if (($config['result'] ?? '') !== 'success' || empty($config['settings'])) {
+                continue;
+            }
+
+            $settings = $config['settings'];
+
+            // SSLCommerz WHMCS module typically stores: store_id, store_password, sandbox/testMode
+            $storeId   = $settings['store_id'] ?? $settings['storeId'] ?? $settings['storeid'] ?? null;
+            $storePass = $settings['store_password'] ?? $settings['storePassword'] ?? $settings['store_passwd'] ?? null;
+            $sandbox   = in_array(($settings['sandbox'] ?? $settings['testMode'] ?? ''), ['on', '1', 'yes', true], true);
+
+            if (!empty($storeId) && !empty($storePass)) {
+                Log::info('SSLCommerz credentials loaded from WHMCS', ['module' => $module, 'sandbox' => $sandbox]);
+                return [
+                    'store_id'       => $storeId,
+                    'store_password' => $storePass,
+                    'sandbox'        => $sandbox,
+                ];
+            }
+        }
+
+        return null;
     }
 
     /**
@@ -248,7 +343,13 @@ class PaymentController extends Controller
         }
 
         try {
-            $stripe = new \Stripe\StripeClient(config('payment.stripe.secret_key'));
+            $stripeConfig = $this->getStripeCredentials();
+            if (!$stripeConfig) {
+                return redirect()->route('client.invoices.show', $id)
+                    ->withErrors(['payment' => 'Stripe configuration error. Contact support.']);
+            }
+
+            $stripe = new \Stripe\StripeClient($stripeConfig['secret_key']);
             $session = $stripe->checkout->sessions->retrieve($sessionId);
 
             if ($session->payment_status !== 'paid') {
@@ -300,10 +401,16 @@ class PaymentController extends Controller
                 ->withErrors(['payment' => $msg]);
         }
 
-        // Validate with SSLCommerz
-        $storeId   = config('payment.sslcommerz.store_id');
-        $storePass = config('payment.sslcommerz.store_password');
-        $sandbox   = config('payment.sslcommerz.sandbox', false);
+        // Validate with SSLCommerz using credentials from WHMCS
+        $sslConfig = $this->getSslcommerzCredentials();
+        if (!$sslConfig) {
+            return redirect()->route('client.invoices.show', $id)
+                ->withErrors(['payment' => 'SSLCommerz configuration error. Contact support.']);
+        }
+
+        $storeId   = $sslConfig['store_id'];
+        $storePass = $sslConfig['store_password'];
+        $sandbox   = $sslConfig['sandbox'];
 
         $validateUrl = $sandbox
             ? 'https://sandbox.sslcommerz.com/validator/api/validationserverAPI.php'

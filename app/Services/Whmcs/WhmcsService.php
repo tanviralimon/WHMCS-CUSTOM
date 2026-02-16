@@ -577,6 +577,23 @@ class WhmcsService
     }
 
     /**
+     * Get gateway module configuration (API keys, secrets, etc.) from WHMCS.
+     * Reads from tblpaymentgateways via the orcus_sso.php proxy.
+     * Cached for 1 hour — gateway settings rarely change.
+     *
+     * @param string $gatewayModule  e.g. 'stripe', 'sslcommerz'
+     * @return array  ['result' => 'success', 'settings' => [...]] or error
+     */
+    public function getGatewayConfig(string $gatewayModule): array
+    {
+        return Cache::remember("whmcs.gateway_config.{$gatewayModule}", 3600, function () use ($gatewayModule) {
+            return $this->client->callSsoProxySafe('GetGatewayConfig', [
+                'gateway' => $gatewayModule,
+            ]);
+        });
+    }
+
+    /**
      * Add credit to a client's account (Add Funds).
      * Creates an invoice for the credit amount that the client can pay.
      */
