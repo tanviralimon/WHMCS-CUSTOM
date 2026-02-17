@@ -27,7 +27,7 @@ class OrderController extends Controller
         $currencyPrefix = '';
         $currencySuffix = '';
 
-        // Filter hidden products/groups, MarketConnect, flatten pricing, group by category
+        // Filter hidden products/groups, flatten pricing, group by category
         $grouped = [];    // gid => ['group' => [...], 'products' => [...]]
         $groupOrder = [];  // preserve WHMCS ordering by first-seen gid
 
@@ -36,8 +36,6 @@ class OrderController extends Controller
             // Skip products from hidden groups
             $gid = $p['gid'] ?? 0;
             if (in_array($gid, $hiddenGroups)) continue;
-            // Skip WHMCS MarketConnect products (SSL reselling, Site Builder, etc.)
-            if (($p['module'] ?? '') === 'marketconnect') continue;
 
             $pricing = $p['pricing'][$currencyCode] ?? $p['pricing'][array_key_first($p['pricing'] ?? [])] ?? [];
 
@@ -182,11 +180,72 @@ class OrderController extends Controller
             'triennially'  => $this->cleanPrice($pricing['triennially'] ?? null),
         ];
 
+        // Determine if this product type requires a domain
+        $requiresDomain = in_array($product['type'] ?? '', ['hostingaccount', 'reselleraccount', 'server']);
+
+        // Get configurable options for this product
+        $configOptions = $product['configoptions']['configoption'] ?? [];
+
         $paymentMethods = $this->whmcs->getPaymentMethods();
+
+        // Get TLD pricing for domain registration if required
+        $tldPricing = [];
+        if ($requiresDomain) {
+            $clientCurrencyId = (int) session('currency_id', 1);
+            $tldResult = $this->whmcs->getTLDPricing($clientCurrencyId);
+            foreach ($tldResult['pricing'] ?? [] as $tld => $tp) {
+                $registerPrice = null;
+                if (isset($tp['register']) && is_array($tp['register'])) {
+                    foreach ($tp['register'] as $years => $price) {
+                        $registerPrice = $price;
+                        break;
+                    }
+                }
+                $tldPricing[] = [
+                    'tld'      => $tld,
+                    'register' => $registerPrice,
+                ];
+            }
+        }
 
         return Inertia::render('Client/Orders/ProductDetail', [
             'product'        => $product,
             'paymentMethods' => $paymentMethods['paymentmethods']['paymentmethod'] ?? [],
+            'requiresDomain' => $requiresDomain,
+            'configOptions'  => $configOptions,
+            'tldPricing'     => $tldPricing,
+            'currencyPrefix' => $pricing['prefix'] ?? '',
+            'currencySuffix' => $pricing['suffix'] ?? '',
+        ]);
+    }
+
+    /**
+     * AJAX: Check domain availability from the product detail page.
+     */
+    public function checkDomainAvailability(Request $request)
+    {
+        $request->validate(['domain' => 'required|string|max:255']);
+        $domain = trim($request->domain);
+
+        if (!str_contains($domain, '.')) {
+            $popularTlds = ['.com', '.net', '.org', '.io', '.co.uk', '.co', '.info', '.xyz', '.online', '.tech'];
+            $results = [];
+            foreach ($popularTlds as $tld) {
+                $check = $this->whmcs->domainWhois($domain . $tld);
+                $results[] = [
+                    'domain' => $domain . $tld,
+                    'status' => $check['status'] ?? 'unknown',
+                ];
+            }
+            return response()->json(['results' => $results]);
+        }
+
+        $check = $this->whmcs->domainWhois($domain);
+        return response()->json([
+            'results' => [[
+                'domain' => $domain,
+                'status' => $check['status'] ?? 'unknown',
+            ]],
         ]);
     }
 

@@ -532,7 +532,7 @@ class WhmcsService
     {
         // GetProducts returns group info with each product; we extract unique groups
         // Only include groups that have at least one visible (non-hidden) product
-        // Filters out: hidden products, hidden groups, and MarketConnect module products
+        // Filters out: hidden products and hidden groups
         // Order is preserved as returned by WHMCS (which reflects admin sort order)
         return Cache::remember('whmcs.product_groups', 600, function () {
             // Get group names and hidden group IDs from the WHMCS database
@@ -544,8 +544,6 @@ class WhmcsService
             $order = [];
             foreach ($products['products']['product'] ?? [] as $p) {
                 if (!empty($p['hidden'])) continue;
-                // Skip MarketConnect products
-                if (($p['module'] ?? '') === 'marketconnect') continue;
                 $gid = $p['gid'] ?? 0;
                 // Skip hidden groups
                 if (in_array($gid, $hiddenGroups)) continue;

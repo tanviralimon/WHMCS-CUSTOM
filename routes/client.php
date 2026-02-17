@@ -143,6 +143,7 @@ Route::middleware('feature:addons')->prefix('addons')->name('addons.')->group(fu
 Route::middleware('feature:orders')->prefix('orders')->name('orders.')->group(function () {
     Route::get('/products', [OrderController::class, 'products'])->name('products');
     Route::get('/products/{id}', [OrderController::class, 'productDetail'])->name('products.show');
+    Route::post('/domain-check', [OrderController::class, 'checkDomainAvailability'])->name('domain.check');
     Route::get('/cart', [OrderController::class, 'cart'])->name('cart');
     Route::post('/cart/add', [OrderController::class, 'addToCart'])->name('cart.add');
     Route::delete('/cart/{index}', [OrderController::class, 'removeFromCart'])->name('cart.remove');
