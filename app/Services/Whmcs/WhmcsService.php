@@ -532,12 +532,10 @@ class WhmcsService
     {
         // GetProducts returns group info with each product; we extract unique groups
         // Only include groups that have at least one visible (non-hidden) product
-        // Filters out: hidden products and hidden groups
         // Order is preserved as returned by WHMCS (which reflects admin sort order)
         return Cache::remember('whmcs.product_groups', 600, function () {
-            // Get group names and hidden group IDs from the WHMCS database
-            $groupNames   = $this->getProductGroupNames();
-            $hiddenGroups = $this->getHiddenGroupIds();
+            // Get group names from the WHMCS database
+            $groupNames = $this->getProductGroupNames();
 
             $products = $this->client->callSafe('GetProducts');
             $groups = [];
@@ -545,8 +543,6 @@ class WhmcsService
             foreach ($products['products']['product'] ?? [] as $p) {
                 if (!empty($p['hidden'])) continue;
                 $gid = $p['gid'] ?? 0;
-                // Skip hidden groups
-                if (in_array($gid, $hiddenGroups)) continue;
                 if ($gid && !isset($groups[$gid])) {
                     $groups[$gid] = [
                         'id'   => $gid,

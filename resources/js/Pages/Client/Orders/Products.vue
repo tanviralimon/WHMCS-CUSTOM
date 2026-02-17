@@ -52,6 +52,7 @@ function groupIcon(name) {
     const n = (name || '').toLowerCase();
     if (n.includes('hosting') || n.includes('web') || n.includes('shared'))  return 'server';
     if (n.includes('vps') || n.includes('virtual') || n.includes('cloud'))   return 'cloud';
+    if (n.includes('vpn'))                                                     return 'shield';
     if (n.includes('domain'))                                                  return 'globe';
     if (n.includes('ssl') || n.includes('security') || n.includes('certificate')) return 'shield';
     if (n.includes('email') || n.includes('mail'))                            return 'mail';

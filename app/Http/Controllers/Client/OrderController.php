@@ -18,24 +18,21 @@ class OrderController extends Controller
         $result   = $this->whmcs->getProducts($groupId ? (int) $groupId : null);
         $raw      = $result['products']['product'] ?? [];
 
-        // Get the group name map (gid => name) and hidden group IDs from WHMCS database
-        $groupNames   = $this->whmcs->getProductGroupNames();
-        $hiddenGroups = $this->whmcs->getHiddenGroupIds();
+        // Get the group name map (gid => name) from WHMCS database
+        $groupNames = $this->whmcs->getProductGroupNames();
 
         // Get the client's active currency code and its prefix/suffix
         $currencyCode = $this->getActiveCurrencyCode($request);
         $currencyPrefix = '';
         $currencySuffix = '';
 
-        // Filter hidden products/groups, flatten pricing, group by category
+        // Filter hidden products, flatten pricing, group by category
         $grouped = [];    // gid => ['group' => [...], 'products' => [...]]
         $groupOrder = [];  // preserve WHMCS ordering by first-seen gid
 
         foreach ($raw as $p) {
             if (!empty($p['hidden'])) continue;
-            // Skip products from hidden groups
             $gid = $p['gid'] ?? 0;
-            if (in_array($gid, $hiddenGroups)) continue;
 
             $pricing = $p['pricing'][$currencyCode] ?? $p['pricing'][array_key_first($p['pricing'] ?? [])] ?? [];
 
