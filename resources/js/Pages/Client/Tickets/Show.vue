@@ -9,13 +9,16 @@ const props = defineProps({ ticket: Object });
 const ticket = props.ticket;
 const flash = computed(() => usePage().props?.flash || {});
 
-const replies = computed(() => ticket.replies?.reply || []);
+const rawReplies = computed(() => ticket.replies?.reply || []);
 
 // Build a unified, chronologically-sorted conversation
 const conversation = computed(() => {
     const msgs = [];
 
     // Original message
+    const origMessage = (ticket.message || '').trim();
+    const origDate = (ticket.date || '').trim();
+
     msgs.push({
         id: 'original',
         name: ticket.name || 'You',
@@ -27,8 +30,14 @@ const conversation = computed(() => {
         attachments: ticket.attachments ? (Array.isArray(ticket.attachments) ? ticket.attachments : []) : [],
     });
 
-    // Replies
-    for (const r of replies.value) {
+    // Replies — skip the first reply if it duplicates the original message
+    // (WHMCS GetTicket API sometimes includes the opening message in both
+    //  the top-level fields AND as the first entry in the replies array)
+    for (const r of rawReplies.value) {
+        const rMsg = (r.message || '').trim();
+        const rDate = (r.date || '').trim();
+        if (rDate === origDate && rMsg === origMessage) continue;
+
         msgs.push({
             id: r.id,
             name: r.admin || r.name || 'You',
@@ -147,7 +156,7 @@ onMounted(() => {
     // Auto scroll to latest reply
     nextTick(() => {
         const el = document.getElementById('reply-form');
-        if (el && replies.value.length > 2) {
+        if (el && rawReplies.value.length > 2) {
             el.scrollIntoView({ behavior: 'smooth', block: 'center' });
         }
     });
