@@ -19,8 +19,12 @@ class BillingController extends Controller
 
         $result = $this->whmcs->getTransactions($clientId, ($page - 1) * $perPage, $perPage);
 
+        // Sort newest first (highest id = most recent)
+        $transactions = $result['transactions']['transaction'] ?? [];
+        usort($transactions, fn($a, $b) => (int) $b['id'] - (int) $a['id']);
+
         return Inertia::render('Client/Billing/Transactions', [
-            'transactions' => $result['transactions']['transaction'] ?? [],
+            'transactions' => $transactions,
             'total'        => (int) ($result['totalresults'] ?? 0),
             'page'         => $page,
             'perPage'      => $perPage,
