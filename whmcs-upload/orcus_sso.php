@@ -275,7 +275,43 @@ if ($action === 'GetGatewayConfig') {
     exit;
 }
 
-echo json_encode(['result' => 'error', 'message' => 'Invalid action. Use: GetServiceInfo, SsoLogin, GetGatewayConfig']);
+if ($action === 'GetProductGroups') {
+    // Return product groups from tblproductgroups, ordered by the 'order' column.
+    // This gives us group names that GetProducts API doesn't include.
+    try {
+        $groups = Capsule::table('tblproductgroups')
+            ->select('id', 'name', 'slug', 'headline', 'tagline', 'orderfrmtpl', 'hidden')
+            ->orderBy('order', 'asc')
+            ->get();
+
+        $result = [];
+        foreach ($groups as $g) {
+            // Skip hidden groups
+            if (!empty($g->hidden)) continue;
+            $result[] = [
+                'id'       => (int) $g->id,
+                'name'     => $g->name,
+                'slug'     => $g->slug ?? '',
+                'headline' => $g->headline ?? '',
+                'tagline'  => $g->tagline ?? '',
+            ];
+        }
+
+        echo json_encode([
+            'result'       => 'success',
+            'totalresults' => count($result),
+            'groups'       => $result,
+        ]);
+    } catch (\Exception $e) {
+        echo json_encode([
+            'result'  => 'error',
+            'message' => 'Failed to read product groups: ' . $e->getMessage(),
+        ]);
+    }
+    exit;
+}
+
+echo json_encode(['result' => 'error', 'message' => 'Invalid action. Use: GetServiceInfo, SsoLogin, GetGatewayConfig, GetProductGroups']);
 exit;
 
 

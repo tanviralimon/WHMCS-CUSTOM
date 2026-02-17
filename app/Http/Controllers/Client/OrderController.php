@@ -18,6 +18,9 @@ class OrderController extends Controller
         $result   = $this->whmcs->getProducts($groupId ? (int) $groupId : null);
         $raw      = $result['products']['product'] ?? [];
 
+        // Get the group name map (gid => name) from the WHMCS database
+        $groupNames = $this->whmcs->getProductGroupNames();
+
         // Get the client's active currency code and its prefix/suffix
         $currencyCode = $this->getActiveCurrencyCode($request);
         $currencyPrefix = '';
@@ -64,7 +67,7 @@ class OrderController extends Controller
                 $grouped[$gid] = [
                     'group' => [
                         'id'   => $gid,
-                        'name' => $p['groupname'] ?? 'Products',
+                        'name' => $groupNames[$gid] ?? $p['groupname'] ?? 'Products',
                     ],
                     'products' => [],
                 ];

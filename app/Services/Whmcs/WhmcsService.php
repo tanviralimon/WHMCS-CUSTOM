@@ -534,6 +534,9 @@ class WhmcsService
         // Only include groups that have at least one visible (non-hidden) product
         // Order is preserved as returned by WHMCS (which reflects admin sort order)
         return Cache::remember('whmcs.product_groups', 600, function () {
+            // First, get group names from the WHMCS database via the SSO proxy
+            $groupNames = $this->getProductGroupNames();
+
             $products = $this->client->callSafe('GetProducts');
             $groups = [];
             $order = [];
@@ -543,7 +546,7 @@ class WhmcsService
                 if ($gid && !isset($groups[$gid])) {
                     $groups[$gid] = [
                         'id'   => $gid,
-                        'name' => $p['groupname'] ?? 'Products',
+                        'name' => $groupNames[$gid] ?? $p['groupname'] ?? 'Products',
                     ];
                     $order[] = $gid;
                 }
@@ -554,6 +557,22 @@ class WhmcsService
                 $sorted[] = $groups[$gid];
             }
             return $sorted;
+        });
+    }
+
+    /**
+     * Get product group names from the WHMCS database via the SSO proxy.
+     * Returns an array of [gid => name].
+     */
+    public function getProductGroupNames(): array
+    {
+        return Cache::remember('whmcs.product_group_names', 3600, function () {
+            $result = $this->client->callSsoProxySafe('GetProductGroups');
+            $map = [];
+            foreach ($result['groups'] ?? [] as $g) {
+                $map[(int) $g['id']] = $g['name'];
+            }
+            return $map;
         });
     }
 

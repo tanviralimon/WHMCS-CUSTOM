@@ -2,34 +2,11 @@
 
 use App\Http\Controllers\Auth\WhmcsSsoController;
 use App\Http\Controllers\Client\PaymentController;
-use App\Services\Whmcs\WhmcsService;
 use Illuminate\Support\Facades\Route;
 
 Route::get('/', function () {
     return redirect()->route('client.dashboard');
 });
-
-// Temporary debug route to inspect WHMCS product API response
-Route::get('/debug/whmcs-products', function () {
-    $whmcs = app(WhmcsService::class);
-    $result = $whmcs->getProducts();
-    $products = $result['products']['product'] ?? [];
-    $output = [];
-    foreach (array_slice($products, 0, 3) as $p) {
-        $output[] = [
-            'all_keys' => array_keys($p),
-            'pid' => $p['pid'] ?? null,
-            'gid' => $p['gid'] ?? null,
-            'name' => $p['name'] ?? null,
-            'groupname' => $p['groupname'] ?? '*** NOT FOUND ***',
-            'group_name' => $p['group_name'] ?? '*** NOT FOUND ***',
-            'productgroupname' => $p['productgroupname'] ?? '*** NOT FOUND ***',
-            'product_group_name' => $p['product_group_name'] ?? '*** NOT FOUND ***',
-            'hidden' => $p['hidden'] ?? null,
-        ];
-    }
-    return response()->json($output, 200, [], JSON_PRETTY_PRINT);
-})->middleware('auth');
 
 // SSO Login Routes (public — no auth required)
 Route::get('/sso/login', [WhmcsSsoController::class, 'redirect'])->name('sso.login');
