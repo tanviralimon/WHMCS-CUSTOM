@@ -483,7 +483,10 @@ class WhmcsService
 
     public function closeTicket(int $ticketId): array
     {
-        return $this->client->callSafe('CloseTicket', ['ticketid' => $ticketId]);
+        return $this->client->callSafe('UpdateTicket', [
+            'ticketid' => $ticketId,
+            'status'   => 'Closed',
+        ]);
     }
 
     public function getSupportDepartments(): array
