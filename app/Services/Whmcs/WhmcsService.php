@@ -2,7 +2,9 @@
 
 namespace App\Services\Whmcs;
 
-use Illuminate\Support\Facades\Cache;\n\n/**
+use Illuminate\Support\Facades\Cache;
+
+/**
  * High-level typed service for all WHMCS API actions.
  * Every method is typed and documented — controllers never call WhmcsClient directly.
  */
