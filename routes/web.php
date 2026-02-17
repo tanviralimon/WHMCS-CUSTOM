@@ -28,6 +28,11 @@ Route::match(['get', 'post'], '/client/payment/{id}/callback/{gateway}', [Paymen
         \App\Http\Middleware\HandleInertiaRequests::class,
     ]);
 
+// ─── Payment Proof Download (signed URL, no login required) ────────
+Route::get('/payment-proof/{invoice}/{file}', [PaymentController::class, 'downloadPaymentProof'])
+    ->name('payment-proof.download')
+    ->middleware('signed');
+
 // Old routes redirect to new client.* routes
 Route::middleware(['auth'])->group(function () {
     Route::get('/dashboard', fn () => redirect()->route('client.dashboard'))->name('dashboard');

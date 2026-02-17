@@ -2,10 +2,7 @@
 
 namespace App\Services\Whmcs;
 
-use Illuminate\Support\Facades\Cache;
-use Illuminate\Support\Facades\Log;
-
-/**
+use Illuminate\Support\Facades\Cache;\n\n/**
  * High-level typed service for all WHMCS API actions.
  * Every method is typed and documented — controllers never call WhmcsClient directly.
  */
@@ -399,24 +396,15 @@ class WhmcsService
         return $this->client->callSafe('GetTicket', ['ticketid' => $ticketId]);
     }
 
-    public function openTicket(int $clientId, int $deptId, string $subject, string $message, string $priority = 'Medium', array $attachments = []): array
+    public function openTicket(int $clientId, int $deptId, string $subject, string $message, string $priority = 'Medium'): array
     {
-        $params = [
+        return $this->client->call('OpenTicket', [
             'clientid' => $clientId,
             'deptid'   => $deptId,
             'subject'  => $subject,
             'message'  => $message,
             'priority' => $priority,
-        ];
-
-        if (!empty($attachments)) {
-            $params['attachments'] = base64_encode(json_encode($attachments));
-        }
-
-        // Use longer timeout when attachments are included
-        $timeout = !empty($attachments) ? 30 : null;
-
-        return $this->client->call('OpenTicket', $params, $timeout);
+        ]);
     }
 
     /**

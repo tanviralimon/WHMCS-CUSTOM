@@ -103,6 +103,7 @@ Route::prefix('payment')->name('payment.')->group(function () {
     // Callbacks are handled publicly in web.php (SSLCommerz needs no auth/CSRF)
 });
 
+
 // ─── Billing ────────────────────────────────────────────────
 Route::prefix('billing')->name('billing.')->group(function () {
     Route::get('/transactions', [BillingController::class, 'transactions'])->name('transactions');

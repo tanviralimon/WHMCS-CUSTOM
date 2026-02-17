@@ -6,6 +6,8 @@ use App\Http\Controllers\Controller;
 use App\Services\Whmcs\WhmcsService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Facades\URL;
 
 class PaymentController extends Controller
 {
@@ -63,13 +65,19 @@ class PaymentController extends Controller
         if ($this->whmcs->hasPaymentProofTicket($clientId, $id)) {
             return back()->withErrors(['proof' => 'Payment proof has already been submitted for this invoice.']);
         }
+
         $file = $request->file('proof');
 
-        // Build attachment for WHMCS
-        $attachments = [[
-            'name' => $file->getClientOriginalName(),
-            'data' => base64_encode(file_get_contents($file->getRealPath())),
-        ]];
+        // Store file locally
+        $ext = $file->getClientOriginalExtension();
+        $fileName = "invoice_{$id}_" . time() . ".{$ext}";
+        $path = $file->storeAs("payment-proofs/{$id}", $fileName, 'local');
+
+        // Generate a signed download URL (valid for 30 days)
+        $downloadUrl = URL::signedRoute('payment-proof.download', [
+            'invoice' => $id,
+            'file' => $fileName,
+        ], now()->addDays(30));
 
         // Find billing department
         $deptId = $this->getBillingDeptId();
@@ -79,30 +87,47 @@ class PaymentController extends Controller
                  . "I have made a bank transfer payment for the following invoice:\n\n"
                  . "Invoice: #{$id}\n"
                  . "Amount: " . ($request->amount ?? 'See invoice') . "\n\n"
-                 . "Please find the payment receipt attached. Kindly verify and mark the invoice as paid.\n\n"
+                 . "Payment proof receipt:\n{$downloadUrl}\n\n"
+                 . "Please verify and mark the invoice as paid.\n\n"
                  . "Thank you.";
 
         try {
-            $result = $this->whmcs->openTicket($clientId, $deptId, $subject, $message, 'High', $attachments);
+            $result = $this->whmcs->openTicket($clientId, $deptId, $subject, $message, 'High');
 
             if (($result['result'] ?? '') === 'success') {
                 $ticketId = $result['tid'] ?? $result['id'] ?? '';
                 return back()->with('success', "Payment proof submitted successfully! Ticket #{$ticketId} created. We'll verify your payment shortly.");
             }
 
-            Log::error('Payment proof upload: WHMCS returned error', ['invoice' => $id, 'deptId' => $deptId, 'result' => $result]);
+            // Ticket creation failed — clean up stored file
+            Storage::disk('local')->delete($path);
+            Log::error('Payment proof: WHMCS ticket creation failed', ['invoice' => $id, 'result' => $result]);
             return back()->withErrors(['proof' => $result['message'] ?? 'Failed to submit payment proof.']);
         } catch (\Exception $e) {
+            Storage::disk('local')->delete($path);
             Log::error('Payment proof upload failed', [
                 'invoice'  => $id,
                 'deptId'   => $deptId,
                 'clientId' => $clientId,
-                'fileName' => $file->getClientOriginalName(),
-                'fileSize' => $file->getSize(),
                 'error'    => $e->getMessage(),
             ]);
             return back()->withErrors(['proof' => 'Failed to upload payment proof. Please try again or contact support.']);
         }
+    }
+
+    /**
+     * Download a payment proof file via signed URL.
+     */
+    public function downloadPaymentProof(Request $request, int $invoice, string $file)
+    {
+        // Signed URL validation is handled by middleware
+        $path = "payment-proofs/{$invoice}/{$file}";
+
+        if (!Storage::disk('local')->exists($path)) {
+            abort(404, 'File not found.');
+        }
+
+        return Storage::disk('local')->download($path, $file);
     }
 
     /**
