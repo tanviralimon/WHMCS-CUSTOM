@@ -407,8 +407,17 @@ class WhmcsService
             'priority' => $priority,
         ];
 
+        // Try with attachments first; if WHMCS rejects, retry without
         if (!empty($attachments)) {
-            $params['attachments'] = base64_encode(json_encode($attachments));
+            try {
+                $params['attachments'] = base64_encode(serialize($attachments));
+                return $this->client->call('OpenTicket', $params, 30);
+            } catch (\Exception $e) {
+                // Attachment failed — send without and note in message
+                unset($params['attachments']);
+                $params['message'] .= "\n\n[Note: Attachments could not be uploaded — files may exceed server limits.]";
+                return $this->client->call('OpenTicket', $params);
+            }
         }
 
         return $this->client->call('OpenTicket', $params);
@@ -448,8 +457,17 @@ class WhmcsService
             'message'  => $message,
         ];
 
+        // Try with attachments first; if WHMCS rejects, retry without
         if (!empty($attachments)) {
-            $params['attachments'] = base64_encode(json_encode($attachments));
+            try {
+                $params['attachments'] = base64_encode(serialize($attachments));
+                return $this->client->call('AddTicketReply', $params, 30);
+            } catch (\Exception $e) {
+                // Attachment failed — send without and note in message
+                unset($params['attachments']);
+                $params['message'] .= "\n\n[Note: Attachments could not be uploaded — files may exceed server limits.]";
+                return $this->client->call('AddTicketReply', $params);
+            }
         }
 
         return $this->client->call('AddTicketReply', $params);

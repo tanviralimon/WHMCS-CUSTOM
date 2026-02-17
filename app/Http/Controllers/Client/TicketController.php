@@ -125,7 +125,11 @@ class TicketController extends Controller
 
         $this->whmcs->addTicketReply($id, $clientId, $message, $attachments);
 
-        return back()->with('success', 'Reply sent successfully.');
+        $msg = 'Reply sent successfully.';
+        if (!empty($attachments)) {
+            $msg .= ' (Attachments may take a moment to appear.)';
+        }
+        return back()->with('success', $msg);
     }
 
     public function close(int $id)
@@ -135,8 +139,8 @@ class TicketController extends Controller
     }
 
     /**
-     * Process uploaded attachments into WHMCS-compatible base64 array.
-     * WHMCS expects: [base64(filename) => base64(filedata), ...]
+     * Process uploaded attachments into WHMCS-compatible array.
+     * WHMCS expects: ['filename.ext' => base64_encode(filedata), ...]
      */
     private function processAttachments(Request $request): array
     {
@@ -145,7 +149,7 @@ class TicketController extends Controller
             foreach ($request->file('attachments') as $file) {
                 $name = $file->getClientOriginalName();
                 $data = file_get_contents($file->getRealPath());
-                $attachments[base64_encode($name)] = base64_encode($data);
+                $attachments[$name] = base64_encode($data);
             }
         }
         return $attachments;
