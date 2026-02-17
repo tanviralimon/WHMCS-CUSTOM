@@ -20,8 +20,25 @@ class TicketController extends Controller
 
         $result = $this->whmcs->getTickets($clientId, $status, ($page - 1) * $perPage, $perPage);
 
+        $tickets = $result['tickets']['ticket'] ?? [];
+
+        // Sort: open/customer-reply first, then by most recent reply
+        if (!$status) {
+            $priority = ['Open' => 0, 'Customer-Reply' => 1, 'Answered' => 2, 'On Hold' => 3, 'In Progress' => 4];
+            usort($tickets, function ($a, $b) use ($priority) {
+                $pa = $priority[$a['status']] ?? 8;
+                $pb = $priority[$b['status']] ?? 8;
+                if ($pa !== $pb) return $pa - $pb;
+                // Within same group, newest last-reply first
+                return strtotime($b['lastreply'] ?? $b['date'] ?? '0') - strtotime($a['lastreply'] ?? $a['date'] ?? '0');
+            });
+        } else {
+            // Single status: newest first
+            usort($tickets, fn($a, $b) => strtotime($b['lastreply'] ?? $b['date'] ?? '0') - strtotime($a['lastreply'] ?? $a['date'] ?? '0'));
+        }
+
         return Inertia::render('Client/Tickets/Index', [
-            'tickets' => $result['tickets']['ticket'] ?? [],
+            'tickets' => $tickets,
             'total'   => (int) ($result['totalresults'] ?? 0),
             'page'    => $page,
             'perPage' => $perPage,
