@@ -132,35 +132,22 @@ function uploadProof() {
     proofError.value = '';
     proofSuccess.value = '';
 
-    const formData = new FormData();
-    formData.append('proof', proofFile.value);
-    formData.append('amount', balance.value);
-
-    const csrfToken = document.querySelector('meta[name="csrf-token"]')?.content;
-
-    fetch(route('client.payment.uploadProof', inv.invoiceid), {
-        method: 'POST',
-        headers: {
-            'X-CSRF-TOKEN': csrfToken,
-            'Accept': 'application/json',
-            'X-Requested-With': 'XMLHttpRequest',
-        },
-        body: formData,
-    })
-    .then(r => r.json().then(data => ({ ok: r.ok, data })))
-    .then(({ ok, data }) => {
-        if (ok || data.props?.flash?.success) {
-            proofSuccess.value = data.props?.flash?.success || 'Payment proof submitted! We\'ll verify it shortly.';
+    router.post(route('client.payment.uploadProof', inv.invoiceid), {
+        proof: proofFile.value,
+        amount: balance.value,
+    }, {
+        forceFormData: true,
+        preserveScroll: true,
+        onSuccess: (p) => {
+            proofSuccess.value = p.props?.flash?.success || 'Payment proof submitted! We\'ll verify it shortly.';
             proofFile.value = null;
-        } else {
-            proofError.value = data.props?.errors?.proof || data.message || 'Upload failed.';
-        }
-    })
-    .catch(() => {
-        proofError.value = 'Upload failed. Please try again.';
-    })
-    .finally(() => {
-        uploadingProof.value = false;
+        },
+        onError: (errors) => {
+            proofError.value = errors.proof || 'Upload failed. Please try again.';
+        },
+        onFinish: () => {
+            uploadingProof.value = false;
+        },
     });
 }
 
