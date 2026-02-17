@@ -325,18 +325,17 @@ class WhmcsService
 
     // ─── Invoices ──────────────────────────────────────────
 
-    public function getInvoices(int $clientId, string $status = '', int $offset = 0, int $limit = 25, ?string $orderBy = null): array
+    public function getInvoices(int $clientId, string $status = '', int $offset = 0, int $limit = 25, ?string $orderBy = null, string $order = 'desc'): array
     {
         $params = [
             'userid'     => $clientId,
             'limitstart' => $offset,
             'limitnum'   => $limit,
+            'orderby'    => $orderBy ?? 'id',
+            'order'      => $order,
         ];
         if ($status) {
             $params['status'] = $status;
-        }
-        if ($orderBy) {
-            $params['orderby'] = $orderBy;
         }
         return $this->client->callSafe('GetInvoices', $params);
     }

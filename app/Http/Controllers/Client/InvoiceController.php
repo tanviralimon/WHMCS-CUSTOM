@@ -18,10 +18,24 @@ class InvoiceController extends Controller
         $status   = $request->get('status', '');
         $perPage  = 25;
 
-        $result = $this->whmcs->getInvoices($clientId, $status, ($page - 1) * $perPage, $perPage);
+        $result = $this->whmcs->getInvoices($clientId, $status, ($page - 1) * $perPage, $perPage, 'id', 'desc');
+
+        $invoices = $result['invoices']['invoice'] ?? [];
+
+        // When showing all statuses, prioritise unpaid/overdue at the top
+        if (!$status) {
+            $priority = ['Overdue' => 0, 'Unpaid' => 1, 'Payment Pending' => 2];
+            usort($invoices, function ($a, $b) use ($priority) {
+                $pa = $priority[$a['status']] ?? 9;
+                $pb = $priority[$b['status']] ?? 9;
+                if ($pa !== $pb) return $pa - $pb;
+                // Within the same priority group, newest first (higher id = newer)
+                return (int) $b['id'] - (int) $a['id'];
+            });
+        }
 
         return Inertia::render('Client/Invoices/Index', [
-            'invoices' => $result['invoices']['invoice'] ?? [],
+            'invoices' => $invoices,
             'total'    => (int) ($result['totalresults'] ?? 0),
             'page'     => $page,
             'perPage'  => $perPage,
