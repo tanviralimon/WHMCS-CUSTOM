@@ -11,12 +11,17 @@ const flash = computed(() => usePage().props?.flash || {});
 
 const rawReplies = computed(() => ticket.replies?.reply || []);
 
+// Helper: strip HTML tags and normalise whitespace for comparison
+function normalise(str) {
+    return (str || '').replace(/<[^>]*>/g, '').replace(/&[a-z]+;/gi, ' ').replace(/\s+/g, ' ').trim();
+}
+
 // Build a unified, chronologically-sorted conversation
 const conversation = computed(() => {
     const msgs = [];
 
     // Original message
-    const origMessage = (ticket.message || '').trim();
+    const origNorm = normalise(ticket.message);
     const origDate = (ticket.date || '').trim();
 
     msgs.push({
@@ -30,13 +35,15 @@ const conversation = computed(() => {
         attachments: ticket.attachments ? (Array.isArray(ticket.attachments) ? ticket.attachments : []) : [],
     });
 
-    // Replies — skip the first reply if it duplicates the original message
-    // (WHMCS GetTicket API sometimes includes the opening message in both
-    //  the top-level fields AND as the first entry in the replies array)
+    // Replies — skip any reply that duplicates the original message.
+    // WHMCS GetTicket API includes the opening message both in the
+    // top-level fields AND as the first entry in the replies array.
+    // We compare normalised text (HTML-stripped) and date to catch this.
     for (const r of rawReplies.value) {
-        const rMsg = (r.message || '').trim();
+        const rNorm = normalise(r.message);
         const rDate = (r.date || '').trim();
-        if (rDate === origDate && rMsg === origMessage) continue;
+        const isDupe = rDate === origDate && !r.admin && rNorm === origNorm;
+        if (isDupe) continue;
 
         msgs.push({
             id: r.id,
