@@ -397,15 +397,21 @@ class WhmcsService
         return $this->client->callSafe('GetTicket', ['ticketid' => $ticketId]);
     }
 
-    public function openTicket(int $clientId, int $deptId, string $subject, string $message, string $priority = 'Medium'): array
+    public function openTicket(int $clientId, int $deptId, string $subject, string $message, string $priority = 'Medium', array $attachments = []): array
     {
-        return $this->client->call('OpenTicket', [
+        $params = [
             'clientid' => $clientId,
             'deptid'   => $deptId,
             'subject'  => $subject,
             'message'  => $message,
             'priority' => $priority,
-        ]);
+        ];
+
+        if (!empty($attachments)) {
+            $params['attachments'] = base64_encode(json_encode($attachments));
+        }
+
+        return $this->client->call('OpenTicket', $params);
     }
 
     /**
@@ -434,13 +440,19 @@ class WhmcsService
         return false;
     }
 
-    public function addTicketReply(int $ticketId, int $clientId, string $message): array
+    public function addTicketReply(int $ticketId, int $clientId, string $message, array $attachments = []): array
     {
-        return $this->client->call('AddTicketReply', [
+        $params = [
             'ticketid' => $ticketId,
             'clientid' => $clientId,
             'message'  => $message,
-        ]);
+        ];
+
+        if (!empty($attachments)) {
+            $params['attachments'] = base64_encode(json_encode($attachments));
+        }
+
+        return $this->client->call('AddTicketReply', $params);
     }
 
     public function closeTicket(int $ticketId): array

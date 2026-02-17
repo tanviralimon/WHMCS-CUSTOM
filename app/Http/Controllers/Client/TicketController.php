@@ -71,20 +71,32 @@ class TicketController extends Controller
     public function store(Request $request)
     {
         $request->validate([
-            'deptid'   => 'required|integer',
-            'subject'  => 'required|string|max:255',
-            'message'  => 'required|string|max:10000',
-            'priority' => 'required|in:Low,Medium,High',
+            'deptid'        => 'required|integer',
+            'subject'       => 'required|string|max:255',
+            'message'       => 'required|string|max:10000',
+            'priority'      => 'required|in:Low,Medium,High',
+            'attachments'   => 'nullable|array|max:5',
+            'attachments.*' => 'file|max:2048|mimes:jpg,jpeg,gif,png,txt,pdf,zip,doc,docx',
         ]);
 
         $clientId = $request->user()->whmcs_client_id;
+
+        // Build message with credentials if provided
+        $message = $request->message;
+        if ($request->has_credentials) {
+            $message .= $this->buildCredentialsBlock($request);
+        }
+
+        // Process attachments for WHMCS API (base64-encoded)
+        $attachments = $this->processAttachments($request);
 
         $result = $this->whmcs->openTicket(
             $clientId,
             $request->deptid,
             $request->subject,
-            $request->message,
-            $request->priority
+            $message,
+            $request->priority,
+            $attachments
         );
 
         return redirect()
@@ -95,11 +107,23 @@ class TicketController extends Controller
     public function reply(Request $request, int $id)
     {
         $request->validate([
-            'message' => 'required|string|max:10000',
+            'message'       => 'required|string|max:10000',
+            'attachments'   => 'nullable|array|max:5',
+            'attachments.*' => 'file|max:2048|mimes:jpg,jpeg,gif,png,txt,pdf,zip,doc,docx',
         ]);
 
         $clientId = $request->user()->whmcs_client_id;
-        $this->whmcs->addTicketReply($id, $clientId, $request->message);
+
+        // Build message with credentials if provided
+        $message = $request->message;
+        if ($request->has_credentials) {
+            $message .= $this->buildCredentialsBlock($request);
+        }
+
+        // Process attachments
+        $attachments = $this->processAttachments($request);
+
+        $this->whmcs->addTicketReply($id, $clientId, $message, $attachments);
 
         return back()->with('success', 'Reply sent successfully.');
     }
@@ -108,5 +132,37 @@ class TicketController extends Controller
     {
         $this->whmcs->closeTicket($id);
         return back()->with('success', 'Ticket closed successfully.');
+    }
+
+    /**
+     * Process uploaded attachments into WHMCS-compatible base64 array.
+     * WHMCS expects: [base64(filename) => base64(filedata), ...]
+     */
+    private function processAttachments(Request $request): array
+    {
+        $attachments = [];
+        if ($request->hasFile('attachments')) {
+            foreach ($request->file('attachments') as $file) {
+                $name = $file->getClientOriginalName();
+                $data = file_get_contents($file->getRealPath());
+                $attachments[base64_encode($name)] = base64_encode($data);
+            }
+        }
+        return $attachments;
+    }
+
+    /**
+     * Build a formatted credentials block to append to message.
+     */
+    private function buildCredentialsBlock(Request $request): string
+    {
+        $parts = ["\n\n───── Access Credentials ─────"];
+        if ($request->cred_host)     $parts[] = "Host / IP: {$request->cred_host}";
+        if ($request->cred_port)     $parts[] = "Port: {$request->cred_port}";
+        if ($request->cred_username) $parts[] = "Username: {$request->cred_username}";
+        if ($request->cred_password) $parts[] = "Password: {$request->cred_password}";
+        if ($request->cred_notes)    $parts[] = "Notes: {$request->cred_notes}";
+        $parts[] = "──────────────────────────";
+        return implode("\n", $parts);
     }
 }

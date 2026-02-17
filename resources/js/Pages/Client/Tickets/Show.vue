@@ -43,21 +43,70 @@ const conversation = computed(() => {
     return msgs;
 });
 
-const replyForm = useForm({ message: '' });
+const replyForm = useForm({ message: '', attachments: [], has_credentials: false, cred_host: '', cred_port: '', cred_username: '', cred_password: '', cred_notes: '' });
 const closing = ref(false);
 const replyBox = ref(null);
+const replyFileInput = ref(null);
+const replyDragOver = ref(false);
 const charCount = computed(() => replyForm.message.length);
 const isClosed = computed(() => ticket.status === 'Closed');
 
+const maxFiles = 5;
+const maxSizeMB = 2;
+const allowedExts = ['jpg', 'jpeg', 'gif', 'png', 'txt', 'pdf', 'zip', 'doc', 'docx'];
+
+function handleReplyFiles(fileList) {
+    const files = Array.from(fileList);
+    for (const file of files) {
+        if (replyForm.attachments.length >= maxFiles) break;
+        const ext = file.name.split('.').pop().toLowerCase();
+        if (!allowedExts.includes(ext)) continue;
+        if (file.size > maxSizeMB * 1024 * 1024) continue;
+        if (replyForm.attachments.some(f => f.name === file.name && f.size === file.size)) continue;
+        replyForm.attachments.push(file);
+    }
+    if (replyFileInput.value) replyFileInput.value.value = '';
+}
+
+function onReplyFileChange(e) { handleReplyFiles(e.target.files); }
+function onReplyDrop(e) { replyDragOver.value = false; handleReplyFiles(e.dataTransfer.files); }
+function removeReplyFile(idx) { replyForm.attachments.splice(idx, 1); }
+function formatSize(bytes) {
+    if (bytes < 1024) return bytes + ' B';
+    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+    return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+}
+
 function submitReply() {
-    replyForm.post(route('client.tickets.reply', ticket.id), {
+    const data = new FormData();
+    data.append('message', replyForm.message);
+
+    replyForm.attachments.forEach((file, i) => {
+        data.append(`attachments[${i}]`, file);
+    });
+
+    if (replyForm.has_credentials) {
+        data.append('has_credentials', '1');
+        data.append('cred_host', replyForm.cred_host);
+        data.append('cred_port', replyForm.cred_port);
+        data.append('cred_username', replyForm.cred_username);
+        data.append('cred_password', replyForm.cred_password);
+        data.append('cred_notes', replyForm.cred_notes);
+    }
+
+    replyForm.processing = true;
+    router.post(route('client.tickets.reply', ticket.id), data, {
+        forceFormData: true,
         preserveScroll: true,
         onSuccess: () => {
             replyForm.reset();
+            replyForm.attachments = [];
             nextTick(() => {
                 window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
             });
         },
+        onFinish: () => { replyForm.processing = false; },
+        onError: (errors) => { replyForm.errors = errors; },
     });
 }
 
@@ -195,10 +244,91 @@ onMounted(() => {
             <div v-if="!isClosed" id="reply-form" class="mt-8">
                 <div class="bg-white border border-gray-200 rounded-2xl overflow-hidden shadow-sm">
                     <form @submit.prevent="submitReply">
-                        <div class="p-4">
+                        <div class="p-4 space-y-4">
                             <textarea v-model="replyForm.message" ref="replyBox" rows="4"
                                 class="w-full text-[13px] border-0 focus:ring-0 resize-none placeholder-gray-400 p-0"
                                 placeholder="Type your reply…" />
+
+                            <!-- Attachments drop zone -->
+                            <div>
+                                <div @dragover.prevent="replyDragOver = true" @dragleave="replyDragOver = false" @drop.prevent="onReplyDrop"
+                                    @click="replyFileInput?.click()"
+                                    class="border-2 border-dashed rounded-xl px-3 py-4 text-center cursor-pointer transition-all"
+                                    :class="replyDragOver
+                                        ? 'border-indigo-400 bg-indigo-50'
+                                        : 'border-gray-200 hover:border-gray-300 hover:bg-gray-50'">
+                                    <div class="flex items-center justify-center gap-2">
+                                        <svg class="w-5 h-5" :class="replyDragOver ? 'text-indigo-500' : 'text-gray-300'" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M18.375 12.739l-7.693 7.693a4.5 4.5 0 01-6.364-6.364l10.94-10.94A3 3 0 1119.5 7.372L8.552 18.32m.009-.01l-.01.01m5.699-9.941l-7.81 7.81a1.5 1.5 0 002.112 2.13" />
+                                        </svg>
+                                        <p class="text-[11px] text-gray-500">
+                                            <span class="font-medium text-indigo-600">Attach files</span> or drag here
+                                            <span class="text-gray-400 ml-1">(max {{ maxFiles }}, {{ maxSizeMB }}MB each)</span>
+                                        </p>
+                                    </div>
+                                    <input ref="replyFileInput" type="file" multiple class="hidden" :accept="allowedExts.map(e => '.' + e).join(',')" @change="onReplyFileChange" />
+                                </div>
+
+                                <!-- Attached files -->
+                                <div v-if="replyForm.attachments.length" class="mt-2 flex flex-wrap gap-2">
+                                    <div v-for="(file, idx) in replyForm.attachments" :key="idx"
+                                        class="inline-flex items-center gap-1.5 bg-gray-50 border border-gray-200 rounded-lg px-2.5 py-1.5 text-[11px]">
+                                        <svg class="w-3.5 h-3.5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18.375 12.739l-7.693 7.693a4.5 4.5 0 01-6.364-6.364l10.94-10.94A3 3 0 1119.5 7.372L8.552 18.32m.009-.01l-.01.01m5.699-9.941l-7.81 7.81a1.5 1.5 0 002.112 2.13" />
+                                        </svg>
+                                        <span class="text-gray-700 font-medium max-w-[120px] truncate">{{ file.name }}</span>
+                                        <span class="text-gray-400">{{ formatSize(file.size) }}</span>
+                                        <button type="button" @click="removeReplyFile(idx)" class="text-gray-400 hover:text-red-500 ml-0.5">
+                                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                                            </svg>
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Credentials toggle -->
+                            <button type="button" @click="replyForm.has_credentials = !replyForm.has_credentials"
+                                class="flex items-center gap-2 text-[12px] text-gray-500 hover:text-indigo-600 transition-colors">
+                                <div class="w-4 h-4 rounded border flex items-center justify-center transition-all"
+                                    :class="replyForm.has_credentials ? 'bg-indigo-600 border-indigo-600' : 'border-gray-300'">
+                                    <svg v-if="replyForm.has_credentials" class="w-2.5 h-2.5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M4.5 12.75l6 6 9-13.5" />
+                                    </svg>
+                                </div>
+                                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.75 5.25a3 3 0 013 3m3 0a6 6 0 01-7.029 5.912c-.563-.097-1.159.026-1.563.43L10.5 17.25H8.25v2.25H6v2.25H2.25v-2.818c0-.597.237-1.17.659-1.591l6.499-6.499c.404-.404.527-1 .43-1.563A6 6 0 1121.75 8.25z" />
+                                </svg>
+                                Share Access Credentials
+                            </button>
+
+                            <div v-if="replyForm.has_credentials" class="p-3 bg-amber-50 border border-amber-200 rounded-xl space-y-3">
+                                <div class="flex items-start gap-2 text-[10px] text-amber-700 bg-amber-100/50 rounded-lg px-2.5 py-1.5">
+                                    <svg class="w-3.5 h-3.5 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
+                                    </svg>
+                                    <p>Credentials will be included in your reply. <strong>Change your passwords</strong> after the issue is resolved.</p>
+                                </div>
+                                <div class="grid grid-cols-2 gap-2">
+                                    <input v-model="replyForm.cred_host" type="text"
+                                        class="text-[11px] rounded-lg border-gray-200 focus:border-indigo-500 focus:ring-indigo-500 bg-white"
+                                        placeholder="Host / IP" />
+                                    <input v-model="replyForm.cred_port" type="text"
+                                        class="text-[11px] rounded-lg border-gray-200 focus:border-indigo-500 focus:ring-indigo-500 bg-white"
+                                        placeholder="Port (e.g. 22)" />
+                                </div>
+                                <div class="grid grid-cols-2 gap-2">
+                                    <input v-model="replyForm.cred_username" type="text"
+                                        class="text-[11px] rounded-lg border-gray-200 focus:border-indigo-500 focus:ring-indigo-500 bg-white"
+                                        placeholder="Username" />
+                                    <input v-model="replyForm.cred_password" type="password"
+                                        class="text-[11px] rounded-lg border-gray-200 focus:border-indigo-500 focus:ring-indigo-500 bg-white"
+                                        placeholder="Password" />
+                                </div>
+                                <textarea v-model="replyForm.cred_notes" rows="2"
+                                    class="w-full text-[11px] rounded-lg border-gray-200 focus:border-indigo-500 focus:ring-indigo-500 resize-none bg-white"
+                                    placeholder="Additional notes (cPanel URL, panel type…)" />
+                            </div>
                         </div>
                         <div class="flex items-center justify-between px-4 py-3 bg-gray-50 border-t border-gray-100">
                             <span class="text-[11px] text-gray-400">{{ charCount }} / 10,000</span>
