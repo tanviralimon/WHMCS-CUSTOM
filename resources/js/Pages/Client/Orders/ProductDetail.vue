@@ -11,7 +11,9 @@ const props = defineProps({
     product: Object,
     paymentMethods: Array,
     requiresDomain: { type: Boolean, default: false },
+    requiresServerConfig: { type: Boolean, default: false },
     configOptions: { type: Array, default: () => [] },
+    customFields: { type: Array, default: () => [] },
     tldPricing: { type: Array, default: () => [] },
     currencyPrefix: { type: String, default: '' },
     currencySuffix: { type: String, default: '' },
@@ -32,6 +34,16 @@ const selectedDomain = ref('');        // The chosen domain for this product
 
 // Configurable options state
 const configSelections = ref({});
+
+// Custom fields state (keyed by field id)
+const customFieldValues = ref({});
+
+// ─── Server configuration (VPS / Dedicated) ────────────────
+const serverHostname = ref('');
+const serverRootPassword = ref('');
+const serverNs1Prefix = ref('ns1');
+const serverNs2Prefix = ref('ns2');
+const showRootPassword = ref(false);
 
 const cycles = [
     { key: 'monthly', label: 'Monthly' },
@@ -109,8 +121,15 @@ function selectDomain(domain) {
     selectedDomain.value = domain;
 }
 
+// Server config validation
+const serverConfigValid = computed(() => {
+    if (!props.requiresServerConfig) return true;
+    return serverHostname.value.trim().length >= 3 && serverRootPassword.value.trim().length >= 6;
+});
+
 function addToCart() {
     if (props.requiresDomain && !domainValid.value) return;
+    if (!serverConfigValid.value) return;
     adding.value = true;
     router.post(route('client.orders.cart.add'), {
         pid: p.pid,
@@ -119,6 +138,11 @@ function addToCart() {
         price: getPrice(selectedCycle.value) || '0.00',
         domain: effectiveDomain.value,
         configoptions: configSelections.value,
+        customfields: customFieldValues.value,
+        hostname: serverHostname.value.trim() || null,
+        rootpw: serverRootPassword.value.trim() || null,
+        ns1prefix: serverNs1Prefix.value.trim() || 'ns1',
+        ns2prefix: serverNs2Prefix.value.trim() || 'ns2',
     }, {
         onFinish: () => adding.value = false,
     });
@@ -266,6 +290,101 @@ function addToCart() {
                     </div>
                 </Card>
 
+                <!-- Server Configuration (VPS / Dedicated Server) -->
+                <Card v-if="requiresServerConfig" title="Configure Server">
+                    <p class="text-[12.5px] text-gray-500 mb-4">Configure your server settings below. Hostname and root password are required.</p>
+
+                    <div class="space-y-4">
+                        <!-- Hostname -->
+                        <div>
+                            <label class="block text-[13px] font-medium text-gray-700 mb-1.5">
+                                Hostname <span class="text-red-500">*</span>
+                            </label>
+                            <div class="relative">
+                                <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                                    <svg class="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2" /></svg>
+                                </div>
+                                <input v-model="serverHostname" type="text" placeholder="e.g. server1.example.com"
+                                    class="pl-10 w-full text-[13px] rounded-lg border-gray-300 focus:border-indigo-500 focus:ring-indigo-500" />
+                            </div>
+                            <p class="text-[11.5px] text-gray-400 mt-1">A fully qualified domain name for your server (e.g. vps1.yourdomain.com)</p>
+                        </div>
+
+                        <!-- Root Password -->
+                        <div>
+                            <label class="block text-[13px] font-medium text-gray-700 mb-1.5">
+                                Root Password <span class="text-red-500">*</span>
+                            </label>
+                            <div class="relative">
+                                <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                                    <svg class="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" /></svg>
+                                </div>
+                                <input v-model="serverRootPassword" :type="showRootPassword ? 'text' : 'password'"
+                                    placeholder="Minimum 6 characters"
+                                    class="pl-10 pr-10 w-full text-[13px] rounded-lg border-gray-300 focus:border-indigo-500 focus:ring-indigo-500" />
+                                <button type="button" @click="showRootPassword = !showRootPassword"
+                                    class="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-400 hover:text-gray-600">
+                                    <svg v-if="showRootPassword" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.878 9.878L6.59 6.59m7.532 7.532l3.29 3.29M3 3l18 18" /></svg>
+                                    <svg v-else class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
+                                </button>
+                            </div>
+                            <p class="text-[11.5px] text-gray-400 mt-1">The root/admin password for your server</p>
+                        </div>
+
+                        <!-- NS Prefixes in a row -->
+                        <div class="grid grid-cols-2 gap-4">
+                            <div>
+                                <label class="block text-[13px] font-medium text-gray-700 mb-1.5">NS1 Prefix</label>
+                                <div class="relative">
+                                    <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                                        <svg class="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9" /></svg>
+                                    </div>
+                                    <input v-model="serverNs1Prefix" type="text" placeholder="ns1"
+                                        class="pl-10 w-full text-[13px] rounded-lg border-gray-300 focus:border-indigo-500 focus:ring-indigo-500" />
+                                </div>
+                                <p class="text-[11.5px] text-gray-400 mt-1">e.g. <strong>ns1</strong>.hostname.com</p>
+                            </div>
+                            <div>
+                                <label class="block text-[13px] font-medium text-gray-700 mb-1.5">NS2 Prefix</label>
+                                <div class="relative">
+                                    <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                                        <svg class="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9" /></svg>
+                                    </div>
+                                    <input v-model="serverNs2Prefix" type="text" placeholder="ns2"
+                                        class="pl-10 w-full text-[13px] rounded-lg border-gray-300 focus:border-indigo-500 focus:ring-indigo-500" />
+                                </div>
+                                <p class="text-[11.5px] text-gray-400 mt-1">e.g. <strong>ns2</strong>.hostname.com</p>
+                            </div>
+                        </div>
+
+                        <!-- Hostname Preview -->
+                        <div v-if="serverHostname.trim()" class="p-3 rounded-lg bg-gray-50 border border-gray-200">
+                            <p class="text-[12px] font-medium text-gray-500 mb-1.5">Nameserver Preview</p>
+                            <div class="space-y-1">
+                                <p class="text-[13px] text-gray-700 font-mono">{{ serverNs1Prefix || 'ns1' }}.{{ serverHostname.trim() }}</p>
+                                <p class="text-[13px] text-gray-700 font-mono">{{ serverNs2Prefix || 'ns2' }}.{{ serverHostname.trim() }}</p>
+                            </div>
+                        </div>
+                    </div>
+                </Card>
+
+                <!-- Custom Fields (e.g. additional product-specific fields from WHMCS) -->
+                <Card v-if="customFields.length" title="Additional Information">
+                    <div class="space-y-4">
+                        <div v-for="cf in customFields" :key="cf.id">
+                            <label class="block text-[13px] font-medium text-gray-700 mb-1.5">
+                                {{ cf.name }}
+                                <span v-if="cf.required" class="text-red-500">*</span>
+                            </label>
+                            <input v-model="customFieldValues[cf.id]" type="text"
+                                :placeholder="cf.description || 'Enter value...'"
+                                :required="cf.required"
+                                class="w-full text-[13px] rounded-lg border-gray-300 focus:border-indigo-500 focus:ring-indigo-500" />
+                            <p v-if="cf.description" class="text-[11.5px] text-gray-400 mt-1">{{ cf.description }}</p>
+                        </div>
+                    </div>
+                </Card>
+
                 <!-- Configurable Options -->
                 <Card v-if="configOptions.length" title="Configuration Options">
                     <div class="space-y-4">
@@ -343,8 +462,14 @@ function addToCart() {
                     <p class="text-[12px] text-amber-700">Please configure a domain above before adding to cart.</p>
                 </div>
 
+                <!-- Server config warning -->
+                <div v-if="requiresServerConfig && !serverConfigValid" class="flex items-start gap-2 p-3 rounded-lg bg-amber-50 border border-amber-200">
+                    <svg class="w-4 h-4 text-amber-500 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z" /></svg>
+                    <p class="text-[12px] text-amber-700">Please set a hostname (min 3 chars) and root password (min 6 chars) above.</p>
+                </div>
+
                 <!-- Add to Cart -->
-                <button @click="addToCart" :disabled="adding || (requiresDomain && !domainValid)"
+                <button @click="addToCart" :disabled="adding || (requiresDomain && !domainValid) || !serverConfigValid"
                     class="w-full inline-flex items-center justify-center gap-2 px-4 py-3 text-[14px] font-medium text-white bg-indigo-600 rounded-xl hover:bg-indigo-700 disabled:opacity-50 transition-colors shadow-sm">
                     <svg v-if="adding" class="w-5 h-5 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" /><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
                     <svg v-else class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 100 4 2 2 0 000-4z" /></svg>

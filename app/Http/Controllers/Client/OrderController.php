@@ -186,6 +186,22 @@ class OrderController extends Controller
         }
         $configOptions = $this->normalizeConfigOptions($rawConfigOptions, $currencyCode);
 
+        // Get custom fields (shown on order form) — includes VPS fields like Hostname, Root Password, NS prefixes
+        $rawCustomFields = $product['customfields']['customfield'] ?? [];
+        if (!empty($rawCustomFields) && !isset($rawCustomFields[0])) {
+            $rawCustomFields = [$rawCustomFields];
+        }
+        $customFields = array_map(fn($cf) => [
+            'id'          => (int) ($cf['id'] ?? 0),
+            'name'        => $cf['name'] ?? '',
+            'description' => $cf['description'] ?? '',
+            'required'    => !empty($cf['required']),
+        ], $rawCustomFields);
+
+        // Detect if this product requires server configuration (VPS / Dedicated Server)
+        $requiresServerConfig = in_array($product['type'] ?? '', ['server']) ||
+            in_array(strtolower($product['module'] ?? ''), ['virtualizor', 'solusvm', 'proxmox', 'virtuozzo', 'solusio']);
+
         $paymentMethods = $this->whmcs->getPaymentMethods();
 
         // Get TLD pricing for domain registration if required
@@ -209,13 +225,15 @@ class OrderController extends Controller
         }
 
         return Inertia::render('Client/Orders/ProductDetail', [
-            'product'        => $product,
-            'paymentMethods' => $paymentMethods['paymentmethods']['paymentmethod'] ?? [],
-            'requiresDomain' => $requiresDomain,
-            'configOptions'  => $configOptions,
-            'tldPricing'     => $tldPricing,
-            'currencyPrefix' => $pricing['prefix'] ?? '',
-            'currencySuffix' => $pricing['suffix'] ?? '',
+            'product'              => $product,
+            'paymentMethods'       => $paymentMethods['paymentmethods']['paymentmethod'] ?? [],
+            'requiresDomain'       => $requiresDomain,
+            'requiresServerConfig' => $requiresServerConfig,
+            'configOptions'        => $configOptions,
+            'customFields'         => $customFields,
+            'tldPricing'           => $tldPricing,
+            'currencyPrefix'       => $pricing['prefix'] ?? '',
+            'currencySuffix'       => $pricing['suffix'] ?? '',
         ]);
     }
 
@@ -268,16 +286,25 @@ class OrderController extends Controller
             'name'          => 'required|string',
             'price'         => 'required|string',
             'domain'        => 'nullable|string',
+            'hostname'      => 'nullable|string|max:255',
+            'rootpw'        => 'nullable|string|max:255',
+            'ns1prefix'     => 'nullable|string|max:100',
+            'ns2prefix'     => 'nullable|string|max:100',
         ]);
 
         $cart = session('cart', ['items' => [], 'promo' => null]);
         $cart['items'][] = [
-            'pid'          => $request->pid,
-            'billingcycle' => $request->billingcycle,
-            'name'         => $request->name,
-            'price'        => $request->price,
-            'domain'       => $request->domain,
+            'pid'           => $request->pid,
+            'billingcycle'  => $request->billingcycle,
+            'name'          => $request->name,
+            'price'         => $request->price,
+            'domain'        => $request->domain,
             'configoptions' => $request->get('configoptions', []),
+            'customfields'  => $request->get('customfields', []),
+            'hostname'      => $request->hostname,
+            'rootpw'        => $request->rootpw,
+            'ns1prefix'     => $request->ns1prefix,
+            'ns2prefix'     => $request->ns2prefix,
         ];
         session(['cart' => $cart]);
 
@@ -346,10 +373,41 @@ class OrderController extends Controller
             }
         }
 
+        // Collect server config and custom/config option data per product
+        $hostnames  = [];
+        $rootpws    = [];
+        $ns1s       = [];
+        $ns2s       = [];
+        $customfieldsArr  = [];
+        $configoptionsArr = [];
+
+        foreach ($cart['items'] as $item) {
+            if (($item['type'] ?? '') === 'domain') continue;
+
+            $hostnames[]  = $item['hostname'] ?? '';
+            $rootpws[]    = $item['rootpw'] ?? '';
+            $ns1s[]       = $item['ns1prefix'] ?? '';
+            $ns2s[]       = $item['ns2prefix'] ?? '';
+
+            // Custom fields: base64_encode(serialize([fieldId => value, ...]))
+            $cf = $item['customfields'] ?? [];
+            $customfieldsArr[] = !empty($cf) ? base64_encode(serialize($cf)) : base64_encode(serialize([]));
+
+            // Config options: base64_encode(serialize([optionId => value, ...]))
+            $co = $item['configoptions'] ?? [];
+            $configoptionsArr[] = !empty($co) ? base64_encode(serialize($co)) : base64_encode(serialize([]));
+        }
+
         if (!empty($pids)) {
             $orderData['pid']          = implode(',', $pids);
             $orderData['domain']       = implode(',', $domains);
             $orderData['billingcycle'] = implode(',', $cycles);
+            $orderData['hostname']     = $hostnames;
+            $orderData['rootpw']       = $rootpws;
+            $orderData['ns1prefix']    = $ns1s;
+            $orderData['ns2prefix']    = $ns2s;
+            $orderData['customfields'] = $customfieldsArr;
+            $orderData['configoptions'] = $configoptionsArr;
         }
 
         // Add domain registrations
