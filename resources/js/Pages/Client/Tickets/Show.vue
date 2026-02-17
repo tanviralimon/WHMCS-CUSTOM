@@ -50,7 +50,7 @@ const charCount = computed(() => replyForm.message.length);
 const isClosed = computed(() => ticket.status === 'Closed');
 
 function submitReply() {
-    replyForm.post(route('client.tickets.reply', ticket.tid || ticket.id), {
+    replyForm.post(route('client.tickets.reply', ticket.id), {
         preserveScroll: true,
         onSuccess: () => {
             replyForm.reset();
@@ -63,7 +63,7 @@ function submitReply() {
 
 function closeTicket() {
     closing.value = false;
-    router.post(route('client.tickets.close', ticket.tid || ticket.id));
+    router.post(route('client.tickets.close', ticket.id));
 }
 
 function formatDate(dateStr) {

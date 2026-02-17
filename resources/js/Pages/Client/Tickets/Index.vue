@@ -81,7 +81,7 @@ function timeAgo(dateStr) {
         <!-- Ticket cards -->
         <div v-else class="space-y-2">
             <Link v-for="t in tickets" :key="t.id"
-                :href="route('client.tickets.show', t.tid || t.id)"
+                :href="route('client.tickets.show', t.id)"
                 class="block bg-white rounded-xl border border-gray-200 hover:border-indigo-200 hover:shadow-sm transition-all group">
                 <div class="px-5 py-4">
                     <div class="flex items-start justify-between gap-4">
