@@ -27,7 +27,7 @@ const cycles = [
 ];
 
 function getPrice(cycle) {
-    return p.pricing?.[cycle] || null;
+    return p.flatPricing?.[cycle] ?? null;
 }
 
 function addToCart() {

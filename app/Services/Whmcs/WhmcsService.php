@@ -531,10 +531,12 @@ class WhmcsService
     public function getProductGroups(): array
     {
         // GetProducts returns group info with each product; we extract unique groups
+        // Only include groups that have at least one visible (non-hidden) product
         return Cache::remember('whmcs.product_groups', 600, function () {
             $products = $this->client->callSafe('GetProducts');
             $groups = [];
             foreach ($products['products']['product'] ?? [] as $p) {
+                if (!empty($p['hidden'])) continue; // skip hidden
                 $gid = $p['gid'] ?? 0;
                 if ($gid && !isset($groups[$gid])) {
                     $groups[$gid] = [

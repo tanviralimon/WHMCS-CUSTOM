@@ -15,21 +15,96 @@ class OrderController extends Controller
     {
         $groups   = $this->whmcs->getProductGroups();
         $groupId  = $request->get('group');
-        $products = $this->whmcs->getProducts($groupId ? (int) $groupId : null);
+        $result   = $this->whmcs->getProducts($groupId ? (int) $groupId : null);
+        $raw      = $result['products']['product'] ?? [];
+
+        // Get the client's active currency code
+        $currencyCode = $this->getActiveCurrencyCode($request);
+
+        // Filter hidden products and flatten pricing
+        $products = [];
+        foreach ($raw as $p) {
+            // Skip hidden products
+            if (!empty($p['hidden'])) continue;
+
+            // Flatten pricing from nested currency structure
+            // WHMCS returns: pricing.{CURRENCY}.{cycle} e.g. pricing.USD.monthly
+            $pricing = $p['pricing'][$currencyCode] ?? $p['pricing'][array_key_first($p['pricing'] ?? [])] ?? [];
+            $p['flatPricing'] = [
+                'monthly'      => $this->cleanPrice($pricing['monthly'] ?? null),
+                'quarterly'    => $this->cleanPrice($pricing['quarterly'] ?? null),
+                'semiannually' => $this->cleanPrice($pricing['semiannually'] ?? null),
+                'annually'     => $this->cleanPrice($pricing['annually'] ?? null),
+                'biennially'   => $this->cleanPrice($pricing['biennially'] ?? null),
+                'triennially'  => $this->cleanPrice($pricing['triennially'] ?? null),
+            ];
+
+            // Determine the "starting from" display price
+            $displayPrice = null;
+            foreach (['monthly', 'annually', 'quarterly', 'semiannually', 'biennially', 'triennially'] as $cycle) {
+                if ($p['flatPricing'][$cycle] !== null && $p['flatPricing'][$cycle] >= 0) {
+                    $displayPrice = $p['flatPricing'][$cycle];
+                    $p['displayCycle'] = $cycle;
+                    break;
+                }
+            }
+            $p['displayPrice'] = $displayPrice;
+
+            $products[] = $p;
+        }
 
         return Inertia::render('Client/Orders/Products', [
             'groups'       => $groups,
-            'products'     => $products['products']['product'] ?? [],
+            'products'     => $products,
             'activeGroup'  => $groupId,
         ]);
     }
 
-    public function productDetail(int $id)
+    /**
+     * Clean a WHMCS price value: returns float or null if not orderable (-1).
+     */
+    private function cleanPrice($val): ?float
+    {
+        if ($val === null || $val === '' || $val === '-1' || $val === '-1.00') {
+            return null;
+        }
+        $num = (float) preg_replace('/[^0-9.\-]/', '', $val);
+        return $num >= 0 ? $num : null;
+    }
+
+    /**
+     * Get the active currency code for the current user.
+     */
+    private function getActiveCurrencyCode(Request $request): string
+    {
+        // Default to USD; override if client has a different currency
+        $currencies = $this->whmcs->getCurrencies();
+        $list = $currencies['currencies']['currency'] ?? [];
+        if (!empty($list)) {
+            // Try to match client's currency
+            $clientCurrencyId = $request->user()->currency_id ?? 1;
+            foreach ($list as $c) {
+                if ((int) ($c['id'] ?? 0) === (int) $clientCurrencyId) {
+                    return $c['code'] ?? 'USD';
+                }
+            }
+            // Fallback to first/default
+            foreach ($list as $c) {
+                if (!empty($c['default'])) return $c['code'] ?? 'USD';
+            }
+            return $list[0]['code'] ?? 'USD';
+        }
+        return 'USD';
+    }
+
+    public function productDetail(Request $request, int $id)
     {
         $products = $this->whmcs->getProducts();
         $product  = null;
         foreach ($products['products']['product'] ?? [] as $p) {
             if ((int) $p['pid'] === $id) {
+                // Don't allow viewing hidden products
+                if (!empty($p['hidden'])) abort(404);
                 $product = $p;
                 break;
             }
@@ -38,6 +113,18 @@ class OrderController extends Controller
         if (!$product) {
             abort(404);
         }
+
+        // Flatten pricing
+        $currencyCode = $this->getActiveCurrencyCode($request);
+        $pricing = $product['pricing'][$currencyCode] ?? $product['pricing'][array_key_first($product['pricing'] ?? [])] ?? [];
+        $product['flatPricing'] = [
+            'monthly'      => $this->cleanPrice($pricing['monthly'] ?? null),
+            'quarterly'    => $this->cleanPrice($pricing['quarterly'] ?? null),
+            'semiannually' => $this->cleanPrice($pricing['semiannually'] ?? null),
+            'annually'     => $this->cleanPrice($pricing['annually'] ?? null),
+            'biennially'   => $this->cleanPrice($pricing['biennially'] ?? null),
+            'triennially'  => $this->cleanPrice($pricing['triennially'] ?? null),
+        ];
 
         $paymentMethods = $this->whmcs->getPaymentMethods();
 
