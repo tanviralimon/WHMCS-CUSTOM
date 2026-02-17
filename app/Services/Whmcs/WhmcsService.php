@@ -410,7 +410,7 @@ class WhmcsService
         // Try with attachments first; if WHMCS rejects, retry without
         if (!empty($attachments)) {
             try {
-                $params['attachments'] = base64_encode(serialize($attachments));
+                $params['attachments'] = base64_encode(json_encode($attachments));
                 return $this->client->call('OpenTicket', $params, 30);
             } catch (\Exception $e) {
                 // Attachment failed — send without and note in message
@@ -460,7 +460,7 @@ class WhmcsService
         // Try with attachments first; if WHMCS rejects, retry without
         if (!empty($attachments)) {
             try {
-                $params['attachments'] = base64_encode(serialize($attachments));
+                $params['attachments'] = base64_encode(json_encode($attachments));
                 return $this->client->call('AddTicketReply', $params, 30);
             } catch (\Exception $e) {
                 // Attachment failed — send without and note in message

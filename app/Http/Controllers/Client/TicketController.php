@@ -140,16 +140,17 @@ class TicketController extends Controller
 
     /**
      * Process uploaded attachments into WHMCS-compatible array.
-     * WHMCS expects: ['filename.ext' => base64_encode(filedata), ...]
+     * WHMCS expects: [['name' => 'file.ext', 'data' => base64_encode(filedata)], ...]
      */
     private function processAttachments(Request $request): array
     {
         $attachments = [];
         if ($request->hasFile('attachments')) {
             foreach ($request->file('attachments') as $file) {
-                $name = $file->getClientOriginalName();
-                $data = file_get_contents($file->getRealPath());
-                $attachments[$name] = base64_encode($data);
+                $attachments[] = [
+                    'name' => $file->getClientOriginalName(),
+                    'data' => base64_encode(file_get_contents($file->getRealPath())),
+                ];
             }
         }
         return $attachments;
