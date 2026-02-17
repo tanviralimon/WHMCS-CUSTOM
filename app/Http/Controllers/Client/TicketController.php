@@ -83,8 +83,8 @@ class TicketController extends Controller
 
         // Build message with credentials if provided
         $message = $request->message;
-        if ($request->has_credentials) {
-            $message .= $this->buildCredentialsBlock($request);
+        if ($request->credentials) {
+            $message .= $this->buildCredentialsBlock($request->credentials);
         }
 
         // Process attachments for WHMCS API (base64-encoded)
@@ -116,8 +116,8 @@ class TicketController extends Controller
 
         // Build message with credentials if provided
         $message = $request->message;
-        if ($request->has_credentials) {
-            $message .= $this->buildCredentialsBlock($request);
+        if ($request->credentials) {
+            $message .= $this->buildCredentialsBlock($request->credentials);
         }
 
         // Process attachments
@@ -152,17 +152,28 @@ class TicketController extends Controller
     }
 
     /**
-     * Build a formatted credentials block to append to message.
+     * Build formatted credentials blocks from JSON string of multiple credential sets.
      */
-    private function buildCredentialsBlock(Request $request): string
+    private function buildCredentialsBlock(string $credentialsJson): string
     {
-        $parts = ["\n\n───── Access Credentials ─────"];
-        if ($request->cred_host)     $parts[] = "Host / IP: {$request->cred_host}";
-        if ($request->cred_port)     $parts[] = "Port: {$request->cred_port}";
-        if ($request->cred_username) $parts[] = "Username: {$request->cred_username}";
-        if ($request->cred_password) $parts[] = "Password: {$request->cred_password}";
-        if ($request->cred_notes)    $parts[] = "Notes: {$request->cred_notes}";
-        $parts[] = "──────────────────────────";
-        return implode("\n", $parts);
+        $credentials = json_decode($credentialsJson, true);
+        if (!is_array($credentials) || empty($credentials)) {
+            return '';
+        }
+
+        $output = '';
+        foreach ($credentials as $i => $cred) {
+            $type = $cred['type'] ?? 'Credentials';
+            $num  = count($credentials) > 1 ? ' #' . ($i + 1) : '';
+            $parts = ["\n\n───── {$type} Access{$num} ─────"];
+            if (!empty($cred['host']))     $parts[] = "Host / IP: {$cred['host']}";
+            if (!empty($cred['port']))     $parts[] = "Port: {$cred['port']}";
+            if (!empty($cred['username'])) $parts[] = "Username: {$cred['username']}";
+            if (!empty($cred['password'])) $parts[] = "Password: {$cred['password']}";
+            if (!empty($cred['notes']))    $parts[] = "Notes: {$cred['notes']}";
+            $parts[] = "──────────────────────────";
+            $output .= implode("\n", $parts);
+        }
+        return $output;
     }
 }

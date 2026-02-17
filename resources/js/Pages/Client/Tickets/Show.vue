@@ -43,13 +43,31 @@ const conversation = computed(() => {
     return msgs;
 });
 
-const replyForm = useForm({ message: '', attachments: [], has_credentials: false, cred_host: '', cred_port: '', cred_username: '', cred_password: '', cred_notes: '' });
+const replyForm = useForm({ message: '', attachments: [] });
+const replyCredentials = ref([]);
 const closing = ref(false);
 const replyBox = ref(null);
 const replyFileInput = ref(null);
 const replyDragOver = ref(false);
 const charCount = computed(() => replyForm.message.length);
 const isClosed = computed(() => ticket.status === 'Closed');
+
+const credentialTypes = [
+    { value: 'SSH', icon: '🖥️' },
+    { value: 'cPanel', icon: '⚙️' },
+    { value: 'FTP', icon: '📁' },
+    { value: 'Database', icon: '🗄️' },
+    { value: 'WordPress', icon: '📝' },
+    { value: 'Other', icon: '🔑' },
+];
+
+function addReplyCredential() {
+    replyCredentials.value.push({ type: 'SSH', host: '', port: '', username: '', password: '', notes: '' });
+}
+
+function removeReplyCredential(idx) {
+    replyCredentials.value.splice(idx, 1);
+}
 
 const maxFiles = 5;
 const maxSizeMB = 2;
@@ -85,13 +103,8 @@ function submitReply() {
         data.append(`attachments[${i}]`, file);
     });
 
-    if (replyForm.has_credentials) {
-        data.append('has_credentials', '1');
-        data.append('cred_host', replyForm.cred_host);
-        data.append('cred_port', replyForm.cred_port);
-        data.append('cred_username', replyForm.cred_username);
-        data.append('cred_password', replyForm.cred_password);
-        data.append('cred_notes', replyForm.cred_notes);
+    if (replyCredentials.value.length > 0) {
+        data.append('credentials', JSON.stringify(replyCredentials.value));
     }
 
     replyForm.processing = true;
@@ -101,6 +114,7 @@ function submitReply() {
         onSuccess: () => {
             replyForm.reset();
             replyForm.attachments = [];
+            replyCredentials.value = [];
             nextTick(() => {
                 window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
             });
@@ -287,47 +301,69 @@ onMounted(() => {
                                 </div>
                             </div>
 
-                            <!-- Credentials toggle -->
-                            <button type="button" @click="replyForm.has_credentials = !replyForm.has_credentials"
-                                class="flex items-center gap-2 text-[12px] text-gray-500 hover:text-indigo-600 transition-colors">
-                                <div class="w-4 h-4 rounded border flex items-center justify-center transition-all"
-                                    :class="replyForm.has_credentials ? 'bg-indigo-600 border-indigo-600' : 'border-gray-300'">
-                                    <svg v-if="replyForm.has_credentials" class="w-2.5 h-2.5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M4.5 12.75l6 6 9-13.5" />
+                            <!-- Credentials -->
+                            <div>
+                                <button type="button" @click="addReplyCredential"
+                                    class="flex items-center gap-1.5 text-[12px] text-gray-500 hover:text-indigo-600 transition-colors">
+                                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.75 5.25a3 3 0 013 3m3 0a6 6 0 01-7.029 5.912c-.563-.097-1.159.026-1.563.43L10.5 17.25H8.25v2.25H6v2.25H2.25v-2.818c0-.597.237-1.17.659-1.591l6.499-6.499c.404-.404.527-1 .43-1.563A6 6 0 1121.75 8.25z" />
                                     </svg>
-                                </div>
-                                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.75 5.25a3 3 0 013 3m3 0a6 6 0 01-7.029 5.912c-.563-.097-1.159.026-1.563.43L10.5 17.25H8.25v2.25H6v2.25H2.25v-2.818c0-.597.237-1.17.659-1.591l6.499-6.499c.404-.404.527-1 .43-1.563A6 6 0 1121.75 8.25z" />
-                                </svg>
-                                Share Access Credentials
-                            </button>
+                                    <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4.5v15m7.5-7.5h-15" />
+                                    </svg>
+                                    Add Access Credentials
+                                </button>
 
-                            <div v-if="replyForm.has_credentials" class="p-3 bg-amber-50 border border-amber-200 rounded-xl space-y-3">
-                                <div class="flex items-start gap-2 text-[10px] text-amber-700 bg-amber-100/50 rounded-lg px-2.5 py-1.5">
-                                    <svg class="w-3.5 h-3.5 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
-                                    </svg>
-                                    <p>Credentials will be included in your reply. <strong>Change your passwords</strong> after the issue is resolved.</p>
+                                <div v-if="replyCredentials.length" class="mt-3 space-y-3">
+                                    <div class="flex items-start gap-2 text-[10px] text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-1.5">
+                                        <svg class="w-3.5 h-3.5 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
+                                        </svg>
+                                        <p>Credentials will be included in your reply. <strong>Change passwords</strong> after resolved.</p>
+                                    </div>
+
+                                    <div v-for="(cred, idx) in replyCredentials" :key="idx"
+                                        class="p-3 bg-gray-50 border border-gray-200 rounded-xl space-y-2">
+                                        <div class="flex items-center justify-between">
+                                            <div class="flex items-center gap-1.5">
+                                                <span class="text-[12px]">{{ credentialTypes.find(t => t.value === cred.type)?.icon || '🔑' }}</span>
+                                                <select v-model="cred.type"
+                                                    class="text-[11px] font-semibold rounded-lg border-gray-200 focus:border-indigo-500 focus:ring-indigo-500 bg-white pr-7 py-1">
+                                                    <option v-for="t in credentialTypes" :key="t.value" :value="t.value">{{ t.value }}</option>
+                                                </select>
+                                            </div>
+                                            <button type="button" @click="removeReplyCredential(idx)" class="text-gray-400 hover:text-red-500">
+                                                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                                                </svg>
+                                            </button>
+                                        </div>
+                                        <div class="grid grid-cols-2 gap-2">
+                                            <input v-model="cred.host" type="text"
+                                                class="text-[11px] rounded-lg border-gray-200 focus:border-indigo-500 focus:ring-indigo-500 bg-white"
+                                                placeholder="Host / IP" />
+                                            <input v-model="cred.port" type="text"
+                                                class="text-[11px] rounded-lg border-gray-200 focus:border-indigo-500 focus:ring-indigo-500 bg-white"
+                                                placeholder="Port" />
+                                        </div>
+                                        <div class="grid grid-cols-2 gap-2">
+                                            <input v-model="cred.username" type="text"
+                                                class="text-[11px] rounded-lg border-gray-200 focus:border-indigo-500 focus:ring-indigo-500 bg-white"
+                                                placeholder="Username" />
+                                            <input v-model="cred.password" type="password"
+                                                class="text-[11px] rounded-lg border-gray-200 focus:border-indigo-500 focus:ring-indigo-500 bg-white"
+                                                placeholder="Password" />
+                                        </div>
+                                        <textarea v-model="cred.notes" rows="1"
+                                            class="w-full text-[11px] rounded-lg border-gray-200 focus:border-indigo-500 focus:ring-indigo-500 resize-none bg-white"
+                                            placeholder="Notes (URL, panel type…)" />
+                                    </div>
+
+                                    <button type="button" @click="addReplyCredential"
+                                        class="w-full py-1.5 border-2 border-dashed border-gray-200 rounded-lg text-[11px] text-gray-400 hover:text-indigo-600 hover:border-indigo-300 transition-all">
+                                        + Add Another
+                                    </button>
                                 </div>
-                                <div class="grid grid-cols-2 gap-2">
-                                    <input v-model="replyForm.cred_host" type="text"
-                                        class="text-[11px] rounded-lg border-gray-200 focus:border-indigo-500 focus:ring-indigo-500 bg-white"
-                                        placeholder="Host / IP" />
-                                    <input v-model="replyForm.cred_port" type="text"
-                                        class="text-[11px] rounded-lg border-gray-200 focus:border-indigo-500 focus:ring-indigo-500 bg-white"
-                                        placeholder="Port (e.g. 22)" />
-                                </div>
-                                <div class="grid grid-cols-2 gap-2">
-                                    <input v-model="replyForm.cred_username" type="text"
-                                        class="text-[11px] rounded-lg border-gray-200 focus:border-indigo-500 focus:ring-indigo-500 bg-white"
-                                        placeholder="Username" />
-                                    <input v-model="replyForm.cred_password" type="password"
-                                        class="text-[11px] rounded-lg border-gray-200 focus:border-indigo-500 focus:ring-indigo-500 bg-white"
-                                        placeholder="Password" />
-                                </div>
-                                <textarea v-model="replyForm.cred_notes" rows="2"
-                                    class="w-full text-[11px] rounded-lg border-gray-200 focus:border-indigo-500 focus:ring-indigo-500 resize-none bg-white"
-                                    placeholder="Additional notes (cPanel URL, panel type…)" />
                             </div>
                         </div>
                         <div class="flex items-center justify-between px-4 py-3 bg-gray-50 border-t border-gray-100">

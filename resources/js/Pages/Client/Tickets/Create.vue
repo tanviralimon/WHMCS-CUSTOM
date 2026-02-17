@@ -13,14 +13,29 @@ const form = useForm({
     message: '',
     priority: 'Medium',
     attachments: [],
-    // Secret credentials
-    has_credentials: false,
-    cred_host: '',
-    cred_port: '',
-    cred_username: '',
-    cred_password: '',
-    cred_notes: '',
 });
+
+const showCredentials = ref(false);
+const credentials = ref([]);
+
+const credentialTypes = [
+    { value: 'SSH', icon: '🖥️' },
+    { value: 'cPanel', icon: '⚙️' },
+    { value: 'FTP', icon: '📁' },
+    { value: 'Database', icon: '🗄️' },
+    { value: 'WordPress', icon: '📝' },
+    { value: 'Other', icon: '🔑' },
+];
+
+function addCredential() {
+    credentials.value.push({ type: 'SSH', host: '', port: '', username: '', password: '', notes: '' });
+    if (!showCredentials.value) showCredentials.value = true;
+}
+
+function removeCredential(idx) {
+    credentials.value.splice(idx, 1);
+    if (credentials.value.length === 0) showCredentials.value = false;
+}
 
 const charCount = computed(() => form.message.length);
 const fileInput = ref(null);
@@ -81,13 +96,8 @@ function submit() {
         data.append(`attachments[${i}]`, file);
     });
 
-    if (form.has_credentials) {
-        data.append('has_credentials', '1');
-        data.append('cred_host', form.cred_host);
-        data.append('cred_port', form.cred_port);
-        data.append('cred_username', form.cred_username);
-        data.append('cred_password', form.cred_password);
-        data.append('cred_notes', form.cred_notes);
+    if (credentials.value.length > 0) {
+        data.append('credentials', JSON.stringify(credentials.value));
     }
 
     form.processing = true;
@@ -217,45 +227,65 @@ function submit() {
                             <p v-if="form.errors.attachments" class="mt-1.5 text-[12px] text-red-600">{{ form.errors.attachments }}</p>
                         </div>
 
-                        <!-- Secret Credentials (collapsible) -->
+                        <!-- Access Credentials (multiple) -->
                         <div>
-                            <button type="button" @click="form.has_credentials = !form.has_credentials"
-                                class="flex items-center gap-2 text-[13px] font-semibold text-gray-700 hover:text-indigo-600 transition-colors group">
-                                <div class="w-5 h-5 rounded border flex items-center justify-center transition-all"
-                                    :class="form.has_credentials
-                                        ? 'bg-indigo-600 border-indigo-600'
-                                        : 'border-gray-300 group-hover:border-indigo-400'">
-                                    <svg v-if="form.has_credentials" class="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M4.5 12.75l6 6 9-13.5" />
+                            <div class="flex items-center justify-between mb-2">
+                                <label class="flex items-center gap-2 text-[13px] font-semibold text-gray-700">
+                                    <svg class="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.75 5.25a3 3 0 013 3m3 0a6 6 0 01-7.029 5.912c-.563-.097-1.159.026-1.563.43L10.5 17.25H8.25v2.25H6v2.25H2.25v-2.818c0-.597.237-1.17.659-1.591l6.499-6.499c.404-.404.527-1 .43-1.563A6 6 0 1121.75 8.25z" />
                                     </svg>
-                                </div>
-                                <svg class="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.75 5.25a3 3 0 013 3m3 0a6 6 0 01-7.029 5.912c-.563-.097-1.159.026-1.563.43L10.5 17.25H8.25v2.25H6v2.25H2.25v-2.818c0-.597.237-1.17.659-1.591l6.499-6.499c.404-.404.527-1 .43-1.563A6 6 0 1121.75 8.25z" />
-                                </svg>
-                                Share Access Credentials
-                                <span class="text-[11px] font-normal text-gray-400">(SSH, hosting, etc.)</span>
-                            </button>
+                                    Access Credentials
+                                    <span class="font-normal text-gray-400">(optional)</span>
+                                </label>
+                                <button type="button" @click="addCredential"
+                                    class="inline-flex items-center gap-1 text-[12px] font-medium text-indigo-600 hover:text-indigo-700 transition-colors">
+                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4.5v15m7.5-7.5h-15" />
+                                    </svg>
+                                    Add Credentials
+                                </button>
+                            </div>
 
-                            <transition enter-active-class="transition-all duration-200" enter-from-class="opacity-0 max-h-0" enter-to-class="opacity-100 max-h-96"
-                                leave-active-class="transition-all duration-200" leave-from-class="opacity-100 max-h-96" leave-to-class="opacity-0 max-h-0">
-                                <div v-if="form.has_credentials" class="mt-3 p-4 bg-amber-50 border border-amber-200 rounded-xl space-y-3 overflow-hidden">
-                                    <div class="flex items-start gap-2 text-[11px] text-amber-700 bg-amber-100/50 rounded-lg px-3 py-2">
-                                        <svg class="w-4 h-4 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
-                                        </svg>
-                                        <p>These credentials will be included securely in your ticket message. <strong>Remember to change your passwords</strong> after the issue is resolved.</p>
+                            <!-- Warning banner -->
+                            <div v-if="credentials.length" class="flex items-start gap-2 text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mb-3">
+                                <svg class="w-4 h-4 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
+                                </svg>
+                                <p>Credentials will be included in your ticket message. <strong>Remember to change your passwords</strong> after the issue is resolved.</p>
+                            </div>
+
+                            <!-- Credential cards -->
+                            <div class="space-y-3">
+                                <div v-for="(cred, idx) in credentials" :key="idx"
+                                    class="p-4 bg-gray-50 border border-gray-200 rounded-xl space-y-3 relative">
+                                    <!-- Header with type selector and remove button -->
+                                    <div class="flex items-center justify-between">
+                                        <div class="flex items-center gap-2">
+                                            <span class="text-[13px]">{{ credentialTypes.find(t => t.value === cred.type)?.icon || '🔑' }}</span>
+                                            <select v-model="cred.type"
+                                                class="text-[12px] font-semibold rounded-lg border-gray-200 focus:border-indigo-500 focus:ring-indigo-500 bg-white pr-8 py-1.5">
+                                                <option v-for="t in credentialTypes" :key="t.value" :value="t.value">{{ t.value }}</option>
+                                            </select>
+                                            <span class="text-[11px] text-gray-400">#{{ idx + 1 }}</span>
+                                        </div>
+                                        <button type="button" @click="removeCredential(idx)"
+                                            class="text-gray-400 hover:text-red-500 transition-colors p-1">
+                                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
+                                            </svg>
+                                        </button>
                                     </div>
 
                                     <div class="grid grid-cols-2 gap-3">
                                         <div>
                                             <label class="block text-[11px] font-medium text-gray-600 mb-1">Host / IP</label>
-                                            <input v-model="form.cred_host" type="text"
+                                            <input v-model="cred.host" type="text"
                                                 class="w-full text-[12px] rounded-lg border-gray-200 focus:border-indigo-500 focus:ring-indigo-500 bg-white"
                                                 placeholder="e.g. 192.168.1.1" />
                                         </div>
                                         <div>
                                             <label class="block text-[11px] font-medium text-gray-600 mb-1">Port</label>
-                                            <input v-model="form.cred_port" type="text"
+                                            <input v-model="cred.port" type="text"
                                                 class="w-full text-[12px] rounded-lg border-gray-200 focus:border-indigo-500 focus:ring-indigo-500 bg-white"
                                                 placeholder="e.g. 22" />
                                         </div>
@@ -263,25 +293,31 @@ function submit() {
                                     <div class="grid grid-cols-2 gap-3">
                                         <div>
                                             <label class="block text-[11px] font-medium text-gray-600 mb-1">Username</label>
-                                            <input v-model="form.cred_username" type="text"
+                                            <input v-model="cred.username" type="text"
                                                 class="w-full text-[12px] rounded-lg border-gray-200 focus:border-indigo-500 focus:ring-indigo-500 bg-white"
                                                 placeholder="e.g. root" />
                                         </div>
                                         <div>
                                             <label class="block text-[11px] font-medium text-gray-600 mb-1">Password</label>
-                                            <input v-model="form.cred_password" type="password"
+                                            <input v-model="cred.password" type="password"
                                                 class="w-full text-[12px] rounded-lg border-gray-200 focus:border-indigo-500 focus:ring-indigo-500 bg-white"
                                                 placeholder="••••••••" />
                                         </div>
                                     </div>
                                     <div>
                                         <label class="block text-[11px] font-medium text-gray-600 mb-1">Additional Notes</label>
-                                        <textarea v-model="form.cred_notes" rows="2"
+                                        <textarea v-model="cred.notes" rows="2"
                                             class="w-full text-[12px] rounded-lg border-gray-200 focus:border-indigo-500 focus:ring-indigo-500 resize-none bg-white"
                                             placeholder="cPanel URL, control panel type, or other details…" />
                                     </div>
                                 </div>
-                            </transition>
+                            </div>
+
+                            <!-- Add another button (when credentials exist) -->
+                            <button v-if="credentials.length" type="button" @click="addCredential"
+                                class="mt-2 w-full py-2 border-2 border-dashed border-gray-200 rounded-lg text-[12px] text-gray-400 hover:text-indigo-600 hover:border-indigo-300 transition-all">
+                                + Add Another Credential Set
+                            </button>
                         </div>
                     </div>
 
