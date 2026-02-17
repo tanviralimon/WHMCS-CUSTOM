@@ -3,17 +3,47 @@ import { ref, computed } from 'vue';
 import { useForm, Link, router } from '@inertiajs/vue3';
 import ClientLayout from '@/Layouts/ClientLayout.vue';
 
-defineProps({
+const props = defineProps({
     departments: Array,
+    services: { type: Array, default: () => [] },
 });
 
 const form = useForm({
     deptid: '',
+    service_id: '',
     subject: '',
     message: '',
     priority: 'Medium',
     attachments: [],
 });
+
+const serviceSearch = ref('');
+const showServiceDropdown = ref(false);
+
+const filteredServices = computed(() => {
+    if (!serviceSearch.value) return props.services;
+    const q = serviceSearch.value.toLowerCase();
+    return props.services.filter(s =>
+        s.label.toLowerCase().includes(q) || (s.domain && s.domain.toLowerCase().includes(q))
+    );
+});
+
+const selectedServiceLabel = computed(() => {
+    if (!form.service_id) return '';
+    const svc = props.services.find(s => s.id === form.service_id);
+    return svc ? svc.label : '';
+});
+
+function selectService(svc) {
+    form.service_id = svc.id;
+    serviceSearch.value = '';
+    showServiceDropdown.value = false;
+}
+
+function clearService() {
+    form.service_id = '';
+    serviceSearch.value = '';
+}
 
 const showCredentials = ref(false);
 const credentials = ref([]);
@@ -88,6 +118,7 @@ function submit() {
     // Use router.post for file upload (multipart)
     const data = new FormData();
     data.append('deptid', form.deptid);
+    if (form.service_id) data.append('service_id', form.service_id);
     data.append('subject', form.subject);
     data.append('message', form.message);
     data.append('priority', form.priority);
@@ -141,6 +172,68 @@ function submit() {
                                 </button>
                             </div>
                             <p v-if="form.errors.deptid" class="mt-1.5 text-[12px] text-red-600">{{ form.errors.deptid }}</p>
+                        </div>
+
+                        <!-- Related Service -->
+                        <div v-if="services.length">
+                            <label class="block text-[13px] font-semibold text-gray-700 mb-2">
+                                Related Service / Domain
+                                <span class="font-normal text-gray-400 ml-1">(optional)</span>
+                            </label>
+
+                            <!-- Selected service chip -->
+                            <div v-if="form.service_id" class="flex items-center gap-2 mb-2">
+                                <div class="inline-flex items-center gap-2 bg-indigo-50 border border-indigo-200 text-indigo-700 rounded-lg px-3 py-2 text-[12px] font-medium">
+                                    <svg class="w-4 h-4 text-indigo-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2" />
+                                    </svg>
+                                    <span class="truncate max-w-[280px]">{{ selectedServiceLabel }}</span>
+                                    <button type="button" @click="clearService" class="text-indigo-400 hover:text-red-500 transition-colors ml-1">
+                                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                                        </svg>
+                                    </button>
+                                </div>
+                            </div>
+
+                            <!-- Search / select dropdown -->
+                            <div v-else class="relative">
+                                <div class="relative">
+                                    <svg class="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
+                                    </svg>
+                                    <input
+                                        v-model="serviceSearch"
+                                        @focus="showServiceDropdown = true"
+                                        @blur="setTimeout(() => showServiceDropdown = false, 200)"
+                                        type="text"
+                                        class="w-full text-[13px] rounded-lg border-gray-200 focus:border-indigo-500 focus:ring-indigo-500 placeholder-gray-400 pl-9"
+                                        placeholder="Search your services or domains…" />
+                                </div>
+
+                                <!-- Dropdown list -->
+                                <div v-if="showServiceDropdown && filteredServices.length"
+                                    class="absolute z-30 mt-1 w-full bg-white border border-gray-200 rounded-xl shadow-lg max-h-52 overflow-y-auto">
+                                    <button v-for="svc in filteredServices" :key="svc.id" type="button"
+                                        @mousedown.prevent="selectService(svc)"
+                                        class="w-full flex items-center gap-3 px-3 py-2.5 text-left hover:bg-indigo-50 transition-colors first:rounded-t-xl last:rounded-b-xl">
+                                        <span class="flex-shrink-0 w-6 h-6 rounded-md flex items-center justify-center text-[11px]"
+                                            :class="svc.type === 'domain'
+                                                ? 'bg-emerald-100 text-emerald-600'
+                                                : 'bg-blue-100 text-blue-600'">
+                                            {{ svc.type === 'domain' ? '🌐' : '⚙️' }}
+                                        </span>
+                                        <div class="flex-1 min-w-0">
+                                            <p class="text-[12px] font-medium text-gray-700 truncate">{{ svc.label }}</p>
+                                            <p class="text-[10px] text-gray-400 capitalize">{{ svc.type }} · {{ svc.status }}</p>
+                                        </div>
+                                    </button>
+                                </div>
+                                <div v-else-if="showServiceDropdown && serviceSearch && !filteredServices.length"
+                                    class="absolute z-30 mt-1 w-full bg-white border border-gray-200 rounded-xl shadow-lg px-4 py-3">
+                                    <p class="text-[12px] text-gray-400 text-center">No matching services found</p>
+                                </div>
+                            </div>
                         </div>
 
                         <!-- Subject -->

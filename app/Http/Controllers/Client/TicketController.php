@@ -59,12 +59,48 @@ class TicketController extends Controller
         ]);
     }
 
-    public function create()
+    public function create(Request $request)
     {
+        $clientId = $request->user()->whmcs_client_id;
         $departments = $this->whmcs->getSupportDepartments();
+
+        // Fetch client's active products/services and domains for "Related Service" selector
+        $productsResult = $this->whmcs->getClientsProducts($clientId, 0, 250);
+        $domainsResult  = $this->whmcs->getClientsDomains($clientId, 0, 250);
+
+        $services = [];
+
+        // Products / Hosting accounts
+        $products = $productsResult['products']['product'] ?? [];
+        foreach ($products as $p) {
+            $label = $p['name'] ?? $p['groupname'] ?? 'Service';
+            if (!empty($p['domain'])) {
+                $label .= ' - ' . $p['domain'];
+            }
+            $services[] = [
+                'id'     => 'S' . $p['id'],
+                'type'   => 'product',
+                'label'  => $label,
+                'status' => $p['status'] ?? '',
+                'domain' => $p['domain'] ?? '',
+            ];
+        }
+
+        // Domains
+        $domains = $domainsResult['domains']['domain'] ?? [];
+        foreach ($domains as $d) {
+            $services[] = [
+                'id'     => 'D' . $d['id'],
+                'type'   => 'domain',
+                'label'  => $d['domainname'] ?? $d['domain'] ?? 'Domain',
+                'status' => $d['status'] ?? '',
+                'domain' => $d['domainname'] ?? $d['domain'] ?? '',
+            ];
+        }
 
         return Inertia::render('Client/Tickets/Create', [
             'departments' => $departments['departments']['department'] ?? [],
+            'services'    => $services,
         ]);
     }
 
@@ -75,6 +111,7 @@ class TicketController extends Controller
             'subject'       => 'required|string|max:255',
             'message'       => 'required|string|max:10000',
             'priority'      => 'required|in:Low,Medium,High',
+            'service_id'    => 'nullable|string|max:20',
             'attachments'   => 'nullable|array|max:5',
             'attachments.*' => 'file|max:2048|mimes:jpg,jpeg,gif,png,txt,pdf,zip,doc,docx',
         ]);
@@ -90,13 +127,28 @@ class TicketController extends Controller
         // Process attachments for WHMCS API (base64-encoded)
         $attachments = $this->processAttachments($request);
 
+        // Parse related service (S123 = product, D123 = domain)
+        $serviceId = null;
+        $domainId  = null;
+        if ($request->service_id) {
+            $prefix = substr($request->service_id, 0, 1);
+            $id     = (int) substr($request->service_id, 1);
+            if ($prefix === 'S') {
+                $serviceId = $id;
+            } elseif ($prefix === 'D') {
+                $domainId = $id;
+            }
+        }
+
         $result = $this->whmcs->openTicket(
             $clientId,
             $request->deptid,
             $request->subject,
             $message,
             $request->priority,
-            $attachments
+            $attachments,
+            $serviceId,
+            $domainId
         );
 
         return redirect()

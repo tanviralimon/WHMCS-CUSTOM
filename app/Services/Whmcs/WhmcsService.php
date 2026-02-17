@@ -397,7 +397,7 @@ class WhmcsService
         return $this->client->callSafe('GetTicket', ['ticketid' => $ticketId]);
     }
 
-    public function openTicket(int $clientId, int $deptId, string $subject, string $message, string $priority = 'Medium', array $attachments = []): array
+    public function openTicket(int $clientId, int $deptId, string $subject, string $message, string $priority = 'Medium', array $attachments = [], ?int $serviceId = null, ?int $domainId = null): array
     {
         $params = [
             'clientid' => $clientId,
@@ -406,6 +406,14 @@ class WhmcsService
             'message'  => $message,
             'priority' => $priority,
         ];
+
+        // Associate ticket with a specific service or domain
+        if ($serviceId) {
+            $params['serviceid'] = $serviceId;
+        }
+        if ($domainId) {
+            $params['domainid'] = $domainId;
+        }
 
         // Try with attachments first; if WHMCS rejects, retry without
         if (!empty($attachments)) {
