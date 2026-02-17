@@ -94,22 +94,32 @@ function removeCredential(idx) {
 const charCount = computed(() => form.message.length);
 const fileInput = ref(null);
 const dragOver = ref(false);
+const showDeptDropdown = ref(false);
 
 // Department icon + color mapping
 function deptStyle(name) {
     const n = (name || '').toLowerCase();
     if (n.includes('sales') || n.includes('pre-sales'))
-        return { icon: 'cart', bg: 'bg-emerald-50', border: 'border-emerald-200', text: 'text-emerald-700', iconColor: 'text-emerald-500', activeBg: 'bg-emerald-50', activeRing: 'ring-emerald-500', activeBorder: 'border-emerald-400' };
+        return { icon: 'cart', color: 'text-emerald-500', bg: 'bg-emerald-50', dot: 'bg-emerald-400' };
     if (n.includes('billing') || n.includes('account'))
-        return { icon: 'card', bg: 'bg-amber-50', border: 'border-amber-200', text: 'text-amber-700', iconColor: 'text-amber-500', activeBg: 'bg-amber-50', activeRing: 'ring-amber-500', activeBorder: 'border-amber-400' };
+        return { icon: 'card', color: 'text-amber-500', bg: 'bg-amber-50', dot: 'bg-amber-400' };
     if (n.includes('technical') || n.includes('support'))
-        return { icon: 'wrench', bg: 'bg-blue-50', border: 'border-blue-200', text: 'text-blue-700', iconColor: 'text-blue-500', activeBg: 'bg-blue-50', activeRing: 'ring-blue-500', activeBorder: 'border-blue-400' };
+        return { icon: 'wrench', color: 'text-blue-500', bg: 'bg-blue-50', dot: 'bg-blue-400' };
     if (n.includes('abuse'))
-        return { icon: 'shield', bg: 'bg-red-50', border: 'border-red-200', text: 'text-red-700', iconColor: 'text-red-500', activeBg: 'bg-red-50', activeRing: 'ring-red-500', activeBorder: 'border-red-400' };
+        return { icon: 'shield', color: 'text-red-500', bg: 'bg-red-50', dot: 'bg-red-400' };
     if (n.includes('domain'))
-        return { icon: 'globe', bg: 'bg-violet-50', border: 'border-violet-200', text: 'text-violet-700', iconColor: 'text-violet-500', activeBg: 'bg-violet-50', activeRing: 'ring-violet-500', activeBorder: 'border-violet-400' };
-    // General / enquiries / other
-    return { icon: 'chat', bg: 'bg-indigo-50', border: 'border-indigo-200', text: 'text-indigo-700', iconColor: 'text-indigo-500', activeBg: 'bg-indigo-50', activeRing: 'ring-indigo-500', activeBorder: 'border-indigo-400' };
+        return { icon: 'globe', color: 'text-violet-500', bg: 'bg-violet-50', dot: 'bg-violet-400' };
+    return { icon: 'chat', color: 'text-indigo-500', bg: 'bg-indigo-50', dot: 'bg-indigo-400' };
+}
+
+const selectedDept = computed(() => {
+    if (!form.deptid) return null;
+    return props.departments.find(d => d.id === form.deptid) || null;
+});
+
+function selectDept(d) {
+    form.deptid = d.id;
+    showDeptDropdown.value = false;
 }
 
 const maxFiles = 5;
@@ -201,51 +211,61 @@ function submit() {
                     <div class="p-6 space-y-6">
                         <!-- Department -->
                         <div>
-                            <label class="block text-[13px] font-semibold text-gray-700 mb-3">
+                            <label class="block text-[13px] font-semibold text-gray-700 mb-2">
                                 Department
                                 <span class="text-red-500 ml-0.5">*</span>
                             </label>
-                            <div class="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
-                                <button v-for="d in departments" :key="d.id" type="button"
-                                    @click="form.deptid = d.id"
-                                    class="group relative flex items-center gap-3 px-3.5 py-3 rounded-xl border-2 transition-all text-left"
-                                    :class="form.deptid === d.id
-                                        ? `${deptStyle(d.name).activeBg} ${deptStyle(d.name).activeBorder} ${deptStyle(d.name).text} ring-2 ${deptStyle(d.name).activeRing} shadow-sm`
-                                        : 'bg-white border-gray-200 text-gray-600 hover:border-gray-300 hover:bg-gray-50 hover:shadow-sm'">
-                                    <!-- Icon -->
-                                    <div class="flex-shrink-0 w-9 h-9 rounded-lg flex items-center justify-center transition-colors"
-                                        :class="form.deptid === d.id ? deptStyle(d.name).bg : 'bg-gray-100 group-hover:bg-gray-200/60'">
-                                        <!-- Cart / Sales -->
-                                        <svg v-if="deptStyle(d.name).icon === 'cart'" class="w-4.5 h-4.5" :class="form.deptid === d.id ? deptStyle(d.name).iconColor : 'text-gray-400 group-hover:text-gray-500'" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
-                                            <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 3h1.386c.51 0 .955.343 1.087.835l.383 1.437M7.5 14.25a3 3 0 00-3 3h15.75m-12.75-3h11.218c1.121-2.3 2.1-4.684 2.924-7.138a60.114 60.114 0 00-16.536-1.84M7.5 14.25L5.106 5.272M6 20.25a.75.75 0 11-1.5 0 .75.75 0 011.5 0zm12.75 0a.75.75 0 11-1.5 0 .75.75 0 011.5 0z" />
-                                        </svg>
-                                        <!-- Credit Card / Billing -->
-                                        <svg v-else-if="deptStyle(d.name).icon === 'card'" class="w-4.5 h-4.5" :class="form.deptid === d.id ? deptStyle(d.name).iconColor : 'text-gray-400 group-hover:text-gray-500'" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
-                                            <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 8.25h19.5M2.25 9h19.5m-16.5 5.25h6m-6 2.25h3m-3.75 3h15a2.25 2.25 0 002.25-2.25V6.75A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25v10.5A2.25 2.25 0 004.5 19.5z" />
-                                        </svg>
-                                        <!-- Wrench / Technical -->
-                                        <svg v-else-if="deptStyle(d.name).icon === 'wrench'" class="w-4.5 h-4.5" :class="form.deptid === d.id ? deptStyle(d.name).iconColor : 'text-gray-400 group-hover:text-gray-500'" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
-                                            <path stroke-linecap="round" stroke-linejoin="round" d="M11.42 15.17l-5.648 5.648a2.122 2.122 0 01-3-3l5.648-5.648m2.914-2.914L21 4.5l-2.25 2.25L21 9l-2.25 2.25-3-3L13.5 10.5l-2.08-2.08m0 0L4.5 15.38" />
-                                        </svg>
-                                        <!-- Shield / Abuse -->
-                                        <svg v-else-if="deptStyle(d.name).icon === 'shield'" class="w-4.5 h-4.5" :class="form.deptid === d.id ? deptStyle(d.name).iconColor : 'text-gray-400 group-hover:text-gray-500'" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
-                                            <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m0-10.036A11.959 11.959 0 013.598 6 11.99 11.99 0 003 9.75c0 5.592 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.57-.598-3.75h-.152c-3.196 0-6.1-1.249-8.25-3.286zm0 13.036h.008v.008H12v-.008z" />
-                                        </svg>
-                                        <!-- Globe / Domain -->
-                                        <svg v-else-if="deptStyle(d.name).icon === 'globe'" class="w-4.5 h-4.5" :class="form.deptid === d.id ? deptStyle(d.name).iconColor : 'text-gray-400 group-hover:text-gray-500'" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
-                                            <path stroke-linecap="round" stroke-linejoin="round" d="M12 21a9.004 9.004 0 008.716-6.747M12 21a9.004 9.004 0 01-8.716-6.747M12 21c2.485 0 4.5-4.03 4.5-9S14.485 3 12 3m0 18c-2.485 0-4.5-4.03-4.5-9S9.515 3 12 3m0 0a8.997 8.997 0 017.843 4.582M12 3a8.997 8.997 0 00-7.843 4.582m15.686 0A11.953 11.953 0 0112 10.5c-2.998 0-5.74-1.1-7.843-2.918m15.686 0A8.959 8.959 0 0121 12c0 .778-.099 1.533-.284 2.253m0 0A17.919 17.919 0 0112 16.5c-3.162 0-6.133-.815-8.716-2.247m0 0A9.015 9.015 0 003 12c0-1.605.42-3.113 1.157-4.418" />
-                                        </svg>
-                                        <!-- Chat / General -->
-                                        <svg v-else class="w-4.5 h-4.5" :class="form.deptid === d.id ? deptStyle(d.name).iconColor : 'text-gray-400 group-hover:text-gray-500'" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
-                                            <path stroke-linecap="round" stroke-linejoin="round" d="M8.625 12a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0H8.25m4.125 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0H12m4.125 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0h-.375M21 12c0 4.556-4.03 8.25-9 8.25a9.764 9.764 0 01-2.555-.337A5.972 5.972 0 015.41 20.97a5.969 5.969 0 01-.474-.065 4.48 4.48 0 00.978-2.025c.09-.457-.133-.901-.467-1.226C3.93 16.178 3 14.189 3 12c0-4.556 4.03-8.25 9-8.25s9 3.694 9 8.25z" />
-                                        </svg>
+
+                            <!-- Selected dept chip -->
+                            <div v-if="form.deptid && selectedDept" class="flex items-center gap-2 mb-0">
+                                <div class="inline-flex items-center gap-2.5 bg-white border border-gray-200 rounded-xl px-3 py-2.5 shadow-sm w-full">
+                                    <div class="flex-shrink-0 w-8 h-8 rounded-lg flex items-center justify-center" :class="deptStyle(selectedDept.name).bg">
+                                        <!-- dept icon -->
+                                        <svg v-if="deptStyle(selectedDept.name).icon === 'cart'" class="w-4 h-4" :class="deptStyle(selectedDept.name).color" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 3h1.386c.51 0 .955.343 1.087.835l.383 1.437M7.5 14.25a3 3 0 00-3 3h15.75m-12.75-3h11.218c1.121-2.3 2.1-4.684 2.924-7.138a60.114 60.114 0 00-16.536-1.84M7.5 14.25L5.106 5.272M6 20.25a.75.75 0 11-1.5 0 .75.75 0 011.5 0zm12.75 0a.75.75 0 11-1.5 0 .75.75 0 011.5 0z" /></svg>
+                                        <svg v-else-if="deptStyle(selectedDept.name).icon === 'card'" class="w-4 h-4" :class="deptStyle(selectedDept.name).color" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 8.25h19.5M2.25 9h19.5m-16.5 5.25h6m-6 2.25h3m-3.75 3h15a2.25 2.25 0 002.25-2.25V6.75A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25v10.5A2.25 2.25 0 004.5 19.5z" /></svg>
+                                        <svg v-else-if="deptStyle(selectedDept.name).icon === 'wrench'" class="w-4 h-4" :class="deptStyle(selectedDept.name).color" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M11.42 15.17l-5.648 5.648a2.122 2.122 0 01-3-3l5.648-5.648m2.914-2.914L21 4.5l-2.25 2.25L21 9l-2.25 2.25-3-3L13.5 10.5l-2.08-2.08m0 0L4.5 15.38" /></svg>
+                                        <svg v-else-if="deptStyle(selectedDept.name).icon === 'shield'" class="w-4 h-4" :class="deptStyle(selectedDept.name).color" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m0-10.036A11.959 11.959 0 013.598 6 11.99 11.99 0 003 9.75c0 5.592 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.57-.598-3.75h-.152c-3.196 0-6.1-1.249-8.25-3.286zm0 13.036h.008v.008H12v-.008z" /></svg>
+                                        <svg v-else-if="deptStyle(selectedDept.name).icon === 'globe'" class="w-4 h-4" :class="deptStyle(selectedDept.name).color" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 21a9.004 9.004 0 008.716-6.747M12 21a9.004 9.004 0 01-8.716-6.747M12 21c2.485 0 4.5-4.03 4.5-9S14.485 3 12 3m0 18c-2.485 0-4.5-4.03-4.5-9S9.515 3 12 3m0 0a8.997 8.997 0 017.843 4.582M12 3a8.997 8.997 0 00-7.843 4.582m15.686 0A11.953 11.953 0 0112 10.5c-2.998 0-5.74-1.1-7.843-2.918m15.686 0A8.959 8.959 0 0121 12c0 .778-.099 1.533-.284 2.253m0 0A17.919 17.919 0 0112 16.5c-3.162 0-6.133-.815-8.716-2.247m0 0A9.015 9.015 0 003 12c0-1.605.42-3.113 1.157-4.418" /></svg>
+                                        <svg v-else class="w-4 h-4" :class="deptStyle(selectedDept.name).color" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M8.625 12a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0H8.25m4.125 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0H12m4.125 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0h-.375M21 12c0 4.556-4.03 8.25-9 8.25a9.764 9.764 0 01-2.555-.337A5.972 5.972 0 015.41 20.97a5.969 5.969 0 01-.474-.065 4.48 4.48 0 00.978-2.025c.09-.457-.133-.901-.467-1.226C3.93 16.178 3 14.189 3 12c0-4.556 4.03-8.25 9-8.25s9 3.694 9 8.25z" /></svg>
                                     </div>
-                                    <span class="text-[12.5px] font-medium leading-tight">{{ d.name }}</span>
-                                    <!-- Check mark -->
-                                    <svg v-if="form.deptid === d.id" class="absolute top-2 right-2 w-4 h-4" :class="deptStyle(d.name).iconColor" fill="currentColor" viewBox="0 0 20 20">
-                                        <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.857-9.809a.75.75 0 00-1.214-.882l-3.483 4.79-1.88-1.88a.75.75 0 10-1.06 1.061l2.5 2.5a.75.75 0 001.137-.089l4-5.5z" clip-rule="evenodd" />
+                                    <span class="text-[13px] font-medium text-gray-800 flex-1">{{ selectedDept.name }}</span>
+                                    <button type="button" @click="form.deptid = ''" class="text-gray-300 hover:text-red-500 transition-colors p-0.5">
+                                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                                        </svg>
+                                    </button>
+                                </div>
+                            </div>
+
+                            <!-- Dropdown trigger -->
+                            <div v-else class="relative">
+                                <button type="button"
+                                    @click="showDeptDropdown = !showDeptDropdown"
+                                    @blur="setTimeout(() => showDeptDropdown = false, 200)"
+                                    class="w-full flex items-center justify-between px-3.5 py-2.5 text-[13px] rounded-lg border border-gray-200 bg-white text-gray-400 hover:border-gray-300 hover:bg-gray-50 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-all">
+                                    <span>Select a department…</span>
+                                    <svg class="w-4 h-4 text-gray-400 transition-transform" :class="showDeptDropdown ? 'rotate-180' : ''" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
                                     </svg>
                                 </button>
+
+                                <!-- Dropdown list -->
+                                <div v-if="showDeptDropdown"
+                                    class="absolute z-30 mt-1 w-full bg-white border border-gray-200 rounded-xl shadow-lg overflow-hidden">
+                                    <button v-for="d in departments" :key="d.id" type="button"
+                                        @mousedown.prevent="selectDept(d)"
+                                        class="w-full flex items-center gap-3 px-3.5 py-3 text-left hover:bg-gray-50 transition-colors border-b border-gray-100 last:border-0">
+                                        <div class="flex-shrink-0 w-8 h-8 rounded-lg flex items-center justify-center" :class="deptStyle(d.name).bg">
+                                            <svg v-if="deptStyle(d.name).icon === 'cart'" class="w-4 h-4" :class="deptStyle(d.name).color" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 3h1.386c.51 0 .955.343 1.087.835l.383 1.437M7.5 14.25a3 3 0 00-3 3h15.75m-12.75-3h11.218c1.121-2.3 2.1-4.684 2.924-7.138a60.114 60.114 0 00-16.536-1.84M7.5 14.25L5.106 5.272M6 20.25a.75.75 0 11-1.5 0 .75.75 0 011.5 0zm12.75 0a.75.75 0 11-1.5 0 .75.75 0 011.5 0z" /></svg>
+                                            <svg v-else-if="deptStyle(d.name).icon === 'card'" class="w-4 h-4" :class="deptStyle(d.name).color" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 8.25h19.5M2.25 9h19.5m-16.5 5.25h6m-6 2.25h3m-3.75 3h15a2.25 2.25 0 002.25-2.25V6.75A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25v10.5A2.25 2.25 0 004.5 19.5z" /></svg>
+                                            <svg v-else-if="deptStyle(d.name).icon === 'wrench'" class="w-4 h-4" :class="deptStyle(d.name).color" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M11.42 15.17l-5.648 5.648a2.122 2.122 0 01-3-3l5.648-5.648m2.914-2.914L21 4.5l-2.25 2.25L21 9l-2.25 2.25-3-3L13.5 10.5l-2.08-2.08m0 0L4.5 15.38" /></svg>
+                                            <svg v-else-if="deptStyle(d.name).icon === 'shield'" class="w-4 h-4" :class="deptStyle(d.name).color" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m0-10.036A11.959 11.959 0 013.598 6 11.99 11.99 0 003 9.75c0 5.592 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.57-.598-3.75h-.152c-3.196 0-6.1-1.249-8.25-3.286zm0 13.036h.008v.008H12v-.008z" /></svg>
+                                            <svg v-else-if="deptStyle(d.name).icon === 'globe'" class="w-4 h-4" :class="deptStyle(d.name).color" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 21a9.004 9.004 0 008.716-6.747M12 21a9.004 9.004 0 01-8.716-6.747M12 21c2.485 0 4.5-4.03 4.5-9S14.485 3 12 3m0 18c-2.485 0-4.5-4.03-4.5-9S9.515 3 12 3m0 0a8.997 8.997 0 017.843 4.582M12 3a8.997 8.997 0 00-7.843 4.582m15.686 0A11.953 11.953 0 0112 10.5c-2.998 0-5.74-1.1-7.843-2.918m15.686 0A8.959 8.959 0 0121 12c0 .778-.099 1.533-.284 2.253m0 0A17.919 17.919 0 0112 16.5c-3.162 0-6.133-.815-8.716-2.247m0 0A9.015 9.015 0 003 12c0-1.605.42-3.113 1.157-4.418" /></svg>
+                                            <svg v-else class="w-4 h-4" :class="deptStyle(d.name).color" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M8.625 12a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0H8.25m4.125 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0H12m4.125 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0h-.375M21 12c0 4.556-4.03 8.25-9 8.25a9.764 9.764 0 01-2.555-.337A5.972 5.972 0 015.41 20.97a5.969 5.969 0 01-.474-.065 4.48 4.48 0 00.978-2.025c.09-.457-.133-.901-.467-1.226C3.93 16.178 3 14.189 3 12c0-4.556 4.03-8.25 9-8.25s9 3.694 9 8.25z" /></svg>
+                                        </div>
+                                        <span class="text-[13px] font-medium text-gray-700">{{ d.name }}</span>
+                                    </button>
+                                </div>
                             </div>
                             <p v-if="form.errors.deptid" class="mt-1.5 text-[12px] text-red-600">{{ form.errors.deptid }}</p>
                         </div>
