@@ -2,7 +2,6 @@
 import { ref, computed, onMounted, onUnmounted } from 'vue';
 import { Link, usePage, router } from '@inertiajs/vue3';
 import Toast from '@/Components/Toast.vue';
-import CurrencySwitcher from '@/Components/CurrencySwitcher.vue';
 
 const page = usePage();
 const showSidebar = ref(false);
@@ -301,7 +300,6 @@ onUnmounted(() => document.removeEventListener('click', handleClickOutside));
 
                 <!-- Header actions -->
                 <div class="flex items-center gap-2">
-                    <CurrencySwitcher />
                     <slot name="actions" />
                 </div>
             </header>
