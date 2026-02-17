@@ -54,9 +54,40 @@ class TicketController extends Controller
             abort(404);
         }
 
+        // WHMCS GetTicket returns the original message in top-level fields
+        // AND often duplicates it as the first entry in the replies array.
+        // Strip the duplicate so the front-end doesn't show it twice.
+        $origMsg  = $this->normaliseForCompare($result['message'] ?? '');
+        $origDate = trim($result['date'] ?? '');
+
+        if (!empty($result['replies']['reply']) && is_array($result['replies']['reply'])) {
+            $result['replies']['reply'] = array_values(
+                array_filter($result['replies']['reply'], function ($r) use ($origMsg, $origDate) {
+                    $rMsg  = $this->normaliseForCompare($r['message'] ?? '');
+                    $rDate = trim($r['date'] ?? '');
+                    // Skip if same date, same content, and not from admin
+                    if ($rDate === $origDate && empty($r['admin']) && $rMsg === $origMsg) {
+                        return false;
+                    }
+                    return true;
+                })
+            );
+        }
+
         return Inertia::render('Client/Tickets/Show', [
             'ticket' => $result,
         ]);
+    }
+
+    /**
+     * Strip HTML, decode entities, collapse whitespace for message comparison.
+     */
+    private function normaliseForCompare(string $text): string
+    {
+        $text = strip_tags($text);
+        $text = html_entity_decode($text, ENT_QUOTES | ENT_HTML5, 'UTF-8');
+        $text = preg_replace('/\s+/', ' ', $text);
+        return trim($text);
     }
 
     public function create(Request $request)
@@ -111,7 +142,7 @@ class TicketController extends Controller
             'subject'       => 'required|string|max:255',
             'message'       => 'required|string|max:10000',
             'priority'      => 'required|in:Low,Medium,High',
-            'service_id'    => 'nullable|string|max:20',
+            'service_id'    => 'required|string|max:20',
             'attachments'   => 'nullable|array|max:5',
             'attachments.*' => 'file|max:2048|mimes:jpg,jpeg,gif,png,txt,pdf,zip,doc,docx',
         ]);
@@ -186,8 +217,14 @@ class TicketController extends Controller
 
     public function close(int $id)
     {
-        $this->whmcs->closeTicket($id);
-        return back()->with('success', 'Ticket closed successfully.');
+        $result = $this->whmcs->closeTicket($id);
+
+        if (($result['result'] ?? '') === 'error') {
+            return back()->with('error', $result['message'] ?? 'Failed to close ticket.');
+        }
+
+        return redirect()->route('client.tickets.show', $id)
+            ->with('success', 'Ticket closed successfully.');
     }
 
     /**

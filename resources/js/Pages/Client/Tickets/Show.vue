@@ -9,21 +9,14 @@ const props = defineProps({ ticket: Object });
 const ticket = props.ticket;
 const flash = computed(() => usePage().props?.flash || {});
 
-const rawReplies = computed(() => ticket.replies?.reply || []);
+const replies = computed(() => ticket.replies?.reply || []);
 
-// Helper: strip HTML tags and normalise whitespace for comparison
-function normalise(str) {
-    return (str || '').replace(/<[^>]*>/g, '').replace(/&[a-z]+;/gi, ' ').replace(/\s+/g, ' ').trim();
-}
-
-// Build a unified, chronologically-sorted conversation
+// Build a unified, chronologically-sorted conversation.
+// Deduplication of the original message is handled server-side.
 const conversation = computed(() => {
     const msgs = [];
 
     // Original message
-    const origNorm = normalise(ticket.message);
-    const origDate = (ticket.date || '').trim();
-
     msgs.push({
         id: 'original',
         name: ticket.name || 'You',
@@ -35,16 +28,8 @@ const conversation = computed(() => {
         attachments: ticket.attachments ? (Array.isArray(ticket.attachments) ? ticket.attachments : []) : [],
     });
 
-    // Replies — skip any reply that duplicates the original message.
-    // WHMCS GetTicket API includes the opening message both in the
-    // top-level fields AND as the first entry in the replies array.
-    // We compare normalised text (HTML-stripped) and date to catch this.
-    for (const r of rawReplies.value) {
-        const rNorm = normalise(r.message);
-        const rDate = (r.date || '').trim();
-        const isDupe = rDate === origDate && !r.admin && rNorm === origNorm;
-        if (isDupe) continue;
-
+    // Replies
+    for (const r of replies.value) {
         msgs.push({
             id: r.id,
             name: r.admin || r.name || 'You',
@@ -163,7 +148,7 @@ onMounted(() => {
     // Auto scroll to latest reply
     nextTick(() => {
         const el = document.getElementById('reply-form');
-        if (el && rawReplies.value.length > 2) {
+        if (el && replies.value.length > 2) {
             el.scrollIntoView({ behavior: 'smooth', block: 'center' });
         }
     });
