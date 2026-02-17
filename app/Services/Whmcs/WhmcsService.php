@@ -3,6 +3,7 @@
 namespace App\Services\Whmcs;
 
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Log;
 
 /**
  * High-level typed service for all WHMCS API actions.
@@ -408,12 +409,31 @@ class WhmcsService
             'priority' => $priority,
         ];
 
-        // WHMCS expects attachments as base64 encoded array: [['name' => filename, 'data' => base64data]]
-        if (!empty($attachments)) {
-            $params['attachments'] = base64_encode(json_encode($attachments));
+        // Step 1: Create the ticket (without attachment — fast and reliable)
+        $result = $this->client->call('OpenTicket', $params);
+
+        // Step 2: If ticket created and we have attachments, add them via reply
+        if (($result['result'] ?? '') === 'success' && !empty($attachments)) {
+            $ticketId = $result['id'] ?? null;
+            if ($ticketId) {
+                try {
+                    $this->client->call('AddTicketReply', [
+                        'ticketid'    => $ticketId,
+                        'clientid'    => $clientId,
+                        'message'     => 'Payment proof attached.',
+                        'attachments' => base64_encode(json_encode($attachments)),
+                    ], 30); // 30s timeout for file upload
+                } catch (\Exception $e) {
+                    // Ticket was created but attachment failed — log but don't fail
+                    Log::warning('Ticket created but attachment upload failed', [
+                        'ticketId' => $ticketId,
+                        'error'    => $e->getMessage(),
+                    ]);
+                }
+            }
         }
 
-        return $this->client->call('OpenTicket', $params);
+        return $result;
     }
 
     public function addTicketReply(int $ticketId, int $clientId, string $message): array

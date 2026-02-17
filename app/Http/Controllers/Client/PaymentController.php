@@ -85,9 +85,17 @@ class PaymentController extends Controller
                 return back()->with('success', "Payment proof submitted successfully! Ticket #{$ticketId} created. We'll verify your payment shortly.");
             }
 
+            Log::error('Payment proof upload: WHMCS returned error', ['invoice' => $id, 'deptId' => $deptId, 'result' => $result]);
             return back()->withErrors(['proof' => $result['message'] ?? 'Failed to submit payment proof.']);
         } catch (\Exception $e) {
-            Log::error('Payment proof upload failed', ['invoice' => $id, 'error' => $e->getMessage()]);
+            Log::error('Payment proof upload failed', [
+                'invoice'  => $id,
+                'deptId'   => $deptId,
+                'clientId' => $clientId,
+                'fileName' => $file->getClientOriginalName(),
+                'fileSize' => $file->getSize(),
+                'error'    => $e->getMessage(),
+            ]);
             return back()->withErrors(['proof' => 'Failed to upload payment proof. Please try again or contact support.']);
         }
     }

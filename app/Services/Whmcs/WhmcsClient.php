@@ -36,7 +36,7 @@ class WhmcsClient
      *
      * @throws WhmcsApiException
      */
-    public function call(string $action, array $params = []): array
+    public function call(string $action, array $params = [], ?int $timeout = null): array
     {
         $payload = array_merge([
             'action'       => $action,
@@ -46,7 +46,7 @@ class WhmcsClient
         ], $params);
 
         try {
-            $response = Http::timeout($this->timeout)
+            $response = Http::timeout($timeout ?? $this->timeout)
                 ->withOptions(['verify' => $this->verifySSL])
                 ->retry(2, 500, function ($exception) {
                     // Only retry on connection timeouts, not on 4xx/5xx
