@@ -278,22 +278,23 @@ if ($action === 'GetGatewayConfig') {
 if ($action === 'GetProductGroups') {
     // Return product groups from tblproductgroups, ordered by the 'order' column.
     // This gives us group names that GetProducts API doesn't include.
+    // Returns ALL groups (including hidden flag) so the Laravel side can filter.
     try {
         $groups = Capsule::table('tblproductgroups')
-            ->select('id', 'name', 'slug', 'headline', 'tagline', 'orderfrmtpl', 'hidden')
+            ->select('id', 'name', 'slug', 'headline', 'tagline', 'orderfrmtpl', 'hidden', 'order')
             ->orderBy('order', 'asc')
             ->get();
 
         $result = [];
         foreach ($groups as $g) {
-            // Skip hidden groups
-            if (!empty($g->hidden)) continue;
             $result[] = [
                 'id'       => (int) $g->id,
                 'name'     => $g->name,
                 'slug'     => $g->slug ?? '',
                 'headline' => $g->headline ?? '',
                 'tagline'  => $g->tagline ?? '',
+                'hidden'   => !empty($g->hidden),
+                'order'    => (int) ($g->order ?? 0),
             ];
         }
 

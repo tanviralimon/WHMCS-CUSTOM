@@ -532,17 +532,23 @@ class WhmcsService
     {
         // GetProducts returns group info with each product; we extract unique groups
         // Only include groups that have at least one visible (non-hidden) product
+        // Filters out: hidden products, hidden groups, and MarketConnect module products
         // Order is preserved as returned by WHMCS (which reflects admin sort order)
         return Cache::remember('whmcs.product_groups', 600, function () {
-            // First, get group names from the WHMCS database via the SSO proxy
-            $groupNames = $this->getProductGroupNames();
+            // Get group names and hidden group IDs from the WHMCS database
+            $groupNames   = $this->getProductGroupNames();
+            $hiddenGroups = $this->getHiddenGroupIds();
 
             $products = $this->client->callSafe('GetProducts');
             $groups = [];
             $order = [];
             foreach ($products['products']['product'] ?? [] as $p) {
                 if (!empty($p['hidden'])) continue;
+                // Skip MarketConnect products
+                if (($p['module'] ?? '') === 'marketconnect') continue;
                 $gid = $p['gid'] ?? 0;
+                // Skip hidden groups
+                if (in_array($gid, $hiddenGroups)) continue;
                 if ($gid && !isset($groups[$gid])) {
                     $groups[$gid] = [
                         'id'   => $gid,
@@ -573,6 +579,24 @@ class WhmcsService
                 $map[(int) $g['id']] = $g['name'];
             }
             return $map;
+        });
+    }
+
+    /**
+     * Get the set of hidden product group IDs from WHMCS.
+     * Products in these groups should not be shown on the storefront.
+     */
+    public function getHiddenGroupIds(): array
+    {
+        return Cache::remember('whmcs.hidden_group_ids', 3600, function () {
+            $result = $this->client->callSsoProxySafe('GetProductGroups');
+            $ids = [];
+            foreach ($result['groups'] ?? [] as $g) {
+                if (!empty($g['hidden'])) {
+                    $ids[] = (int) $g['id'];
+                }
+            }
+            return $ids;
         });
     }
 
