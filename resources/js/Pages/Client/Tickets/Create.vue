@@ -20,18 +20,42 @@ const form = useForm({
 const serviceSearch = ref('');
 const showServiceDropdown = ref(false);
 
+const statusOrder = { 'Active': 0, 'Pending': 1, 'Suspended': 2, 'Terminated': 3, 'Cancelled': 4, 'Fraud': 5 };
+
+function sortByStatus(list) {
+    return [...list].sort((a, b) => {
+        const sa = statusOrder[a.status] ?? 9;
+        const sb = statusOrder[b.status] ?? 9;
+        if (sa !== sb) return sa - sb;
+        return a.label.localeCompare(b.label);
+    });
+}
+
 const filteredServices = computed(() => {
-    if (!serviceSearch.value) return props.services;
-    const q = serviceSearch.value.toLowerCase();
-    return props.services.filter(s =>
-        s.label.toLowerCase().includes(q) || (s.domain && s.domain.toLowerCase().includes(q))
-    );
+    let list = props.services;
+    if (serviceSearch.value) {
+        const q = serviceSearch.value.toLowerCase();
+        list = list.filter(s =>
+            s.label.toLowerCase().includes(q) || (s.domain && s.domain.toLowerCase().includes(q))
+        );
+    }
+    return sortByStatus(list);
 });
 
-const selectedServiceLabel = computed(() => {
-    if (!form.service_id) return '';
-    const svc = props.services.find(s => s.id === form.service_id);
-    return svc ? svc.label : '';
+function statusStyle(status) {
+    switch (status) {
+        case 'Active':     return { dot: 'bg-emerald-400', badge: 'bg-emerald-50 text-emerald-700 border-emerald-200' };
+        case 'Pending':    return { dot: 'bg-amber-400',   badge: 'bg-amber-50 text-amber-700 border-amber-200' };
+        case 'Suspended':  return { dot: 'bg-orange-400',  badge: 'bg-orange-50 text-orange-700 border-orange-200' };
+        case 'Terminated': return { dot: 'bg-red-400',     badge: 'bg-red-50 text-red-700 border-red-200' };
+        case 'Cancelled':  return { dot: 'bg-gray-400',    badge: 'bg-gray-100 text-gray-600 border-gray-200' };
+        default:           return { dot: 'bg-gray-300',    badge: 'bg-gray-50 text-gray-500 border-gray-200' };
+    }
+}
+
+const selectedService = computed(() => {
+    if (!form.service_id) return null;
+    return props.services.find(s => s.id === form.service_id) || null;
 });
 
 function selectService(svc) {
@@ -182,14 +206,26 @@ function submit() {
                             </label>
 
                             <!-- Selected service chip -->
-                            <div v-if="form.service_id" class="flex items-center gap-2 mb-2">
-                                <div class="inline-flex items-center gap-2 bg-indigo-50 border border-indigo-200 text-indigo-700 rounded-lg px-3 py-2 text-[12px] font-medium">
-                                    <svg class="w-4 h-4 text-indigo-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2" />
-                                    </svg>
-                                    <span class="truncate max-w-[280px]">{{ selectedServiceLabel }}</span>
-                                    <button type="button" @click="clearService" class="text-indigo-400 hover:text-red-500 transition-colors ml-1">
-                                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <div v-if="form.service_id && selectedService" class="flex items-center gap-2 mb-2">
+                                <div class="inline-flex items-center gap-2.5 bg-white border border-gray-200 rounded-xl px-3 py-2.5 shadow-sm">
+                                    <div class="flex-shrink-0 w-7 h-7 rounded-lg flex items-center justify-center"
+                                        :class="selectedService.type === 'domain' ? 'bg-violet-100' : 'bg-sky-100'">
+                                        <svg v-if="selectedService.type !== 'domain'" class="w-4 h-4 text-sky-600" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" d="M21.75 17.25v-.228a4.5 4.5 0 00-.12-1.03l-2.268-9.64a3.375 3.375 0 00-3.285-2.602H7.923a3.375 3.375 0 00-3.285 2.602l-2.268 9.64a4.5 4.5 0 00-.12 1.03v.228m19.5 0a3 3 0 01-3 3H5.25a3 3 0 01-3-3m19.5 0a3 3 0 00-3-3H5.25a3 3 0 00-3 3m16.5 0h.008v.008h-.008v-.008zm-3 0h.008v.008h-.008v-.008z" />
+                                        </svg>
+                                        <svg v-else class="w-4 h-4 text-violet-600" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" d="M12 21a9.004 9.004 0 008.716-6.747M12 21a9.004 9.004 0 01-8.716-6.747M12 21c2.485 0 4.5-4.03 4.5-9S14.485 3 12 3m0 18c-2.485 0-4.5-4.03-4.5-9S9.515 3 12 3m0 0a8.997 8.997 0 017.843 4.582M12 3a8.997 8.997 0 00-7.843 4.582m15.686 0A11.953 11.953 0 0112 10.5c-2.998 0-5.74-1.1-7.843-2.918m15.686 0A8.959 8.959 0 0121 12c0 .778-.099 1.533-.284 2.253m0 0A17.919 17.919 0 0112 16.5c-3.162 0-6.133-.815-8.716-2.247m0 0A9.015 9.015 0 003 12c0-1.605.42-3.113 1.157-4.418" />
+                                        </svg>
+                                    </div>
+                                    <div class="min-w-0">
+                                        <p class="text-[12.5px] font-medium text-gray-800 truncate max-w-[240px]">{{ selectedService.label }}</p>
+                                        <div class="flex items-center gap-1 mt-0.5">
+                                            <span class="inline-block w-1.5 h-1.5 rounded-full" :class="statusStyle(selectedService.status).dot"></span>
+                                            <span class="text-[10px] text-gray-400 capitalize">{{ selectedService.status }}</span>
+                                        </div>
+                                    </div>
+                                    <button type="button" @click="clearService" class="text-gray-300 hover:text-red-500 transition-colors ml-1 p-0.5">
+                                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
                                         </svg>
                                     </button>
@@ -213,25 +249,47 @@ function submit() {
 
                                 <!-- Dropdown list -->
                                 <div v-if="showServiceDropdown && filteredServices.length"
-                                    class="absolute z-30 mt-1 w-full bg-white border border-gray-200 rounded-xl shadow-lg max-h-52 overflow-y-auto">
+                                    class="absolute z-30 mt-1 w-full bg-white border border-gray-200 rounded-xl shadow-lg max-h-60 overflow-y-auto">
                                     <button v-for="svc in filteredServices" :key="svc.id" type="button"
                                         @mousedown.prevent="selectService(svc)"
-                                        class="w-full flex items-center gap-3 px-3 py-2.5 text-left hover:bg-indigo-50 transition-colors first:rounded-t-xl last:rounded-b-xl">
-                                        <span class="flex-shrink-0 w-6 h-6 rounded-md flex items-center justify-center text-[11px]"
-                                            :class="svc.type === 'domain'
-                                                ? 'bg-emerald-100 text-emerald-600'
-                                                : 'bg-blue-100 text-blue-600'">
-                                            {{ svc.type === 'domain' ? '🌐' : '⚙️' }}
-                                        </span>
-                                        <div class="flex-1 min-w-0">
-                                            <p class="text-[12px] font-medium text-gray-700 truncate">{{ svc.label }}</p>
-                                            <p class="text-[10px] text-gray-400 capitalize">{{ svc.type }} · {{ svc.status }}</p>
+                                        class="w-full flex items-center gap-3 px-3.5 py-3 text-left hover:bg-gray-50 transition-colors border-b border-gray-100 last:border-0 first:rounded-t-xl last:rounded-b-xl">
+                                        <!-- Icon -->
+                                        <div class="flex-shrink-0 w-8 h-8 rounded-lg flex items-center justify-center"
+                                            :class="svc.type === 'domain' ? 'bg-violet-100' : 'bg-sky-100'">
+                                            <!-- Server/hosting icon -->
+                                            <svg v-if="svc.type !== 'domain'" class="w-4.5 h-4.5 text-sky-600" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
+                                                <path stroke-linecap="round" stroke-linejoin="round" d="M21.75 17.25v-.228a4.5 4.5 0 00-.12-1.03l-2.268-9.64a3.375 3.375 0 00-3.285-2.602H7.923a3.375 3.375 0 00-3.285 2.602l-2.268 9.64a4.5 4.5 0 00-.12 1.03v.228m19.5 0a3 3 0 01-3 3H5.25a3 3 0 01-3-3m19.5 0a3 3 0 00-3-3H5.25a3 3 0 00-3 3m16.5 0h.008v.008h-.008v-.008zm-3 0h.008v.008h-.008v-.008z" />
+                                            </svg>
+                                            <!-- Domain/globe icon -->
+                                            <svg v-else class="w-4.5 h-4.5 text-violet-600" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
+                                                <path stroke-linecap="round" stroke-linejoin="round" d="M12 21a9.004 9.004 0 008.716-6.747M12 21a9.004 9.004 0 01-8.716-6.747M12 21c2.485 0 4.5-4.03 4.5-9S14.485 3 12 3m0 18c-2.485 0-4.5-4.03-4.5-9S9.515 3 12 3m0 0a8.997 8.997 0 017.843 4.582M12 3a8.997 8.997 0 00-7.843 4.582m15.686 0A11.953 11.953 0 0112 10.5c-2.998 0-5.74-1.1-7.843-2.918m15.686 0A8.959 8.959 0 0121 12c0 .778-.099 1.533-.284 2.253m0 0A17.919 17.919 0 0112 16.5c-3.162 0-6.133-.815-8.716-2.247m0 0A9.015 9.015 0 003 12c0-1.605.42-3.113 1.157-4.418" />
+                                            </svg>
                                         </div>
+                                        <!-- Label + status -->
+                                        <div class="flex-1 min-w-0">
+                                            <p class="text-[12.5px] font-medium text-gray-800 truncate">{{ svc.label }}</p>
+                                            <div class="flex items-center gap-1.5 mt-0.5">
+                                                <span class="inline-block w-1.5 h-1.5 rounded-full" :class="statusStyle(svc.status).dot"></span>
+                                                <span class="text-[10.5px] capitalize" :class="svc.status === 'Active' ? 'text-emerald-600' : 'text-gray-400'">{{ svc.status }}</span>
+                                                <span class="text-[10px] text-gray-300">·</span>
+                                                <span class="text-[10.5px] text-gray-400 capitalize">{{ svc.type === 'domain' ? 'Domain' : 'Hosting' }}</span>
+                                            </div>
+                                        </div>
+                                        <!-- Status badge -->
+                                        <span class="flex-shrink-0 inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium border"
+                                            :class="statusStyle(svc.status).badge">
+                                            {{ svc.status }}
+                                        </span>
                                     </button>
                                 </div>
                                 <div v-else-if="showServiceDropdown && serviceSearch && !filteredServices.length"
-                                    class="absolute z-30 mt-1 w-full bg-white border border-gray-200 rounded-xl shadow-lg px-4 py-3">
-                                    <p class="text-[12px] text-gray-400 text-center">No matching services found</p>
+                                    class="absolute z-30 mt-1 w-full bg-white border border-gray-200 rounded-xl shadow-lg px-4 py-4">
+                                    <div class="text-center">
+                                        <svg class="w-6 h-6 mx-auto text-gray-300 mb-1" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
+                                        </svg>
+                                        <p class="text-[12px] text-gray-400">No matching services found</p>
+                                    </div>
                                 </div>
                             </div>
                         </div>
