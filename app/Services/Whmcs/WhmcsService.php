@@ -409,31 +409,40 @@ class WhmcsService
             'priority' => $priority,
         ];
 
-        // Step 1: Create the ticket (without attachment — fast and reliable)
-        $result = $this->client->call('OpenTicket', $params);
-
-        // Step 2: If ticket created and we have attachments, add them via reply
-        if (($result['result'] ?? '') === 'success' && !empty($attachments)) {
-            $ticketId = $result['id'] ?? null;
-            if ($ticketId) {
-                try {
-                    $this->client->call('AddTicketReply', [
-                        'ticketid'    => $ticketId,
-                        'clientid'    => $clientId,
-                        'message'     => 'Payment proof attached.',
-                        'attachments' => base64_encode(json_encode($attachments)),
-                    ], 30); // 30s timeout for file upload
-                } catch (\Exception $e) {
-                    // Ticket was created but attachment failed — log but don't fail
-                    Log::warning('Ticket created but attachment upload failed', [
-                        'ticketId' => $ticketId,
-                        'error'    => $e->getMessage(),
-                    ]);
-                }
-            }
+        if (!empty($attachments)) {
+            $params['attachments'] = base64_encode(json_encode($attachments));
         }
 
-        return $result;
+        // Use longer timeout when attachments are included
+        $timeout = !empty($attachments) ? 30 : null;
+
+        return $this->client->call('OpenTicket', $params, $timeout);
+    }
+
+    /**
+     * Check if a payment proof ticket already exists for a given invoice.
+     */
+    public function hasPaymentProofTicket(int $clientId, int $invoiceId): bool
+    {
+        try {
+            $result = $this->client->callSafe('GetTickets', [
+                'clientid' => $clientId,
+                'subject'  => "Payment Proof for Invoice #{$invoiceId}",
+                'limitnum' => 1,
+            ]);
+
+            $tickets = $result['tickets']['ticket'] ?? [];
+            foreach ($tickets as $t) {
+                $subj = $t['subject'] ?? '';
+                if (str_contains($subj, "Invoice #{$invoiceId}") && str_contains(strtolower($subj), 'payment proof')) {
+                    return true;
+                }
+            }
+        } catch (\Exception $e) {
+            // If check fails, allow upload (don't block user)
+        }
+
+        return false;
     }
 
     public function addTicketReply(int $ticketId, int $clientId, string $message): array

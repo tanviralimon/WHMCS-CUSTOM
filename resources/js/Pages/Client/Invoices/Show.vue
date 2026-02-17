@@ -15,6 +15,7 @@ const props = defineProps({
     paymentMethods: Array,
     bankInfo: Object,
     ticketUploadConfig: Object,
+    proofSubmitted: Boolean,
 });
 
 // WHMCS ticket upload limits
@@ -411,21 +412,36 @@ function friendlyGatewayName() {
                                     <p class="text-[12px] font-semibold text-gray-700 flex items-center gap-1.5">
                                         📎 Upload Payment Proof
                                     </p>
-                                    <p class="text-[11px] text-gray-500">Upload your transfer receipt (max {{ maxUploadMB }}MB).</p>
 
-                                    <input type="file" :accept="allowedExtensions"
-                                        @change="onProofFileChange"
-                                        class="w-full text-[12px] text-gray-600 file:mr-3 file:py-1.5 file:px-3 file:rounded-md file:border-0 file:text-[12px] file:font-medium file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100" />
+                                    <!-- Already submitted -->
+                                    <div v-if="proofSubmitted && !proofSuccess" class="bg-emerald-50 border border-emerald-200 rounded-lg p-3 text-center">
+                                        <p class="text-[12px] font-semibold text-emerald-800 flex items-center justify-center gap-1.5">
+                                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                                            Payment proof already submitted
+                                        </p>
+                                        <p class="text-[11px] text-emerald-600 mt-1">A billing ticket has been created. We'll verify your payment shortly.</p>
+                                    </div>
 
-                                    <div v-if="proofError" class="text-[11px] text-red-600">{{ proofError }}</div>
+                                    <!-- Upload form -->
+                                    <template v-else-if="!proofSubmitted">
+                                        <p class="text-[11px] text-gray-500">Upload your transfer receipt (max {{ maxUploadMB }}MB).</p>
+
+                                        <input type="file" :accept="allowedExtensions"
+                                            @change="onProofFileChange"
+                                            class="w-full text-[12px] text-gray-600 file:mr-3 file:py-1.5 file:px-3 file:rounded-md file:border-0 file:text-[12px] file:font-medium file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100" />
+
+                                        <div v-if="proofError" class="text-[11px] text-red-600">{{ proofError }}</div>
+
+                                        <button v-if="proofFile && !proofSuccess" @click="uploadProof" :disabled="uploadingProof"
+                                            class="w-full inline-flex items-center justify-center gap-2 px-3 py-2 text-[12px] font-semibold text-white bg-emerald-600 rounded-lg hover:bg-emerald-700 transition-colors disabled:opacity-50">
+                                            <svg v-if="!uploadingProof" class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" /></svg>
+                                            <svg v-else class="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" /><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
+                                            {{ uploadingProof ? 'Uploading...' : 'Submit Payment Proof' }}
+                                        </button>
+                                    </template>
+
+                                    <!-- Just submitted successfully -->
                                     <div v-if="proofSuccess" class="text-[11px] text-emerald-600 font-medium">{{ proofSuccess }}</div>
-
-                                    <button v-if="proofFile && !proofSuccess" @click="uploadProof" :disabled="uploadingProof"
-                                        class="w-full inline-flex items-center justify-center gap-2 px-3 py-2 text-[12px] font-semibold text-white bg-emerald-600 rounded-lg hover:bg-emerald-700 transition-colors disabled:opacity-50">
-                                        <svg v-if="!uploadingProof" class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" /></svg>
-                                        <svg v-else class="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" /><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
-                                        {{ uploadingProof ? 'Uploading...' : 'Submit Payment Proof' }}
-                                    </button>
                                 </div>
                             </div>
                         </div>

@@ -58,6 +58,11 @@ class PaymentController extends Controller
         ]);
 
         $clientId = $request->user()->whmcs_client_id;
+
+        // Prevent duplicate submissions
+        if ($this->whmcs->hasPaymentProofTicket($clientId, $id)) {
+            return back()->withErrors(['proof' => 'Payment proof has already been submitted for this invoice.']);
+        }
         $file = $request->file('proof');
 
         // Build attachment for WHMCS
