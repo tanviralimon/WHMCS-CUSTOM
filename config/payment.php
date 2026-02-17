@@ -30,4 +30,14 @@ return [
     | (paying through WHMCS directly).
     */
     'stripe_secret_key' => env('STRIPE_SECRET_KEY', ''),
+
+    /*
+    |--------------------------------------------------------------------------
+    | Ticket Upload Limits (Payment Proof)
+    |--------------------------------------------------------------------------
+    | Must match your WHMCS ticket attachment settings:
+    | Setup → General Settings → Support → Ticket File Upload Settings
+    */
+    'ticket_max_file_size_mb' => env('TICKET_MAX_FILE_SIZE_MB', 2),
+    'ticket_allowed_extensions' => env('TICKET_ALLOWED_EXTENSIONS', 'jpg,gif,jpeg,png,txt,pdf'),
 ];

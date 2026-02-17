@@ -48,13 +48,10 @@ class PaymentController extends Controller
      */
     public function uploadPaymentProof(Request $request, int $id)
     {
-        // Use WHMCS ticket attachment limits
+        // Use ticket attachment limits from config (must match WHMCS settings)
         $uploadConfig = $this->whmcs->getTicketUploadConfig();
-        $maxKb = $uploadConfig['max_size_kb'] ?? 2048;
-        $extensions = $uploadConfig['extensions'] ?? 'jpg,jpeg,gif,png';
-
-        // Normalize extensions for Laravel mimes rule (remove dots/spaces)
-        $mimes = implode(',', array_map('trim', explode(',', str_replace('.', '', $extensions))));
+        $maxKb = $uploadConfig['max_size_kb'];
+        $mimes = $uploadConfig['extensions'];
 
         $request->validate([
             'proof' => "required|file|mimes:{$mimes}|max:{$maxKb}",
@@ -72,11 +69,13 @@ class PaymentController extends Controller
         // Find billing department
         $deptId = $this->getBillingDeptId();
 
-        $subject = "Payment Proof - Invoice #{$id}";
-        $message = "Payment proof uploaded for Invoice #{$id}.\n\n"
-                 . "Amount: " . ($request->amount ?? 'See invoice') . "\n"
-                 . "Invoice: #{$id}\n\n"
-                 . "Please verify and mark the invoice as paid.";
+        $subject = "Billing Enquiry - Payment Proof for Invoice #{$id}";
+        $message = "Dear Billing Team,\n\n"
+                 . "I have made a bank transfer payment for the following invoice:\n\n"
+                 . "Invoice: #{$id}\n"
+                 . "Amount: " . ($request->amount ?? 'See invoice') . "\n\n"
+                 . "Please find the payment receipt attached. Kindly verify and mark the invoice as paid.\n\n"
+                 . "Thank you.";
 
         try {
             $result = $this->whmcs->openTicket($clientId, $deptId, $subject, $message, 'High', $attachments);
