@@ -18,18 +18,26 @@ class OrderController extends Controller
         $result   = $this->whmcs->getProducts($groupId ? (int) $groupId : null);
         $raw      = $result['products']['product'] ?? [];
 
-        // Get the client's active currency code
+        // Get the client's active currency code and its prefix/suffix
         $currencyCode = $this->getActiveCurrencyCode($request);
+        $currencyPrefix = '';
+        $currencySuffix = '';
 
-        // Filter hidden products and flatten pricing
-        $products = [];
+        // Filter hidden products, flatten pricing, group by category
+        $grouped = [];    // gid => ['group' => [...], 'products' => [...]]
+        $groupOrder = [];  // preserve WHMCS ordering by first-seen gid
+
         foreach ($raw as $p) {
-            // Skip hidden products
             if (!empty($p['hidden'])) continue;
 
-            // Flatten pricing from nested currency structure
-            // WHMCS returns: pricing.{CURRENCY}.{cycle} e.g. pricing.USD.monthly
             $pricing = $p['pricing'][$currencyCode] ?? $p['pricing'][array_key_first($p['pricing'] ?? [])] ?? [];
+
+            // Grab currency prefix/suffix from the pricing data
+            if (!$currencyPrefix && !empty($pricing['prefix'])) {
+                $currencyPrefix = $pricing['prefix'];
+                $currencySuffix = $pricing['suffix'] ?? '';
+            }
+
             $p['flatPricing'] = [
                 'monthly'      => $this->cleanPrice($pricing['monthly'] ?? null),
                 'quarterly'    => $this->cleanPrice($pricing['quarterly'] ?? null),
@@ -39,24 +47,53 @@ class OrderController extends Controller
                 'triennially'  => $this->cleanPrice($pricing['triennially'] ?? null),
             ];
 
-            // Determine the "starting from" display price
             $displayPrice = null;
+            $displayCycle = null;
             foreach (['monthly', 'annually', 'quarterly', 'semiannually', 'biennially', 'triennially'] as $cycle) {
                 if ($p['flatPricing'][$cycle] !== null && $p['flatPricing'][$cycle] >= 0) {
                     $displayPrice = $p['flatPricing'][$cycle];
-                    $p['displayCycle'] = $cycle;
+                    $displayCycle = $cycle;
                     break;
                 }
             }
             $p['displayPrice'] = $displayPrice;
+            $p['displayCycle'] = $displayCycle;
 
-            $products[] = $p;
+            $gid = $p['gid'] ?? 0;
+            if (!isset($grouped[$gid])) {
+                $grouped[$gid] = [
+                    'group' => [
+                        'id'   => $gid,
+                        'name' => $p['groupname'] ?? 'Products',
+                    ],
+                    'products' => [],
+                ];
+                $groupOrder[] = $gid;
+            }
+            $grouped[$gid]['products'][] = $p;
+        }
+
+        // Build category-sorted list preserving WHMCS group order
+        $categories = [];
+        foreach ($groupOrder as $gid) {
+            $categories[] = $grouped[$gid];
+        }
+
+        // Also build a flat products list (for filtered view)
+        $flatProducts = [];
+        foreach ($categories as $cat) {
+            foreach ($cat['products'] as $p) {
+                $flatProducts[] = $p;
+            }
         }
 
         return Inertia::render('Client/Orders/Products', [
-            'groups'       => $groups,
-            'products'     => $products,
-            'activeGroup'  => $groupId,
+            'groups'         => $groups,
+            'categories'     => $categories,
+            'products'       => $flatProducts,
+            'activeGroup'    => $groupId,
+            'currencyPrefix' => $currencyPrefix,
+            'currencySuffix' => $currencySuffix,
         ]);
     }
 
@@ -77,24 +114,35 @@ class OrderController extends Controller
      */
     private function getActiveCurrencyCode(Request $request): string
     {
-        // Default to USD; override if client has a different currency
+        // Use the session-based currency_id (set by HandleInertiaRequests middleware
+        // from WHMCS GetClientsDetails or CurrencyController::switch)
+        $clientCurrencyId = (int) session('currency_id', 0);
+
+        // If no session yet, try to resolve from WHMCS client profile
+        if (!$clientCurrencyId && $user = $request->user()) {
+            try {
+                $details = $this->whmcs->getClientsDetails($user->whmcs_client_id);
+                $clientCurrencyId = (int) ($details['currency'] ?? $details['client']['currency'] ?? 1);
+                session(['currency_id' => $clientCurrencyId]);
+            } catch (\Throwable) {
+                $clientCurrencyId = 1;
+            }
+        }
+
+        if (!$clientCurrencyId) $clientCurrencyId = 1;
+
         $currencies = $this->whmcs->getCurrencies();
         $list = $currencies['currencies']['currency'] ?? [];
-        if (!empty($list)) {
-            // Try to match client's currency
-            $clientCurrencyId = $request->user()->currency_id ?? 1;
-            foreach ($list as $c) {
-                if ((int) ($c['id'] ?? 0) === (int) $clientCurrencyId) {
-                    return $c['code'] ?? 'USD';
-                }
+        foreach ($list as $c) {
+            if ((int) ($c['id'] ?? 0) === $clientCurrencyId) {
+                return $c['code'] ?? 'USD';
             }
-            // Fallback to first/default
-            foreach ($list as $c) {
-                if (!empty($c['default'])) return $c['code'] ?? 'USD';
-            }
-            return $list[0]['code'] ?? 'USD';
         }
-        return 'USD';
+        // Fallback to default currency
+        foreach ($list as $c) {
+            if (!empty($c['default'])) return $c['code'] ?? 'USD';
+        }
+        return $list[0]['code'] ?? 'USD';
     }
 
     public function productDetail(Request $request, int $id)
