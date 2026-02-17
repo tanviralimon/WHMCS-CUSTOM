@@ -437,6 +437,38 @@ class WhmcsService
         });
     }
 
+    /**
+     * Get WHMCS ticket attachment upload configuration.
+     * Returns max file size (in KB) and allowed extensions.
+     */
+    public function getTicketUploadConfig(): array
+    {
+        return Cache::remember('whmcs.ticket_upload_config', 3600, function () {
+            $maxSizeMB = 2; // WHMCS default
+            $extensions = 'jpg,jpeg,gif,png'; // WHMCS default
+
+            try {
+                $sizeResult = $this->client->callSafe('GetConfigurationValue', ['setting' => 'TicketMaxFileSize']);
+                if (($sizeResult['result'] ?? '') === 'success' && !empty($sizeResult['value'])) {
+                    $maxSizeMB = (int) $sizeResult['value'];
+                }
+            } catch (\Exception $e) {}
+
+            try {
+                $extResult = $this->client->callSafe('GetConfigurationValue', ['setting' => 'TicketAllowedFileExtensions']);
+                if (($extResult['result'] ?? '') === 'success' && !empty($extResult['value'])) {
+                    $extensions = $extResult['value'];
+                }
+            } catch (\Exception $e) {}
+
+            return [
+                'max_size_mb' => $maxSizeMB,
+                'max_size_kb' => $maxSizeMB * 1024,
+                'extensions'  => $extensions,
+            ];
+        });
+    }
+
     // ─── Products / Ordering ───────────────────────────────
 
     public function getProducts(?int $groupId = null): array

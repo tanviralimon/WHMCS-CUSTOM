@@ -48,8 +48,16 @@ class PaymentController extends Controller
      */
     public function uploadPaymentProof(Request $request, int $id)
     {
+        // Use WHMCS ticket attachment limits
+        $uploadConfig = $this->whmcs->getTicketUploadConfig();
+        $maxKb = $uploadConfig['max_size_kb'] ?? 2048;
+        $extensions = $uploadConfig['extensions'] ?? 'jpg,jpeg,gif,png';
+
+        // Normalize extensions for Laravel mimes rule (remove dots/spaces)
+        $mimes = implode(',', array_map('trim', explode(',', str_replace('.', '', $extensions))));
+
         $request->validate([
-            'proof' => 'required|file|mimes:jpg,jpeg,png,pdf,webp|max:5120', // 5MB max
+            'proof' => "required|file|mimes:{$mimes}|max:{$maxKb}",
         ]);
 
         $clientId = $request->user()->whmcs_client_id;

@@ -14,6 +14,15 @@ const props = defineProps({
     creditBalance: Number,
     paymentMethods: Array,
     bankInfo: Object,
+    ticketUploadConfig: Object,
+});
+
+// WHMCS ticket upload limits
+const maxUploadMB = computed(() => props.ticketUploadConfig?.max_size_mb || 2);
+const maxUploadBytes = computed(() => maxUploadMB.value * 1024 * 1024);
+const allowedExtensions = computed(() => {
+    const ext = props.ticketUploadConfig?.extensions || 'jpg,jpeg,gif,png';
+    return ext.split(',').map(e => '.' + e.trim()).join(',');
 });
 
 const inv = props.invoice;
@@ -116,8 +125,8 @@ const proofSuccess = ref('');
 function onProofFileChange(event) {
     const file = event.target.files[0];
     if (file) {
-        if (file.size > 5 * 1024 * 1024) {
-            proofError.value = 'File must be under 5MB.';
+        if (file.size > maxUploadBytes.value) {
+            proofError.value = `File must be under ${maxUploadMB.value}MB.`;
             proofFile.value = null;
             return;
         }
@@ -402,9 +411,9 @@ function friendlyGatewayName() {
                                     <p class="text-[12px] font-semibold text-gray-700 flex items-center gap-1.5">
                                         📎 Upload Payment Proof
                                     </p>
-                                    <p class="text-[11px] text-gray-500">Upload a screenshot or PDF of your transfer receipt.</p>
+                                    <p class="text-[11px] text-gray-500">Upload your transfer receipt (max {{ maxUploadMB }}MB).</p>
 
-                                    <input type="file" accept=".jpg,.jpeg,.png,.pdf,.webp"
+                                    <input type="file" :accept="allowedExtensions"
                                         @change="onProofFileChange"
                                         class="w-full text-[12px] text-gray-600 file:mr-3 file:py-1.5 file:px-3 file:rounded-md file:border-0 file:text-[12px] file:font-medium file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100" />
 

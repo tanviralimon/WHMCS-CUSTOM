@@ -73,11 +73,15 @@ class InvoiceController extends Controller
             }
         }
 
+        // Get WHMCS ticket upload limits for payment proof
+        $ticketUploadConfig = $this->whmcs->getTicketUploadConfig();
+
         return Inertia::render('Client/Invoices/Show', [
-            'invoice'        => $result,
-            'creditBalance'  => $creditBalance,
-            'paymentMethods' => $gateways,
-            'bankInfo'       => $bankInfo,
+            'invoice'            => $result,
+            'creditBalance'      => $creditBalance,
+            'paymentMethods'     => $gateways,
+            'bankInfo'           => $bankInfo,
+            'ticketUploadConfig' => $ticketUploadConfig,
         ]);
     }
 
