@@ -155,18 +155,11 @@ class OrderController extends Controller
 
     public function productDetail(Request $request, int $id)
     {
-        $products = $this->whmcs->getProducts();
-        $product  = null;
-        foreach ($products['products']['product'] ?? [] as $p) {
-            if ((int) $p['pid'] === $id) {
-                // Don't allow viewing hidden products
-                if (!empty($p['hidden'])) abort(404);
-                $product = $p;
-                break;
-            }
-        }
+        // Fetch specific product by pid to ensure configoptions are fully included
+        $singleResult = $this->whmcs->getProductById($id);
+        $product = $singleResult['products']['product'][0] ?? null;
 
-        if (!$product) {
+        if (!$product || !empty($product['hidden'])) {
             abort(404);
         }
 
@@ -185,8 +178,13 @@ class OrderController extends Controller
         // Determine if this product type requires a domain
         $requiresDomain = in_array($product['type'] ?? '', ['hostingaccount', 'reselleraccount', 'server']);
 
-        // Get configurable options for this product
-        $configOptions = $product['configoptions']['configoption'] ?? [];
+        // Get configurable options for this product and normalize field names/pricing
+        $rawConfigOptions = $product['configoptions']['configoption'] ?? [];
+        // WHMCS may return a single configoption as an object instead of array
+        if (!empty($rawConfigOptions) && !isset($rawConfigOptions[0])) {
+            $rawConfigOptions = [$rawConfigOptions];
+        }
+        $configOptions = $this->normalizeConfigOptions($rawConfigOptions, $currencyCode);
 
         $paymentMethods = $this->whmcs->getPaymentMethods();
 
@@ -415,5 +413,61 @@ class OrderController extends Controller
             'page'    => $page,
             'perPage' => $perPage,
         ]);
+    }
+
+    /**
+     * Normalize WHMCS configurable options into a consistent structure for the frontend.
+     *
+     * WHMCS API returns: name, type, options.option[].name, options.option[].pricing.{CURRENCY}.monthly
+     * We normalize to: optionname, optiontype, options.option[].optionname, options.option[].pricing (flat string)
+     */
+    private function normalizeConfigOptions(array $rawOptions, string $currencyCode): array
+    {
+        $normalized = [];
+        foreach ($rawOptions as $opt) {
+            $item = [
+                'id'         => $opt['id'] ?? 0,
+                'optionname' => $opt['name'] ?? $opt['optionname'] ?? '',
+                'optiontype' => (string) ($opt['type'] ?? $opt['optiontype'] ?? '1'),
+                'minqty'     => $opt['minqty'] ?? 0,
+                'maxqty'     => $opt['maxqty'] ?? 0,
+                'options'    => ['option' => []],
+            ];
+
+            $subOptions = $opt['options']['option'] ?? [];
+            // WHMCS may return a single sub-option as an object instead of array
+            if (!empty($subOptions) && !isset($subOptions[0])) {
+                $subOptions = [$subOptions];
+            }
+
+            foreach ($subOptions as $sub) {
+                $flatPrice = null;
+                $pricingData = $sub['pricing'] ?? [];
+                // Extract the monthly price for the active currency
+                $currencyPricing = $pricingData[$currencyCode]
+                    ?? $pricingData[array_key_first($pricingData) ?: 'USD']
+                    ?? [];
+                if (is_array($currencyPricing)) {
+                    $flatPrice = $currencyPricing['monthly'] ?? $currencyPricing['annually'] ?? null;
+                    if ($flatPrice !== null) {
+                        $flatPrice = $this->cleanPrice($flatPrice);
+                    }
+                } elseif (is_string($currencyPricing) || is_numeric($currencyPricing)) {
+                    $flatPrice = $this->cleanPrice($currencyPricing);
+                }
+
+                $item['options']['option'][] = [
+                    'id'         => $sub['id'] ?? 0,
+                    'optionname' => $sub['name'] ?? $sub['optionname'] ?? '',
+                    'rawName'    => $sub['rawName'] ?? null,
+                    'recurring'  => $sub['recurring'] ?? 0,
+                    'required'   => $sub['required'] ?? null,
+                    'pricing'    => $flatPrice,
+                ];
+            }
+
+            $normalized[] = $item;
+        }
+        return $normalized;
     }
 }

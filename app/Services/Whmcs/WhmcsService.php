@@ -528,6 +528,16 @@ class WhmcsService
         });
     }
 
+    /**
+     * Fetch a single product by pid (ensures configoptions are fully returned).
+     */
+    public function getProductById(int $pid): array
+    {
+        return Cache::remember("whmcs.product.{$pid}", 600, function () use ($pid) {
+            return $this->client->callSafe('GetProducts', ['pid' => $pid]);
+        });
+    }
+
     public function getProductGroups(): array
     {
         // GetProducts returns group info with each product; we extract unique groups

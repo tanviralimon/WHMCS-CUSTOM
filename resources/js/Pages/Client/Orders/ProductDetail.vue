@@ -297,7 +297,7 @@ function addToCart() {
                                     class="flex items-center gap-2 cursor-pointer">
                                     <input v-model="configSelections[opt.id]" type="radio" :value="sub.id"
                                         class="text-indigo-600 focus:ring-indigo-500" />
-                                    <span class="text-[13px] text-gray-700">{{ sub.optionname }}</span>
+                                    <span class="text-[13px] text-gray-700">{{ sub.optionname }} <template v-if="sub.pricing">— {{ fmtPrice(sub.pricing) }}</template></span>
                                 </label>
                             </div>
                         </div>
