@@ -159,7 +159,7 @@ if ($action === 'GetServiceInfo') {
         'serverName'   => $server->name ?? '',
         'serverId'     => $service->server,
         'spanelFolder' => $spanelFolder,
-        'ssoSupported' => in_array($module, ['spanel', 'cpanel']),
+        'ssoSupported' => in_array($module, ['spanel', 'cpanel', 'virtualizor']),
     ]);
     exit;
 }
@@ -206,6 +206,10 @@ if ($action === 'SsoLogin') {
 
         case 'cpanel':
             echo json_encode(handleCPanelSso($server, $service, $hostname, $username));
+            exit;
+
+        case 'virtualizor':
+            echo json_encode(handleVirtualizorSso($server, $service, $hostname));
             exit;
 
         default:
@@ -501,5 +505,175 @@ function handleCPanelSso($server, $service, $hostname, $username)
         'result'  => 'error',
         'message' => 'cPanel SSO failed: ' . json_encode($data['errors'] ?? $data['metadata'] ?? $data),
         'module'  => 'cpanel',
+    ];
+}
+
+
+// ═══════════════════════════════════════════════════════════
+// Virtualizor SSO Handler
+// ═══════════════════════════════════════════════════════════
+function handleVirtualizorSso($server, $service, $hostname)
+{
+    // Virtualizor Admin API credentials stored in WHMCS server config:
+    // - server username = API Key
+    // - server password = API Pass (encrypted by WHMCS)
+    // Admin panel runs on port 4085
+    $apiKey  = trim($server->username ?? '');
+    $apiPass = '';
+
+    if (!empty($server->password)) {
+        $apiPass = decrypt($server->password);
+    }
+
+    // Also try accesshash as fallback for API key
+    if (empty($apiKey) && !empty($server->accesshash)) {
+        $apiKey = trim($server->accesshash);
+    }
+
+    if (empty($apiKey) || empty($apiPass)) {
+        // Fallback: direct panel URL without SSO
+        $panelUrl = 'https://' . $hostname . ':4083';
+        return [
+            'result'       => 'success',
+            'redirect_url' => $panelUrl,
+            'module'       => 'virtualizor',
+            'sso_type'     => 'direct_url',
+            'message'      => 'SSO not available — opening panel login page',
+        ];
+    }
+
+    // The Virtualizor WHMCS module stores the VPSID in the service's
+    // customfields or in the "domain" field. Check tblcustomfieldsvalues.
+    $vpsId = 0;
+
+    // Method 1: Check custom fields for "vpsid" / "VPS ID" / "vserverid"
+    $customFields = Capsule::table('tblcustomfields')
+        ->where('relid', $service->packageid)
+        ->where('type', 'product')
+        ->get();
+
+    foreach ($customFields as $cf) {
+        $fieldName = strtolower($cf->fieldname);
+        if (in_array($fieldName, ['vpsid', 'vps id', 'vserverid', 'vps_id'])) {
+            $cfVal = Capsule::table('tblcustomfieldsvalues')
+                ->where('fieldid', $cf->id)
+                ->where('relid', $service->id)
+                ->value('value');
+            if (!empty($cfVal)) {
+                $vpsId = (int) $cfVal;
+                break;
+            }
+        }
+    }
+
+    // Method 2: Virtualizor module stores VPSID in tblhosting.domain or
+    // in a custom field named "vserverid". Also check the domain field.
+    if (!$vpsId && !empty($service->domain) && is_numeric($service->domain)) {
+        $vpsId = (int) $service->domain;
+    }
+
+    // Method 3: Try querying Virtualizor API to find VPS by service username/email
+    if (!$vpsId) {
+        // Check if there's a field called vserverid in customfields
+        foreach ($customFields as $cf) {
+            $fieldName = strtolower($cf->fieldname);
+            if (str_contains($fieldName, 'server') || str_contains($fieldName, 'vps')) {
+                $cfVal = Capsule::table('tblcustomfieldsvalues')
+                    ->where('fieldid', $cf->id)
+                    ->where('relid', $service->id)
+                    ->value('value');
+                if (!empty($cfVal) && is_numeric($cfVal)) {
+                    $vpsId = (int) $cfVal;
+                    break;
+                }
+            }
+        }
+    }
+
+    if (!$vpsId) {
+        // If we still can't find the VPSID, fall back to direct panel URL
+        $panelUrl = 'https://' . $hostname . ':4083';
+        return [
+            'result'       => 'success',
+            'redirect_url' => $panelUrl,
+            'module'       => 'virtualizor',
+            'sso_type'     => 'direct_url',
+            'message'      => 'VPS ID not found — opening panel login page',
+        ];
+    }
+
+    // Call Virtualizor Admin API to create an SSO session for the enduser
+    // Admin API: https://hostname:4085/index.php?act=sso&api=json&apikey=KEY&apipass=PASS
+    $adminUrl = 'https://' . $hostname . ':4085/index.php';
+
+    $params = [
+        'act'     => 'sso',
+        'api'     => 'json',
+        'apikey'  => $apiKey,
+        'apipass' => $apiPass,
+        'vpsid'   => $vpsId,
+    ];
+
+    $url = $adminUrl . '?' . http_build_query($params);
+
+    $ch = curl_init();
+    curl_setopt($ch, CURLOPT_URL, $url);
+    curl_setopt($ch, CURLOPT_RETURNTRANSFER, 1);
+    curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+    curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, false);
+    curl_setopt($ch, CURLOPT_TIMEOUT, 15);
+    curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 10);
+
+    $response = curl_exec($ch);
+    $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    $curlError = curl_error($ch);
+    curl_close($ch);
+
+    if ($curlError) {
+        // Fallback to direct URL
+        return [
+            'result'       => 'success',
+            'redirect_url' => 'https://' . $hostname . ':4083',
+            'module'       => 'virtualizor',
+            'sso_type'     => 'direct_url',
+            'message'      => 'Virtualizor API connection failed: ' . $curlError,
+        ];
+    }
+
+    $data = json_decode($response, true);
+
+    // Virtualizor SSO API returns: { "done": "URL_TOKEN", ... }
+    // The SSO URL is: https://hostname:4083/?sso=TOKEN
+    if (!empty($data['done'])) {
+        $ssoToken = $data['done'];
+        $ssoUrl   = 'https://' . $hostname . ':4083/?sso=' . urlencode($ssoToken);
+
+        return [
+            'result'       => 'success',
+            'redirect_url' => $ssoUrl,
+            'module'       => 'virtualizor',
+            'sso_type'     => 'virtualizor_sso',
+        ];
+    }
+
+    // Check if the response has an error
+    if (!empty($data['error'])) {
+        $errorMsg = is_array($data['error']) ? json_encode($data['error']) : $data['error'];
+        return [
+            'result'       => 'success',
+            'redirect_url' => 'https://' . $hostname . ':4083',
+            'module'       => 'virtualizor',
+            'sso_type'     => 'direct_url',
+            'message'      => 'Virtualizor SSO error: ' . $errorMsg,
+        ];
+    }
+
+    // Unknown response — fallback to direct URL
+    return [
+        'result'       => 'success',
+        'redirect_url' => 'https://' . $hostname . ':4083',
+        'module'       => 'virtualizor',
+        'sso_type'     => 'direct_url',
+        'message'      => 'Unexpected Virtualizor API response',
     ];
 }

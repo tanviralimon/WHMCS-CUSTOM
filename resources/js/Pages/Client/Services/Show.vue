@@ -49,6 +49,7 @@ const moduleName = computed(() => {
 const tabs = computed(() => {
     const t = [{ id: 'overview', label: 'Overview' }];
     if (isHosting) t.push({ id: 'management', label: 'Management' });
+    if (isVps) t.push({ id: 'management', label: 'Management' });
     if (hasConfig.value || hasCustomFields.value) t.push({ id: 'config', label: 'Configuration' });
     return t;
 });
@@ -173,6 +174,15 @@ const vpsActions = ['reboot', 'shutdown', 'boot'];
                 class="inline-flex items-center gap-2 px-5 py-2.5 bg-white text-gray-700 text-[13px] font-semibold rounded-lg border border-gray-300 hover:bg-gray-50 shadow-sm transition-colors">
                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" /></svg>
                 Login to Webmail
+            </a>
+        </div>
+
+        <!-- Login Buttons Bar (VPS, active) -->
+        <div v-if="isVps && isActive && panelLoginUrl" class="mb-6 flex flex-wrap gap-3">
+            <a :href="panelLoginUrl" target="_blank"
+                class="inline-flex items-center gap-2 px-5 py-2.5 bg-indigo-600 text-white text-[13px] font-semibold rounded-lg hover:bg-indigo-700 shadow-sm transition-colors">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2m-2-4h.01M17 16h.01" /></svg>
+                Login to {{ moduleName }}
             </a>
         </div>
 
@@ -351,6 +361,84 @@ const vpsActions = ['reboot', 'shutdown', 'boot'];
                     </Card>
                 </template>
 
+                <!-- ─── Management Tab (VPS) ─── -->
+                <template v-if="activeTab === 'management' && isVps">
+                    <!-- VPS Panel Access -->
+                    <Card title="Panel Access" description="Access your VPS control panel to manage your virtual server.">
+                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                            <a v-if="panelLoginUrl" :href="panelLoginUrl" target="_blank"
+                                class="flex items-center gap-3 p-4 rounded-xl border border-gray-200 hover:border-indigo-300 hover:bg-indigo-50/60 transition-all group">
+                                <div class="w-10 h-10 rounded-lg bg-indigo-100 flex items-center justify-center flex-shrink-0">
+                                    <svg class="w-5 h-5 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2m-2-4h.01M17 16h.01" /></svg>
+                                </div>
+                                <div class="min-w-0">
+                                    <p class="text-[13px] font-semibold text-gray-900 group-hover:text-indigo-700">Login to {{ moduleName }}</p>
+                                    <p class="text-[11px] text-gray-500">Manage your VPS, OS, resources &amp; more</p>
+                                </div>
+                                <svg class="w-4 h-4 text-gray-300 ml-auto flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" /></svg>
+                            </a>
+
+                            <button @click="doAction('vnc')"
+                                class="flex items-center gap-3 p-4 rounded-xl border border-gray-200 hover:border-violet-300 hover:bg-violet-50/60 transition-all group text-left">
+                                <div class="w-10 h-10 rounded-lg bg-violet-100 flex items-center justify-center flex-shrink-0">
+                                    <svg class="w-5 h-5 text-violet-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" /></svg>
+                                </div>
+                                <div class="min-w-0">
+                                    <p class="text-[13px] font-semibold text-gray-900 group-hover:text-violet-700">VNC Console</p>
+                                    <p class="text-[11px] text-gray-500">Direct console access to your VPS</p>
+                                </div>
+                            </button>
+                        </div>
+                    </Card>
+
+                    <!-- VPS Power Actions -->
+                    <Card title="Power Actions" description="Control your VPS power state.">
+                        <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                            <button @click="doAction('boot')"
+                                class="flex flex-col items-center gap-2.5 p-4 rounded-xl border border-gray-100 bg-gray-50/50 hover:bg-emerald-50 hover:border-emerald-200 hover:shadow-sm transition-all group">
+                                <div class="w-10 h-10 rounded-lg bg-emerald-100 flex items-center justify-center">
+                                    <svg class="w-5 h-5 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M5.636 5.636a9 9 0 1012.728 0M12 3v9" /></svg>
+                                </div>
+                                <span class="text-[12px] font-medium text-gray-700 group-hover:text-emerald-700 text-center">Boot</span>
+                            </button>
+
+                            <button @click="doAction('reboot')"
+                                class="flex flex-col items-center gap-2.5 p-4 rounded-xl border border-gray-100 bg-gray-50/50 hover:bg-amber-50 hover:border-amber-200 hover:shadow-sm transition-all group">
+                                <div class="w-10 h-10 rounded-lg bg-amber-100 flex items-center justify-center">
+                                    <svg class="w-5 h-5 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
+                                </div>
+                                <span class="text-[12px] font-medium text-gray-700 group-hover:text-amber-700 text-center">Reboot</span>
+                            </button>
+
+                            <button @click="doAction('shutdown')"
+                                class="flex flex-col items-center gap-2.5 p-4 rounded-xl border border-gray-100 bg-gray-50/50 hover:bg-red-50 hover:border-red-200 hover:shadow-sm transition-all group">
+                                <div class="w-10 h-10 rounded-lg bg-red-100 flex items-center justify-center">
+                                    <svg class="w-5 h-5 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" /></svg>
+                                </div>
+                                <span class="text-[12px] font-medium text-gray-700 group-hover:text-red-700 text-center">Shutdown</span>
+                            </button>
+
+                            <button @click="doAction('resetpassword')"
+                                class="flex flex-col items-center gap-2.5 p-4 rounded-xl border border-gray-100 bg-gray-50/50 hover:bg-blue-50 hover:border-blue-200 hover:shadow-sm transition-all group">
+                                <div class="w-10 h-10 rounded-lg bg-blue-100 flex items-center justify-center">
+                                    <svg class="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M15.75 5.25a3 3 0 013 3m3 0a6 6 0 01-7.029 5.912c-.563-.097-1.159.026-1.563.43L10.5 17.25H8.25v2.25H6v2.25H2.25v-2.818c0-.597.237-1.17.659-1.591l6.499-6.499c.404-.404.527-1 .43-1.563A6 6 0 1121.75 8.25z" /></svg>
+                                </div>
+                                <span class="text-[12px] font-medium text-gray-700 group-hover:text-blue-700 text-center">Reset Password</span>
+                            </button>
+                        </div>
+                    </Card>
+
+                    <!-- Config Options on VPS Management tab -->
+                    <Card v-if="hasConfig" title="Configuration Options">
+                        <dl class="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-3">
+                            <div v-for="opt in configOptions" :key="opt.id || opt.option">
+                                <dt class="text-[12px] font-medium text-gray-500">{{ opt.option || opt.optionname }}</dt>
+                                <dd class="text-[14px] text-gray-900 mt-0.5">{{ opt.value }}</dd>
+                            </div>
+                        </dl>
+                    </Card>
+                </template>
+
                 <!-- ─── Configuration Tab ─── -->
                 <template v-if="activeTab === 'config'">
                     <Card v-if="hasConfig" title="Configuration Options">
@@ -393,10 +481,18 @@ const vpsActions = ['reboot', 'shutdown', 'boot'];
 
                         <!-- VPS Actions -->
                         <template v-if="isVps && isActive">
+                            <a v-if="panelLoginUrl" :href="panelLoginUrl" target="_blank"
+                                class="w-full flex items-center gap-2.5 px-3 py-2.5 text-[13px] font-medium text-indigo-700 bg-indigo-50 rounded-lg hover:bg-indigo-100 transition-colors">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2m-2-4h.01M17 16h.01" /></svg>
+                                Login to {{ moduleName }}
+                            </a>
+
                             <button v-for="action in vpsActions" :key="action" @click="doAction(action)"
                                 class="w-full flex items-center gap-2.5 px-3 py-2.5 text-[13px] font-medium text-gray-700 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors capitalize">
                                 <svg class="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5.636 18.364a9 9 0 010-12.728m12.728 0a9 9 0 010 12.728m-9.9-2.829a5 5 0 010-7.07m7.072 0a5 5 0 010 7.07M13 12a1 1 0 11-2 0 1 1 0 012 0z" />
+                                    <path v-if="action === 'boot'" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5.636 5.636a9 9 0 1012.728 0M12 3v9" />
+                                    <path v-else-if="action === 'reboot'" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                                    <path v-else stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" />
                                 </svg>
                                 {{ action }}
                             </button>
