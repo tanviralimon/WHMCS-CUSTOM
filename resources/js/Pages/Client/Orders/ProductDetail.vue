@@ -135,7 +135,7 @@ function addToCart() {
         pid: p.pid,
         billingcycle: selectedCycle.value,
         name: p.name,
-        price: getPrice(selectedCycle.value) || '0.00',
+        price: String(getPrice(selectedCycle.value) ?? '0.00'),
         domain: effectiveDomain.value,
         configoptions: configSelections.value,
         customfields: customFieldValues.value,
