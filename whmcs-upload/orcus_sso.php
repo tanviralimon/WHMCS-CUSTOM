@@ -843,21 +843,30 @@ function handleVirtualizorAction($server, $service, $hostname, $vpsAction)
         return ['result' => 'error', 'message' => 'Unsupported action: ' . $vpsAction];
     }
 
-    // Call Virtualizor Admin API
+    // Call Virtualizor Admin API via POST
+    // Docs: https://www.virtualizor.com/admin-api/
     $adminUrl = 'https://' . $hostname . ':4085/index.php';
-    $params = [
+
+    // Build query string for the act and API auth
+    $queryParams = [
         'act'     => 'vs',
-        'action'  => $apiAction,
-        'vpsid'   => $vpsId,
         'api'     => 'json',
         'apikey'  => $apiKey,
         'apipass' => $apiPass,
     ];
 
-    $url = $adminUrl . '?' . http_build_query($params);
+    // POST body contains the action and VPS ID
+    $postData = [
+        'action' => $apiAction,
+        'vpsid'  => $vpsId,
+    ];
+
+    $url = $adminUrl . '?' . http_build_query($queryParams);
 
     $ch = curl_init();
     curl_setopt($ch, CURLOPT_URL, $url);
+    curl_setopt($ch, CURLOPT_POST, true);
+    curl_setopt($ch, CURLOPT_POSTFIELDS, http_build_query($postData));
     curl_setopt($ch, CURLOPT_RETURNTRANSFER, 1);
     curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
     curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, false);
@@ -875,14 +884,41 @@ function handleVirtualizorAction($server, $service, $hostname, $vpsAction)
 
     $data = json_decode($response, true);
 
-    // Virtualizor API returns { "done": true/1, ... } on success
-    if (!empty($data['done']) || (isset($data['done']) && $data['done'] !== false)) {
-        $actionLabels = [
-            'start'         => 'VPS booted successfully',
-            'restart'       => 'VPS rebooted successfully',
-            'stop'          => 'VPS shutdown successfully',
-            'resetpassword' => 'Password reset successfully — check your email',
+    // If JSON decode failed, return raw response for debugging
+    if ($data === null) {
+        return [
+            'result'  => 'error',
+            'message' => 'Virtualizor API returned invalid JSON (HTTP ' . $httpCode . ')',
+            'debug'   => substr($response, 0, 500),
         ];
+    }
+
+    // Virtualizor API has various success indicators depending on the action:
+    // - { "done": true } or { "done": 1 } or { "done": "1" }
+    // - { "done": { ... } } (object with details)
+    // - Some actions just return the data without error
+    // Check for explicit errors first
+    if (!empty($data['error'])) {
+        $errors = $data['error'];
+        if (is_array($errors)) {
+            // Virtualizor returns errors as array: ["ERROR_MSG1", "ERROR_MSG2"]
+            $errorMsg = implode(', ', array_values($errors));
+        } else {
+            $errorMsg = (string) $errors;
+        }
+        return ['result' => 'error', 'message' => 'Virtualizor: ' . $errorMsg];
+    }
+
+    // Success: "done" key exists and is truthy, OR no error key present
+    $actionLabels = [
+        'start'         => 'VPS booted successfully',
+        'restart'       => 'VPS rebooted successfully',
+        'stop'          => 'VPS shutdown successfully',
+        'resetpassword' => 'Password reset successfully — check your email',
+    ];
+
+    // Check for done key (most common success indicator)
+    if (isset($data['done'])) {
         return [
             'result'  => 'success',
             'message' => $actionLabels[$apiAction] ?? ucfirst($vpsAction) . ' executed successfully',
@@ -891,11 +927,25 @@ function handleVirtualizorAction($server, $service, $hostname, $vpsAction)
         ];
     }
 
-    // Check for errors
-    if (!empty($data['error'])) {
-        $errorMsg = is_array($data['error']) ? implode(', ', $data['error']) : $data['error'];
-        return ['result' => 'error', 'message' => 'Virtualizor: ' . $errorMsg];
+    // Some Virtualizor API responses don't have "done" but also no "error"
+    // meaning the action was accepted. Check HTTP status and absence of error.
+    if ($httpCode >= 200 && $httpCode < 300 && empty($data['error'])) {
+        // Check for common success indicators in response
+        if (isset($data['vs']) || isset($data['status']) || isset($data['info'])
+            || isset($data['output']) || isset($data['timenow']) || isset($data['title'])) {
+            return [
+                'result'  => 'success',
+                'message' => $actionLabels[$apiAction] ?? ucfirst($vpsAction) . ' executed successfully',
+                'action'  => $vpsAction,
+                'module'  => 'virtualizor',
+            ];
+        }
     }
 
-    return ['result' => 'error', 'message' => 'Unexpected Virtualizor API response for ' . $vpsAction];
+    // If we still can't determine success, return the raw response for debugging
+    return [
+        'result'  => 'error',
+        'message' => 'Virtualizor API response unclear for ' . $vpsAction . '. Please check the VPS status in Virtualizor panel.',
+        'debug'   => array_keys($data),
+    ];
 }

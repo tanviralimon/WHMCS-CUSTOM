@@ -158,7 +158,14 @@ class ServiceController extends Controller
                 $result = $this->whmcs->vpsAction($id, $clientId, $action);
 
                 if (($result['result'] ?? '') !== 'success') {
-                    return back()->withErrors(['whmcs' => $result['message'] ?? 'Action failed.']);
+                    $errorMsg = $result['message'] ?? 'Action failed.';
+                    // Include debug info if available (response keys from Virtualizor API)
+                    if (!empty($result['debug'])) {
+                        $debugStr = is_array($result['debug']) ? implode(', ', $result['debug']) : $result['debug'];
+                        \Log::warning('VPS action failed', ['action' => $action, 'result' => $result]);
+                        $errorMsg .= ' (Debug: ' . $debugStr . ')';
+                    }
+                    return back()->withErrors(['whmcs' => $errorMsg]);
                 }
 
                 // VNC/Console returns a redirect_url — open in new window
