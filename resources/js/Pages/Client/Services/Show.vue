@@ -221,13 +221,27 @@ function executeAction() {
     showActionModal.value = false;
     actionLoading.value = action;
 
+    // For VNC/Console: open a blank window BEFORE the async request
+    // to avoid popup blocker (must be in direct user click handler)
+    let vncWindow = null;
+    if (action === 'vnc' || action === 'console') {
+        vncWindow = window.open('about:blank', '_blank');
+    }
+
     router.post(route('client.services.action', s.id), { action }, {
         preserveScroll: true,
         onSuccess: (page) => {
             const redirectUrl = page.props?.flash?.redirect_url;
-            if (redirectUrl && (action === 'vnc' || action === 'console')) {
-                window.open(redirectUrl, '_blank');
+            if (redirectUrl && vncWindow) {
+                vncWindow.location.href = redirectUrl;
+            } else if (vncWindow) {
+                // No redirect URL returned — close the blank tab
+                vncWindow.close();
             }
+        },
+        onError: () => {
+            // Close blank tab on error
+            if (vncWindow) vncWindow.close();
         },
         onFinish: () => {
             actionLoading.value = null;

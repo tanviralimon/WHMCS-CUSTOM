@@ -194,7 +194,9 @@ if ($action === 'SsoLogin') {
     $username = $service->username ?? '';
     $redirect = $_POST['redirect'] ?? ''; // SPanel: "category/page" e.g. "file/manager"
 
-    if (!$username) {
+    // Virtualizor doesn't need a service username — it uses VPS IDs from custom fields
+    // Only enforce username check for hosting panels (SPanel, cPanel, etc.)
+    if (!$username && !in_array($module, ['virtualizor', 'proxmox', 'solusvm'])) {
         echo json_encode(['result' => 'error', 'message' => 'No username associated with this service']);
         exit;
     }
@@ -304,6 +306,14 @@ if ($action === 'TestVirtApi') {
     $hostname = $server->hostname ?: $server->ipaddress;
     $creds = getVirtualizorCredentials($server);
 
+    // Check which WHMCS classes are available
+    $available = [
+        'ServerModel'       => class_exists('\\WHMCS\\Product\\Server\\Server'),
+        'SecurityEncryption' => class_exists('\\WHMCS\\Security\\Encryption'),
+        'decrypt_func'      => function_exists('decrypt'),
+        'localAPI_func'     => function_exists('localAPI'),
+    ];
+
     // Test a simple API call
     $testUrl = 'https://' . $hostname . ':4085/index.php?' . http_build_query([
         'act'     => 'vs',
@@ -317,15 +327,21 @@ if ($action === 'TestVirtApi') {
     echo json_encode([
         'result'     => 'success',
         'test'       => [
-            'hostname'        => $hostname,
-            'server_type'     => $server->type ?? '',
-            'api_key_length'  => strlen($creds['apiKey']),
-            'api_pass_length' => strlen($creds['apiPass']),
-            'decrypt_method'  => $creds['method'],
-            'api_call_ok'     => $testResult['ok'] ?? false,
-            'api_http_code'   => $testResult['http_code'] ?? 0,
-            'api_error'       => $testResult['error'] ?? null,
-            'api_data_keys'   => $testResult['ok'] ? array_keys($testResult['data']) : null,
+            'hostname'           => $hostname,
+            'server_id'          => $server->id ?? 0,
+            'server_type'        => $server->type ?? '',
+            'username_field'     => !empty($server->username) ? substr($server->username, 0, 4) . '...' : '(empty)',
+            'password_field_len' => strlen($server->password ?? ''),
+            'accesshash_field'   => !empty($server->accesshash) ? 'set (' . strlen($server->accesshash) . ' chars)' : '(empty)',
+            'api_key_length'     => strlen($creds['apiKey']),
+            'api_pass_length'    => strlen($creds['apiPass']),
+            'api_pass_first4'    => strlen($creds['apiPass']) > 4 ? substr($creds['apiPass'], 0, 4) . '...' : '(short)',
+            'decrypt_method'     => $creds['method'],
+            'available_methods'  => $available,
+            'api_call_ok'        => $testResult['ok'] ?? false,
+            'api_http_code'      => $testResult['http_code'] ?? 0,
+            'api_error'          => $testResult['error'] ?? null,
+            'api_data_keys'      => $testResult['ok'] ? array_keys($testResult['data']) : null,
         ],
     ]);
     exit;
@@ -1283,75 +1299,98 @@ function handleVirtualizorStats($server, $service, $hostname)
 
 // ═══════════════════════════════════════════════════════════
 // Shared helper: Extract Virtualizor API credentials from WHMCS server record
-// Handles multiple WHMCS versions and encryption approaches
+// Uses multiple approaches to reliably decrypt the server password
 // ═══════════════════════════════════════════════════════════
 function getVirtualizorCredentials($server)
 {
     $apiKey  = trim($server->username ?? '');
     $apiPass = '';
     $method  = 'none';
+    $serverId = $server->id ?? 0;
 
-    // Try WHMCS decrypt() for the server password
-    if (!empty($server->password)) {
-        // Method 1: Standard WHMCS decrypt() function
-        if (function_exists('decrypt')) {
-            try {
-                $decrypted = decrypt($server->password);
-                if (!empty($decrypted) && $decrypted !== $server->password) {
-                    $apiPass = $decrypted;
-                    $method = 'decrypt';
-                }
-            } catch (\Exception $e) {
-                // decrypt() failed, try alternatives
-            }
-        }
-
-        // Method 2: WHMCS 8.x+ uses the Security helper
-        if (empty($apiPass) && class_exists('\\WHMCS\\Security\\Encryption')) {
-            try {
-                $decrypted = \WHMCS\Security\Encryption::decode($server->password);
+    // ── Method 1: WHMCS Server Model (auto-decrypts password) ──
+    // This is the most reliable method — WHMCS 8.x Server model has a
+    // password accessor that automatically decrypts the stored value
+    if (empty($apiPass) && $serverId && class_exists('\\WHMCS\\Product\\Server\\Server')) {
+        try {
+            $serverModel = \WHMCS\Product\Server\Server::find($serverId);
+            if ($serverModel) {
+                $decrypted = $serverModel->password;
                 if (!empty($decrypted)) {
                     $apiPass = $decrypted;
-                    $method = 'WHMCS\\Security\\Encryption';
+                    $method = 'ServerModel';
                 }
-            } catch (\Exception $e) {
-                // Not available
-            }
-        }
-
-        // Method 3: localAPI DecryptPassword
-        if (empty($apiPass)) {
-            try {
-                $result = localAPI('DecryptPassword', ['password2' => $server->password]);
-                if (($result['result'] ?? '') === 'success' && !empty($result['password'])) {
-                    $apiPass = $result['password'];
-                    $method = 'localAPI_DecryptPassword';
+                // Also grab username from model if we don't have it
+                if (empty($apiKey) && !empty($serverModel->username)) {
+                    $apiKey = trim($serverModel->username);
                 }
-            } catch (\Exception $e) {
-                // Not available
             }
-        }
-
-        // Method 4: If all decryption failed, try using the raw value
-        // (some setups store the password in plain text)
-        if (empty($apiPass)) {
-            $apiPass = $server->password;
-            $method = 'raw_password';
+        } catch (\Exception $e) {
+            // Model not available
         }
     }
 
-    // Fallback: try accesshash for API key
+    // ── Method 2: localAPI DecryptPassword ──
+    if (empty($apiPass) && !empty($server->password)) {
+        try {
+            $result = localAPI('DecryptPassword', ['password2' => $server->password]);
+            if (($result['result'] ?? '') === 'success' && !empty($result['password'])) {
+                $apiPass = $result['password'];
+                $method = 'localAPI_DecryptPassword';
+            }
+        } catch (\Exception $e) {
+            // Not available
+        }
+    }
+
+    // ── Method 3: WHMCS decrypt() function ──
+    if (empty($apiPass) && !empty($server->password) && function_exists('decrypt')) {
+        try {
+            $decrypted = decrypt($server->password);
+            if (!empty($decrypted) && $decrypted !== $server->password) {
+                $apiPass = $decrypted;
+                $method = 'decrypt';
+            }
+        } catch (\Exception $e) {
+            // decrypt() failed
+        }
+    }
+
+    // ── Method 4: WHMCS module params via GetServers ──
+    // localAPI 'GetServers' does NOT exist, but we can use the module's
+    // own server params approach via GetModuleConfiguration
+    if (empty($apiPass) && $serverId) {
+        try {
+            // Try to get server details through WHMCS's Servers model
+            $serverParams = Capsule::table('tblservers')->where('id', $serverId)->first();
+            if ($serverParams && !empty($serverParams->password)) {
+                // Try WHMCS 8.x Security encryption
+                if (class_exists('\\WHMCS\\Security\\Encryption')) {
+                    try {
+                        $decrypted = \WHMCS\Security\Encryption::decode($serverParams->password);
+                        if (!empty($decrypted)) {
+                            $apiPass = $decrypted;
+                            $method = 'Security_Encryption';
+                        }
+                    } catch (\Exception $e) {
+                        // Not available
+                    }
+                }
+            }
+        } catch (\Exception $e) {
+            // DB query failed
+        }
+    }
+
+    // ── Method 5: Raw password (some setups store in plain text) ──
+    if (empty($apiPass) && !empty($server->password)) {
+        $apiPass = $server->password;
+        $method = 'raw_password';
+    }
+
+    // ── Fallback: try accesshash for API key ──
     if (empty($apiKey) && !empty($server->accesshash)) {
         $apiKey = trim($server->accesshash);
-    }
-
-    // Also try accesshash for API pass if password decryption failed
-    if (empty($apiPass) && !empty($server->accesshash) && !empty($apiKey)) {
-        // Some configurations store apipass in accesshash
-        // Only use if apiKey came from username (not accesshash)
-        if (trim($server->username ?? '') === $apiKey) {
-            // Don't use accesshash as both key and pass
-        }
     }
 
     return [

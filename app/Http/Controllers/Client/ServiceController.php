@@ -185,9 +185,14 @@ class ServiceController extends Controller
                     return back()->withErrors(['whmcs' => $errorMsg]);
                 }
 
-                // VNC/Console returns a redirect_url — open in new window
+                // VNC/Console returns a redirect_url — pass it to frontend to open
                 if (($action === 'vnc' || $action === 'console') && !empty($result['redirect_url'])) {
-                    return back()->with('success', 'VNC console opened.')
+                    // Check if SSO actually worked (not just a fallback login URL)
+                    $ssoType = $result['sso_type'] ?? '';
+                    $msg = ($ssoType === 'direct_url')
+                        ? 'Opening Virtualizor panel (login may be required).'
+                        : 'VNC console opened.';
+                    return back()->with('success', $msg)
                                  ->with('redirect_url', $result['redirect_url']);
                 }
 
