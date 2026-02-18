@@ -304,6 +304,147 @@ const reinstallPasswordConfirm = ref('');
 const reinstallError = ref('');
 const reinstallConfirmText = ref('');
 
+// ── Upgrade / Downgrade ─────────────────────────────────────
+const showUpgradeModal = ref(false);
+const upgradeLoading = ref(false);
+const upgradeOptionsLoading = ref(false);
+const upgradeProducts = ref([]);
+const upgradeCurrent = ref(null);
+const upgradeCurrency = ref({ prefix: '$', suffix: '' });
+const upgradePaymentMethods = ref([]);
+const selectedUpgradeProduct = ref('');
+const selectedUpgradeCycle = ref('');
+const selectedUpgradePayment = ref('');
+const upgradeError = ref('');
+const upgradeCalcResult = ref(null);
+const upgradeCalcLoading = ref(false);
+const upgradeStep = ref(1); // 1 = select, 2 = preview, 3 = done
+
+const selectedProduct = computed(() => {
+    if (!selectedUpgradeProduct.value) return null;
+    return upgradeProducts.value.find(p => p.pid == selectedUpgradeProduct.value);
+});
+
+const availableCycles = computed(() => {
+    if (!selectedProduct.value) return [];
+    const cycleLabels = {
+        monthly: 'Monthly', quarterly: 'Quarterly', semiannually: 'Semi-Annually',
+        annually: 'Annually', biennially: 'Biennially', triennially: 'Triennially',
+    };
+    return Object.entries(selectedProduct.value.pricing || {}).map(([key, val]) => ({
+        key,
+        label: cycleLabels[key] || key,
+        price: val.price,
+        setup: val.setup,
+    }));
+});
+
+const isUpgrade = computed(() => {
+    if (!selectedProduct.value || !upgradeCurrent.value || !selectedUpgradeCycle.value) return null;
+    const currentCycle = (s.billingcycle || '').toLowerCase();
+    const currentPrice = parseFloat(upgradeCurrent.value.pricing?.[currentCycle] || 0);
+    const newPrice = parseFloat(selectedProduct.value.pricing?.[selectedUpgradeCycle.value]?.price || 0);
+    return newPrice > currentPrice;
+});
+
+async function openUpgradeModal() {
+    showUpgradeModal.value = true;
+    upgradeStep.value = 1;
+    upgradeError.value = '';
+    selectedUpgradeProduct.value = '';
+    selectedUpgradeCycle.value = '';
+    selectedUpgradePayment.value = s.paymentmethod || '';
+    upgradeCalcResult.value = null;
+
+    if (upgradeProducts.value.length === 0) {
+        upgradeOptionsLoading.value = true;
+        try {
+            const response = await fetch(route('client.services.upgradeOptions', s.id), {
+                headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+            });
+            const data = await response.json();
+            if (data.error) {
+                upgradeError.value = data.error;
+            } else {
+                upgradeProducts.value = data.products || [];
+                upgradeCurrent.value = data.current || null;
+                upgradeCurrency.value = data.currency || { prefix: '$', suffix: '' };
+                upgradePaymentMethods.value = data.paymentMethods || [];
+                if (!selectedUpgradePayment.value && upgradePaymentMethods.value.length > 0) {
+                    selectedUpgradePayment.value = upgradePaymentMethods.value[0].module;
+                }
+            }
+        } catch (err) {
+            upgradeError.value = 'Failed to load upgrade options.';
+        } finally {
+            upgradeOptionsLoading.value = false;
+        }
+    }
+}
+
+async function calculateUpgrade() {
+    if (!selectedUpgradeProduct.value || !selectedUpgradePayment.value) return;
+    upgradeCalcLoading.value = true;
+    upgradeError.value = '';
+    upgradeCalcResult.value = null;
+
+    try {
+        const csrfToken = document.querySelector('meta[name="csrf-token"]')?.content;
+        const response = await fetch(route('client.services.upgradeCalculate', s.id), {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Accept': 'application/json',
+                'X-Requested-With': 'XMLHttpRequest',
+                'X-CSRF-TOKEN': csrfToken,
+            },
+            body: JSON.stringify({
+                newproductid: selectedUpgradeProduct.value,
+                paymentmethod: selectedUpgradePayment.value,
+                billingcycle: selectedUpgradeCycle.value || undefined,
+            }),
+        });
+        const data = await response.json();
+        if (data.error) {
+            upgradeError.value = data.error;
+        } else {
+            upgradeCalcResult.value = data;
+            upgradeStep.value = 2;
+        }
+    } catch (err) {
+        upgradeError.value = 'Failed to calculate upgrade price.';
+    } finally {
+        upgradeCalcLoading.value = false;
+    }
+}
+
+function submitUpgrade() {
+    upgradeLoading.value = true;
+    upgradeError.value = '';
+
+    router.post(route('client.services.upgrade', s.id), {
+        newproductid: selectedUpgradeProduct.value,
+        paymentmethod: selectedUpgradePayment.value,
+        billingcycle: selectedUpgradeCycle.value || '',
+    }, {
+        preserveScroll: true,
+        onSuccess: () => {
+            showUpgradeModal.value = false;
+        },
+        onError: (errors) => {
+            upgradeError.value = errors.whmcs || 'Upgrade failed.';
+        },
+        onFinish: () => {
+            upgradeLoading.value = false;
+        },
+    });
+}
+
+function formatUpgradePrice(price) {
+    const p = upgradeCurrency.value;
+    return (p.prefix || '') + parseFloat(price).toFixed(2) + (p.suffix || '');
+}
+
 const groupedTemplates = computed(() => {
     const groups = {};
     for (const tpl of osTemplates.value) {
@@ -827,10 +968,10 @@ function executeReinstall() {
                             <svg v-else class="w-4 h-4 text-gray-400 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" /><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
                             Change Password
                         </button>
-                        <a v-if="isActive" :href="'https://dash.orcustech.com/upgrade.php?type=package&id=' + s.id" target="_blank" rel="noopener" class="w-full flex items-center gap-2.5 px-3 py-2.5 text-[13px] font-medium text-gray-700 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors">
+                        <button v-if="isActive" @click="openUpgradeModal" class="w-full flex items-center gap-2.5 px-3 py-2.5 text-[13px] font-medium text-gray-700 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors">
                             <svg class="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M7 11l5-5m0 0l5 5m-5-5v12" /></svg>
                             Upgrade / Downgrade
-                        </a>
+                        </button>
                         <hr class="my-1.5 border-gray-100" />
                         <button @click="showCancelModal = true" class="w-full flex items-center gap-2.5 px-3 py-2.5 text-[13px] font-medium text-red-600 bg-red-50 rounded-lg hover:bg-red-100 transition-colors">
                             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" /></svg>
@@ -1028,5 +1169,162 @@ function executeReinstall() {
                 </p>
             </div>
         </ConfirmModal>
+
+        <!-- Upgrade / Downgrade Modal -->
+        <div v-if="showUpgradeModal" class="fixed inset-0 z-50 overflow-y-auto" aria-modal="true">
+            <div class="flex items-center justify-center min-h-screen px-4 pt-4 pb-20">
+                <div class="fixed inset-0 bg-gray-500/75 transition-opacity" @click="showUpgradeModal = false"></div>
+                <div class="relative bg-white rounded-2xl shadow-xl max-w-lg w-full p-6 z-10">
+                    <!-- Header -->
+                    <div class="flex items-center justify-between mb-5">
+                        <div class="flex items-center gap-3">
+                            <div class="w-10 h-10 rounded-full flex items-center justify-center" :class="upgradeStep === 2 ? 'bg-indigo-100' : 'bg-gray-100'">
+                                <svg class="w-5 h-5" :class="upgradeStep === 2 ? 'text-indigo-600' : 'text-gray-600'" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 11l5-5m0 0l5 5m-5-5v12" /></svg>
+                            </div>
+                            <div>
+                                <h3 class="text-lg font-semibold text-gray-900">{{ upgradeStep === 2 ? 'Confirm Change' : 'Upgrade / Downgrade' }}</h3>
+                                <p class="text-[12px] text-gray-500">{{ upgradeCurrent?.name || s.name }}</p>
+                            </div>
+                        </div>
+                        <button @click="showUpgradeModal = false" class="p-1.5 rounded-lg hover:bg-gray-100 transition-colors">
+                            <svg class="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
+                        </button>
+                    </div>
+
+                    <!-- Error -->
+                    <div v-if="upgradeError" class="mb-4 px-3 py-2 bg-red-50 border border-red-200 rounded-lg text-[12px] text-red-700">{{ upgradeError }}</div>
+
+                    <!-- Loading -->
+                    <div v-if="upgradeOptionsLoading" class="flex items-center justify-center py-10 gap-2 text-[13px] text-gray-500">
+                        <svg class="w-5 h-5 animate-spin text-gray-400" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" /><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
+                        Loading upgrade options...
+                    </div>
+
+                    <!-- No products available -->
+                    <div v-if="!upgradeOptionsLoading && upgradeProducts.length === 0 && !upgradeError" class="text-center py-8">
+                        <svg class="w-12 h-12 mx-auto text-gray-300 mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4" /></svg>
+                        <p class="text-[13px] text-gray-500">No upgrade/downgrade options available for this product.</p>
+                    </div>
+
+                    <!-- Step 1: Select product -->
+                    <template v-if="!upgradeOptionsLoading && upgradeProducts.length > 0 && upgradeStep === 1">
+                        <!-- Current plan info -->
+                        <div class="mb-4 px-3 py-2.5 bg-gray-50 rounded-lg border border-gray-200">
+                            <p class="text-[11px] font-medium text-gray-500 uppercase mb-1">Current Plan</p>
+                            <p class="text-[14px] font-semibold text-gray-900">{{ upgradeCurrent?.name || s.name }}</p>
+                            <p class="text-[12px] text-gray-500">{{ formatCurrency(s.recurringamount) }} / {{ s.billingcycle }}</p>
+                        </div>
+
+                        <!-- Product selection -->
+                        <div class="space-y-3">
+                            <div>
+                                <label class="block text-[13px] font-medium text-gray-700 mb-1.5">New Plan</label>
+                                <div class="space-y-2 max-h-56 overflow-y-auto">
+                                    <label v-for="p in upgradeProducts" :key="p.pid"
+                                        class="flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-all"
+                                        :class="selectedUpgradeProduct == p.pid ? 'border-indigo-500 bg-indigo-50 ring-1 ring-indigo-500' : 'border-gray-200 hover:border-gray-300 hover:bg-gray-50'">
+                                        <input type="radio" :value="p.pid" v-model="selectedUpgradeProduct" class="text-indigo-600 focus:ring-indigo-500" @change="selectedUpgradeCycle = Object.keys(p.pricing)[0] || ''; upgradeCalcResult = null; upgradeError = '';" />
+                                        <div class="flex-1 min-w-0">
+                                            <p class="text-[13px] font-semibold text-gray-900">{{ p.name }}</p>
+                                            <p class="text-[11px] text-gray-500 mt-0.5">
+                                                From {{ formatUpgradePrice(Object.values(p.pricing)[0]?.price || 0) }} / {{ Object.keys(p.pricing)[0] || '' }}
+                                            </p>
+                                        </div>
+                                    </label>
+                                </div>
+                            </div>
+
+                            <!-- Billing Cycle -->
+                            <div v-if="selectedProduct && availableCycles.length > 1">
+                                <label class="block text-[13px] font-medium text-gray-700 mb-1.5">Billing Cycle</label>
+                                <select v-model="selectedUpgradeCycle" class="w-full text-[13px] rounded-lg border-gray-300 focus:border-indigo-500 focus:ring-indigo-500" @change="upgradeCalcResult = null">
+                                    <option v-for="c in availableCycles" :key="c.key" :value="c.key">
+                                        {{ c.label }} — {{ formatUpgradePrice(c.price) }}
+                                    </option>
+                                </select>
+                            </div>
+
+                            <!-- Payment Method -->
+                            <div v-if="upgradePaymentMethods.length > 1">
+                                <label class="block text-[13px] font-medium text-gray-700 mb-1.5">Payment Method</label>
+                                <select v-model="selectedUpgradePayment" class="w-full text-[13px] rounded-lg border-gray-300 focus:border-indigo-500 focus:ring-indigo-500">
+                                    <option v-for="pm in upgradePaymentMethods" :key="pm.module" :value="pm.module">{{ pm.displayname }}</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <!-- Calculate Button -->
+                        <button @click="calculateUpgrade" :disabled="!selectedUpgradeProduct || !selectedUpgradePayment || upgradeCalcLoading"
+                            class="mt-5 w-full px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 disabled:bg-gray-300 disabled:cursor-not-allowed text-white text-[13px] font-semibold rounded-lg transition-colors flex items-center justify-center gap-2">
+                            <svg v-if="upgradeCalcLoading" class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" /><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
+                            {{ upgradeCalcLoading ? 'Calculating...' : 'Review Changes' }}
+                        </button>
+                    </template>
+
+                    <!-- Step 2: Confirm -->
+                    <template v-if="upgradeStep === 2 && upgradeCalcResult">
+                        <div class="space-y-4">
+                            <!-- Change summary -->
+                            <div class="flex items-center gap-3">
+                                <div class="flex-1 text-center p-3 bg-gray-50 rounded-lg border border-gray-200">
+                                    <p class="text-[11px] text-gray-500 uppercase font-medium">Current</p>
+                                    <p class="text-[13px] font-semibold text-gray-900 mt-1">{{ upgradeCalcResult.oldproductname }}</p>
+                                </div>
+                                <svg class="w-5 h-5 text-gray-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7l5 5m0 0l-5 5m5-5H6" /></svg>
+                                <div class="flex-1 text-center p-3 rounded-lg border" :class="isUpgrade ? 'bg-emerald-50 border-emerald-200' : 'bg-amber-50 border-amber-200'">
+                                    <p class="text-[11px] uppercase font-medium" :class="isUpgrade ? 'text-emerald-600' : 'text-amber-600'">{{ isUpgrade ? 'Upgrade' : 'Downgrade' }}</p>
+                                    <p class="text-[13px] font-semibold text-gray-900 mt-1">{{ upgradeCalcResult.newproductname }}</p>
+                                </div>
+                            </div>
+
+                            <!-- Price details -->
+                            <div class="p-3 bg-gray-50 rounded-lg border border-gray-200 space-y-2">
+                                <div v-if="upgradeCalcResult.newproductbillingcycle" class="flex justify-between text-[12px]">
+                                    <span class="text-gray-500">New Billing Cycle</span>
+                                    <span class="text-gray-900 font-medium capitalize">{{ upgradeCalcResult.newproductbillingcycle }}</span>
+                                </div>
+                                <div v-if="upgradeCalcResult.daysuntilrenewal" class="flex justify-between text-[12px]">
+                                    <span class="text-gray-500">Days Until Renewal</span>
+                                    <span class="text-gray-900 font-medium">{{ upgradeCalcResult.daysuntilrenewal }}</span>
+                                </div>
+                                <hr class="border-gray-200" />
+                                <div class="flex justify-between text-[13px]">
+                                    <span class="text-gray-700 font-medium">Price Difference</span>
+                                    <span class="font-bold" :class="upgradeCalcResult.price?.startsWith('$-') || upgradeCalcResult.price?.startsWith('-') ? 'text-emerald-600' : 'text-gray-900'">
+                                        {{ upgradeCalcResult.price }}
+                                    </span>
+                                </div>
+                            </div>
+
+                            <!-- Info note -->
+                            <div class="px-3 py-2 bg-blue-50 border border-blue-200 rounded-lg flex items-start gap-2">
+                                <svg class="w-4 h-4 text-blue-500 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                                <p class="text-[12px] text-blue-700">
+                                    <template v-if="upgradeCalcResult.price?.startsWith('$-') || upgradeCalcResult.price?.startsWith('-')">
+                                        A credit will be applied to your account for the price difference.
+                                    </template>
+                                    <template v-else>
+                                        An invoice will be generated for the price difference. The change will be applied once the invoice is paid.
+                                    </template>
+                                </p>
+                            </div>
+
+                            <!-- Buttons -->
+                            <div class="flex gap-3">
+                                <button @click="upgradeStep = 1; upgradeCalcResult = null" class="flex-1 px-4 py-2.5 bg-gray-100 hover:bg-gray-200 text-gray-700 text-[13px] font-semibold rounded-lg transition-colors">
+                                    Back
+                                </button>
+                                <button @click="submitUpgrade" :disabled="upgradeLoading"
+                                    class="flex-1 px-4 py-2.5 text-white text-[13px] font-semibold rounded-lg transition-colors flex items-center justify-center gap-2"
+                                    :class="isUpgrade ? 'bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-300' : 'bg-amber-600 hover:bg-amber-700 disabled:bg-amber-300'">
+                                    <svg v-if="upgradeLoading" class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" /><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
+                                    {{ upgradeLoading ? 'Processing...' : (isUpgrade ? 'Confirm Upgrade' : 'Confirm Downgrade') }}
+                                </button>
+                            </div>
+                        </div>
+                    </template>
+                </div>
+            </div>
+        </div>
     </ClientLayout>
 </template>

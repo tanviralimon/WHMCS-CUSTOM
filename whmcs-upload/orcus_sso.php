@@ -669,6 +669,185 @@ if ($action === 'GetProductGroups') {
     exit;
 }
 
+// ── GetUpgradeProducts: Read valid upgrade targets for a product ──
+// WHMCS stores upgrade paths in tblproduct_upgrade_products table.
+// This handler fetches the valid upgrade product IDs for a given service,
+// along with full product details and pricing from tblproducts + tblpricing.
+if ($action === 'GetUpgradeProducts') {
+    if (!$serviceId) {
+        echo json_encode(['result' => 'error', 'message' => 'serviceid is required']);
+        exit;
+    }
+
+    try {
+        // Get the service's product ID
+        $service = Capsule::table('tblhosting')->where('id', $serviceId)->first();
+        if (!$service) {
+            echo json_encode(['result' => 'error', 'message' => 'Service not found']);
+            exit;
+        }
+
+        // Verify client ownership
+        if ($clientId && $service->userid != $clientId) {
+            echo json_encode(['result' => 'error', 'message' => 'Service does not belong to client']);
+            exit;
+        }
+
+        $currentPid = (int) $service->packageid;
+
+        // Get valid upgrade targets from WHMCS upgrade config table
+        $upgradeProductIds = [];
+        try {
+            $upgrades = Capsule::table('tblproduct_upgrade_products')
+                ->where('product_id', $currentPid)
+                ->pluck('upgrade_product_id')
+                ->toArray();
+            $upgradeProductIds = array_map('intval', $upgrades);
+        } catch (\Exception $e) {
+            // Table might not exist in older WHMCS; fall back to same-group products
+        }
+
+        // If no upgrade config found, fall back to products in the same group
+        if (empty($upgradeProductIds)) {
+            $currentProduct = Capsule::table('tblproducts')->where('id', $currentPid)->first();
+            if ($currentProduct && $currentProduct->gid) {
+                $upgradeProductIds = Capsule::table('tblproducts')
+                    ->where('gid', $currentProduct->gid)
+                    ->where('id', '!=', $currentPid)
+                    ->where('retired', 0)
+                    ->pluck('id')
+                    ->map(fn($id) => (int) $id)
+                    ->toArray();
+            }
+        }
+
+        if (empty($upgradeProductIds)) {
+            echo json_encode([
+                'result'   => 'success',
+                'products' => [],
+                'current'  => ['pid' => $currentPid],
+            ]);
+            exit;
+        }
+
+        // Fetch product details
+        $products = Capsule::table('tblproducts')
+            ->whereIn('id', $upgradeProductIds)
+            ->where('retired', 0)
+            ->get();
+
+        // Get client's currency
+        $clientCurrency = Capsule::table('tblclients')
+            ->where('id', $service->userid)
+            ->value('currency');
+        $clientCurrency = $clientCurrency ?: 1;
+
+        // Get currency details
+        $currency = Capsule::table('tblcurrencies')
+            ->where('id', $clientCurrency)
+            ->first();
+
+        // Fetch pricing for these products
+        $pricingRows = Capsule::table('tblpricing')
+            ->where('type', 'product')
+            ->where('currency', $clientCurrency)
+            ->whereIn('relid', $upgradeProductIds)
+            ->get()
+            ->keyBy('relid');
+
+        // Also get current product info
+        $currentProduct = Capsule::table('tblproducts')->where('id', $currentPid)->first();
+        $currentPricing = Capsule::table('tblpricing')
+            ->where('type', 'product')
+            ->where('currency', $clientCurrency)
+            ->where('relid', $currentPid)
+            ->first();
+
+        $result = [];
+        foreach ($products as $p) {
+            $pricing = $pricingRows[$p->id] ?? null;
+            if (!$pricing) continue;
+
+            // Build pricing array (only include cycles with price >= 0)
+            $cycles = [];
+            $cycleMap = [
+                'monthly'      => $pricing->monthly,
+                'quarterly'    => $pricing->quarterly,
+                'semiannually' => $pricing->semiannually,
+                'annually'     => $pricing->annually,
+                'biennially'   => $pricing->biennially,
+                'triennially'  => $pricing->triennially,
+            ];
+            $setupMap = [
+                'monthly'      => $pricing->msetupfee,
+                'quarterly'    => $pricing->qsetupfee,
+                'semiannually' => $pricing->ssetupfee,
+                'annually'     => $pricing->asetupfee,
+                'biennially'   => $pricing->bsetupfee,
+                'triennially'  => $pricing->tsetupfee,
+            ];
+            foreach ($cycleMap as $cycle => $price) {
+                if ($price >= 0) {
+                    $cycles[$cycle] = [
+                        'price'    => number_format((float) $price, 2, '.', ''),
+                        'setup'    => number_format((float) ($setupMap[$cycle] ?? 0), 2, '.', ''),
+                    ];
+                }
+            }
+
+            if (empty($cycles)) continue;
+
+            $result[] = [
+                'pid'         => (int) $p->id,
+                'gid'         => (int) $p->gid,
+                'name'        => $p->name,
+                'description' => $p->description ?? '',
+                'pricing'     => $cycles,
+            ];
+        }
+
+        // Current product info
+        $currentCycles = [];
+        if ($currentPricing) {
+            $currentCycleMap = [
+                'monthly'      => $currentPricing->monthly,
+                'quarterly'    => $currentPricing->quarterly,
+                'semiannually' => $currentPricing->semiannually,
+                'annually'     => $currentPricing->annually,
+                'biennially'   => $currentPricing->biennially,
+                'triennially'  => $currentPricing->triennially,
+            ];
+            foreach ($currentCycleMap as $cycle => $price) {
+                if ($price >= 0) {
+                    $currentCycles[$cycle] = number_format((float) $price, 2, '.', '');
+                }
+            }
+        }
+
+        echo json_encode([
+            'result'   => 'success',
+            'products' => $result,
+            'current'  => [
+                'pid'          => $currentPid,
+                'name'         => $currentProduct->name ?? '',
+                'billingcycle' => $service->billingcycle ?? '',
+                'pricing'      => $currentCycles,
+            ],
+            'currency' => [
+                'code'   => $currency->code ?? 'USD',
+                'prefix' => $currency->prefix ?? '$',
+                'suffix' => $currency->suffix ?? '',
+            ],
+        ]);
+    } catch (\Exception $e) {
+        echo json_encode([
+            'result'  => 'error',
+            'message' => 'Failed to get upgrade products: ' . $e->getMessage(),
+        ]);
+    }
+    exit;
+}
+
 echo json_encode(['result' => 'error', 'message' => 'Invalid action. Use: GetServiceInfo, SsoLogin, GetGatewayConfig, GetProductGroups']);
 exit;
 

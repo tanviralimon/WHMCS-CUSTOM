@@ -299,4 +299,133 @@ class ServiceController extends Controller
             return back()->withErrors(['whmcs' => 'Rebuild failed: ' . $e->getMessage()]);
         }
     }
+
+    /**
+     * Get available upgrade/downgrade options for a service.
+     * Returns JSON with products, pricing, and payment methods.
+     */
+    public function upgradeOptions(Request $request, int $id)
+    {
+        $clientId = $request->user()->whmcs_client_id;
+
+        try {
+            // Get upgrade products from WHMCS DB via SSO proxy
+            $upgradeResult = $this->whmcs->getUpgradeProducts($id, $clientId);
+
+            if (($upgradeResult['result'] ?? '') !== 'success') {
+                return response()->json([
+                    'error' => $upgradeResult['message'] ?? 'Failed to load upgrade options',
+                ], 422);
+            }
+
+            // Get available payment methods
+            $paymentMethods = $this->whmcs->getPaymentMethods();
+            $methods = [];
+            foreach ($paymentMethods['paymentmethods']['paymentmethod'] ?? [] as $pm) {
+                $methods[] = [
+                    'module'      => $pm['module'] ?? '',
+                    'displayname' => $pm['displayname'] ?? $pm['module'] ?? '',
+                ];
+            }
+
+            return response()->json([
+                'products'       => $upgradeResult['products'] ?? [],
+                'current'        => $upgradeResult['current'] ?? [],
+                'currency'       => $upgradeResult['currency'] ?? [],
+                'paymentMethods' => $methods,
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'error' => 'Failed to load upgrade options: ' . $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    /**
+     * Calculate upgrade/downgrade price (calconly mode).
+     */
+    public function calculateUpgrade(Request $request, int $id)
+    {
+        $request->validate([
+            'newproductid'    => 'required|integer|min:1',
+            'paymentmethod'   => 'required|string',
+            'billingcycle'    => 'nullable|string',
+        ]);
+
+        try {
+            $result = $this->whmcs->upgradeProduct(
+                $id,
+                'product',
+                (int) $request->newproductid,
+                $request->paymentmethod,
+                $request->billingcycle ?? '',
+                true // calconly
+            );
+
+            if (($result['result'] ?? '') !== 'success') {
+                return response()->json([
+                    'error' => $result['message'] ?? 'Unable to calculate upgrade.',
+                ], 422);
+            }
+
+            return response()->json([
+                'result'              => 'success',
+                'oldproductid'        => $result['oldproductid'] ?? null,
+                'oldproductname'      => $result['oldproductname'] ?? null,
+                'newproductid'        => $result['newproductid'] ?? null,
+                'newproductname'      => $result['newproductname'] ?? null,
+                'daysuntilrenewal'    => $result['daysuntilrenewal'] ?? null,
+                'totaldays'           => $result['totaldays'] ?? null,
+                'newproductbillingcycle' => $result['newproductbillingcycle'] ?? null,
+                'price'               => $result['price'] ?? null,
+                'upgradeinprogress'   => $result['upgradeinprogress'] ?? false,
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'error' => 'Calculation failed: ' . $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    /**
+     * Submit upgrade/downgrade order.
+     */
+    public function submitUpgrade(Request $request, int $id)
+    {
+        $request->validate([
+            'newproductid'    => 'required|integer|min:1',
+            'paymentmethod'   => 'required|string',
+            'billingcycle'    => 'nullable|string',
+        ]);
+
+        try {
+            $result = $this->whmcs->upgradeProduct(
+                $id,
+                'product',
+                (int) $request->newproductid,
+                $request->paymentmethod,
+                $request->billingcycle ?? '',
+                false // actually execute
+            );
+
+            if (($result['result'] ?? '') !== 'success') {
+                return back()->withErrors(['whmcs' => $result['message'] ?? 'Upgrade failed.']);
+            }
+
+            $invoiceId = $result['invoiceid'] ?? null;
+            $price     = $result['price'] ?? null;
+            $newName   = $result['newproductname'] ?? 'new plan';
+
+            // If there's an invoice to pay, redirect to it
+            if ($invoiceId) {
+                return redirect()->route('client.invoices.show', $invoiceId)
+                    ->with('success', "Upgrade to {$newName} ordered. Please pay the invoice ({$price}) to complete the upgrade.");
+            }
+
+            // No invoice = downgrade or credit applied
+            return back()->with('success', "Your plan has been changed to {$newName}. The change will take effect at the next billing cycle. {$price}");
+        } catch (\Exception $e) {
+            return back()->withErrors(['whmcs' => 'Upgrade failed: ' . $e->getMessage()]);
+        }
+    }
 }

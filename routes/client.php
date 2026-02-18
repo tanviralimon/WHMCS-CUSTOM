@@ -46,6 +46,12 @@ Route::prefix('services')->name('services.')->group(function () {
         ->middleware(['whmcs.own:service,id', 'throttle:10,1']);
     Route::post('/{id}/rebuild', [ServiceController::class, 'rebuildVps'])->name('rebuild')
         ->middleware(['whmcs.own:service,id', 'throttle:3,1']);
+    Route::get('/{id}/upgrade-options', [ServiceController::class, 'upgradeOptions'])->name('upgradeOptions')
+        ->middleware(['whmcs.own:service,id', 'throttle:10,1']);
+    Route::post('/{id}/upgrade-calculate', [ServiceController::class, 'calculateUpgrade'])->name('upgradeCalculate')
+        ->middleware(['whmcs.own:service,id', 'throttle:15,1']);
+    Route::post('/{id}/upgrade', [ServiceController::class, 'submitUpgrade'])->name('upgrade')
+        ->middleware(['whmcs.own:service,id', 'throttle:5,1']);
 });
 
 // ─── Domains ────────────────────────────────────────────────

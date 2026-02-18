@@ -100,7 +100,7 @@ class WhmcsService
         ]);
     }
 
-    public function upgradeProduct(int $serviceId, string $type, int $newProductId, string $paymentMethod, string $newBillingCycle = ''): array
+    public function upgradeProduct(int $serviceId, string $type, int $newProductId, string $paymentMethod, string $newBillingCycle = '', bool $calcOnly = false): array
     {
         $params = [
             'serviceid'       => $serviceId,
@@ -111,7 +111,22 @@ class WhmcsService
         if ($newBillingCycle) {
             $params['newproductbillingcycle'] = $newBillingCycle;
         }
+        if ($calcOnly) {
+            $params['calconly'] = true;
+        }
         return $this->client->call('UpgradeProduct', $params);
+    }
+
+    /**
+     * Get available upgrade/downgrade products for a service.
+     * Reads upgrade configuration from WHMCS database via SSO proxy.
+     */
+    public function getUpgradeProducts(int $serviceId, int $clientId): array
+    {
+        return $this->client->callSsoProxySafe('GetUpgradeProducts', [
+            'serviceid' => $serviceId,
+            'clientid'  => $clientId,
+        ]);
     }
 
     public function moduleChangePassword(int $serviceId): array
