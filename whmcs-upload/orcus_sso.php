@@ -286,18 +286,50 @@ if ($action === 'VpsAction') {
 
 // ── Debug: Test Virtualizor API connection ─────────────────
 if ($action === 'TestVirtApi') {
-    if (!$serviceId) {
-        echo json_encode(['result' => 'error', 'message' => 'serviceid is required']);
+    // Supports three lookup modes:
+    // 1. serviceid  — WHMCS hosting service ID (tblhosting.id)
+    // 2. vps_uuid   — Virtualizor VPS UUID (finds server + tests with UUID)
+    // 3. vpsid      — Virtualizor VPS ID (finds server + tests with VPSID)
+    $vpsUuid  = trim($_POST['vps_uuid'] ?? '');
+    $vpsIdArg = (int) ($_POST['vpsid'] ?? 0);
+
+    $server = null;
+
+    if ($serviceId) {
+        // Mode 1: Lookup via WHMCS service ID
+        $service = Capsule::table('tblhosting')->where('id', $serviceId)->first();
+        if (!$service) {
+            echo json_encode(['result' => 'error', 'message' => 'Service not found']);
+            exit;
+        }
+        $server = Capsule::table('tblservers')->where('id', $service->server)->first();
+    } elseif ($vpsUuid || $vpsIdArg) {
+        // Mode 2/3: Find any Virtualizor server directly
+        // Look for servers with type 'virtualizor' (case-insensitive)
+        $servers = Capsule::table('tblservers')
+            ->whereRaw('LOWER(type) = ?', ['virtualizor'])
+            ->where('disabled', 0)
+            ->get();
+
+        if ($servers->isEmpty()) {
+            // Try without the disabled check
+            $servers = Capsule::table('tblservers')
+                ->whereRaw('LOWER(type) = ?', ['virtualizor'])
+                ->get();
+        }
+
+        if ($servers->isEmpty()) {
+            echo json_encode(['result' => 'error', 'message' => 'No Virtualizor server found in WHMCS']);
+            exit;
+        }
+
+        // If multiple servers, test each until we find the VPS
+        $server = $servers->first();
+    } else {
+        echo json_encode(['result' => 'error', 'message' => 'serviceid, vps_uuid, or vpsid is required']);
         exit;
     }
 
-    $service = Capsule::table('tblhosting')->where('id', $serviceId)->first();
-    if (!$service) {
-        echo json_encode(['result' => 'error', 'message' => 'Service not found']);
-        exit;
-    }
-
-    $server = Capsule::table('tblservers')->where('id', $service->server)->first();
     if (!$server) {
         echo json_encode(['result' => 'error', 'message' => 'Server not found']);
         exit;
@@ -314,15 +346,77 @@ if ($action === 'TestVirtApi') {
         'localAPI_func'     => function_exists('localAPI'),
     ];
 
-    // Test a simple API call
+    // Test 1: Basic API connectivity (list VPS)
     $testUrl = 'https://' . $hostname . ':4085/index.php?' . http_build_query([
         'act'     => 'vs',
         'api'     => 'json',
         'apikey'  => $creds['apiKey'],
         'apipass' => $creds['apiPass'],
     ]);
-
     $testResult = virtualizorApiGet($testUrl);
+
+    // Test 2: If UUID or VPSID given, try fetching that specific VPS status
+    $vpsTest = null;
+    $resolvedVpsId = $vpsIdArg;
+
+    if ($testResult['ok'] && ($vpsUuid || $vpsIdArg)) {
+        // If we have UUID but no VPSID, find VPSID from the VPS list
+        if ($vpsUuid && !$resolvedVpsId && !empty($testResult['data'])) {
+            foreach ($testResult['data'] as $key => $vps) {
+                if (is_array($vps) && isset($vps['uuid']) && $vps['uuid'] === $vpsUuid) {
+                    $resolvedVpsId = (int) ($vps['vpsid'] ?? $key);
+                    break;
+                }
+            }
+        }
+
+        if ($resolvedVpsId) {
+            // Get live status for this specific VPS
+            $statusUrl = 'https://' . $hostname . ':4085/index.php?' . http_build_query([
+                'act'       => 'vs',
+                'vs_status' => $resolvedVpsId,
+                'api'       => 'json',
+                'apikey'    => $creds['apiKey'],
+                'apipass'   => $creds['apiPass'],
+            ]);
+            $statusResult = virtualizorApiGet($statusUrl);
+            $vpsTest = [
+                'vpsid'       => $resolvedVpsId,
+                'uuid_input'  => $vpsUuid ?: null,
+                'status_ok'   => $statusResult['ok'],
+                'status_code' => $statusResult['http_code'] ?? 0,
+                'status_error' => $statusResult['error'] ?? null,
+                'status_data' => $statusResult['ok'] ? $statusResult['data'] : null,
+            ];
+        } else {
+            $vpsTest = [
+                'vpsid'      => 0,
+                'uuid_input' => $vpsUuid ?: null,
+                'error'      => $vpsUuid
+                    ? 'UUID not found in VPS list. VPS may be on a different server.'
+                    : 'VPSID not resolved',
+            ];
+        }
+    }
+
+    // Also try to find the WHMCS service ID that maps to this VPS
+    $whmcsServiceId = null;
+    if ($resolvedVpsId) {
+        try {
+            $cfMatch = Capsule::table('tblcustomfieldsvalues as cv')
+                ->join('tblcustomfields as cf', 'cv.fieldid', '=', 'cf.id')
+                ->where('cv.value', (string) $resolvedVpsId)
+                ->where('cf.type', 'product')
+                ->whereRaw('LOWER(cf.fieldname) IN (?, ?, ?, ?)', ['vpsid', 'vps id', 'vserverid', 'vps_id'])
+                ->select('cv.relid')
+                ->first();
+            if ($cfMatch) {
+                $whmcsServiceId = (int) $cfMatch->relid;
+            }
+        } catch (\Exception $e) {
+            // ignore
+        }
+    }
 
     echo json_encode([
         'result'     => 'success',
@@ -342,6 +436,8 @@ if ($action === 'TestVirtApi') {
             'api_http_code'      => $testResult['http_code'] ?? 0,
             'api_error'          => $testResult['error'] ?? null,
             'api_data_keys'      => $testResult['ok'] ? array_keys($testResult['data']) : null,
+            'vps_test'           => $vpsTest,
+            'whmcs_service_id'   => $whmcsServiceId,
         ],
     ]);
     exit;
