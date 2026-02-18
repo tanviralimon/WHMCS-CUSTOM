@@ -917,7 +917,7 @@ function executeReinstall() {
         <!-- Modals -->
         <ConfirmModal :show="showActionModal" :title="pendingAction ? actionLabels[pendingAction] : 'Confirm Action'" :message="pendingAction ? actionDescriptions[pendingAction] : 'Are you sure?'" :confirm-text="pendingAction ? actionLabels[pendingAction] : 'Confirm'" @confirm="executeAction" @close="showActionModal = false; pendingAction = null" />
 
-        <ConfirmModal :show="showPasswordModal" title="Change Root Password" message="This will generate a new random root password for your VPS. The new password will be displayed on screen — make sure to copy it." confirm-text="Reset Password" @confirm="doChangePassword" @close="showPasswordModal = false" />
+        <ConfirmModal :show="showPasswordModal" title="Change Root Password" message="This will generate a new random root password and restart your VPS to apply it. The VPS will be offline for about 30 seconds. The new password will be displayed on screen — make sure to copy it." confirm-text="Reset Password" @confirm="doChangePassword" @close="showPasswordModal = false" />
 
         <!-- New Password Display Modal -->
         <div v-if="showNewPasswordModal" class="fixed inset-0 z-50 overflow-y-auto" aria-modal="true">
@@ -930,7 +930,7 @@ function executeReinstall() {
                         </div>
                         <h3 class="text-lg font-semibold text-gray-900">Password Changed</h3>
                     </div>
-                    <p class="text-[13px] text-gray-600 mb-4">Your new root password has been set. Please copy it now — it will not be shown again.</p>
+                    <p class="text-[13px] text-gray-600 mb-4">Your new root password has been set and your VPS is restarting to apply it. It will be back online in about 30 seconds. Please copy the password now — it will not be shown again.</p>
                     <div class="flex items-center gap-2 p-3 bg-gray-50 rounded-lg border border-gray-200">
                         <code class="flex-1 text-[14px] font-mono text-gray-900 break-all select-all">{{ newPassword }}</code>
                         <button @click="copyPassword" class="flex-shrink-0 px-3 py-1.5 text-[12px] font-medium rounded-md transition-colors" :class="passwordCopied ? 'bg-emerald-100 text-emerald-700' : 'bg-indigo-100 text-indigo-700 hover:bg-indigo-200'">

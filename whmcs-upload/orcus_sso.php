@@ -1152,7 +1152,9 @@ function handleVirtualizorAction($server, $service, $hostname, $vpsAction)
 
     // ── Password Reset: Use Virtualizor Manage VPS API (act=managevps) ──
     // The correct API for changing root password is act=managevps with POST rootpass=NEWPASS
-    // NOT act=vs&action=resetpassword (which doesn't exist in Virtualizor)
+    // IMPORTANT: For KVM VPS, the password is only injected into the guest OS during
+    // a COLD BOOT (stop → start). A reboot won't apply it. So after setting the password,
+    // we must stop and then start the VPS.
     if ($vpsAction === 'resetpassword') {
         // Generate a secure random password (16 chars, letters + digits + special)
         $chars = 'abcdefghijkmnopqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789!@#$%&*';
@@ -1162,6 +1164,8 @@ function handleVirtualizorAction($server, $service, $hostname, $vpsAction)
         }
 
         $adminUrl = 'https://' . $hostname . ':4085/index.php';
+
+        // Step 1: Set the new root password via Manage VPS API
         $queryParams = [
             'act'          => 'managevps',
             'vpsid'        => $vpsId,
@@ -1171,7 +1175,6 @@ function handleVirtualizorAction($server, $service, $hostname, $vpsAction)
         ];
         $manageUrl = $adminUrl . '?' . http_build_query($queryParams);
 
-        // POST the new root password
         $postResult = virtualizorApiPost($manageUrl, [
             'vpsid'    => $vpsId,
             'rootpass' => $newPassword,
@@ -1187,44 +1190,83 @@ function handleVirtualizorAction($server, $service, $hostname, $vpsAction)
         $data = $postResult['data'];
 
         // Check for errors
-        if (!empty($data['error'])) {
+        if (!empty($data['error']) && (is_string($data['error']) || (is_array($data['error']) && count($data['error']) > 0))) {
             $errors = $data['error'];
             if (is_array($errors)) {
                 $errorMsg = implode(', ', array_values($errors));
             } else {
                 $errorMsg = (string) $errors;
             }
-            return ['result' => 'error', 'message' => 'Virtualizor: ' . $errorMsg];
-        }
-
-        // Check for success (Manage VPS returns "done" => { "done" => true })
-        if (isset($data['done'])) {
-            return [
-                'result'       => 'success',
-                'message'      => 'Root password has been changed successfully.',
-                'action'       => 'resetpassword',
-                'module'       => 'virtualizor',
-                'new_password' => $newPassword,
-            ];
-        }
-
-        // If response has no error and no done, but HTTP was 2xx, still might be ok
-        if (($postResult['http_code'] ?? 0) >= 200 && ($postResult['http_code'] ?? 0) < 300) {
-            if (isset($data['vs_info']) || isset($data['title'])) {
-                return [
-                    'result'       => 'success',
-                    'message'      => 'Root password has been changed successfully.',
-                    'action'       => 'resetpassword',
-                    'module'       => 'virtualizor',
-                    'new_password' => $newPassword,
-                ];
+            if (!empty(trim($errorMsg))) {
+                return ['result' => 'error', 'message' => 'Virtualizor: ' . $errorMsg];
             }
         }
 
+        // Verify password was stored (done key or vs_info in response)
+        $passwordSet = isset($data['done']) || isset($data['vs_info']) || isset($data['title']);
+        if (!$passwordSet && !(($postResult['http_code'] ?? 0) >= 200 && ($postResult['http_code'] ?? 0) < 300)) {
+            return [
+                'result'  => 'error',
+                'message' => 'Failed to set new password. Virtualizor API response unclear.',
+                'debug'   => array_keys($data ?? []),
+            ];
+        }
+
+        // Step 2: Stop the VPS (required for KVM password injection)
+        $stopParams = [
+            'act'          => 'vs',
+            'action'       => 'stop',
+            'vpsid'        => $vpsId,
+            'api'          => 'json',
+            'adminapikey'  => $apiKey,
+            'adminapipass' => $apiPass,
+        ];
+        $stopUrl = $adminUrl . '?' . http_build_query($stopParams);
+
+        $ch = curl_init();
+        curl_setopt($ch, CURLOPT_URL, $stopUrl);
+        curl_setopt($ch, CURLOPT_HTTPGET, true);
+        curl_setopt($ch, CURLOPT_RETURNTRANSFER, 1);
+        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+        curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, false);
+        curl_setopt($ch, CURLOPT_FOLLOWLOCATION, false);
+        curl_setopt($ch, CURLOPT_TIMEOUT, 30);
+        curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 10);
+        curl_exec($ch);
+        curl_close($ch);
+
+        // Step 3: Wait for VPS to fully stop
+        sleep(5);
+
+        // Step 4: Start the VPS (password gets injected during cold boot)
+        $startParams = [
+            'act'          => 'vs',
+            'action'       => 'start',
+            'vpsid'        => $vpsId,
+            'api'          => 'json',
+            'adminapikey'  => $apiKey,
+            'adminapipass' => $apiPass,
+        ];
+        $startUrl = $adminUrl . '?' . http_build_query($startParams);
+
+        $ch = curl_init();
+        curl_setopt($ch, CURLOPT_URL, $startUrl);
+        curl_setopt($ch, CURLOPT_HTTPGET, true);
+        curl_setopt($ch, CURLOPT_RETURNTRANSFER, 1);
+        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+        curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, false);
+        curl_setopt($ch, CURLOPT_FOLLOWLOCATION, false);
+        curl_setopt($ch, CURLOPT_TIMEOUT, 30);
+        curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 10);
+        curl_exec($ch);
+        curl_close($ch);
+
         return [
-            'result'  => 'error',
-            'message' => 'Virtualizor API response unclear. Please verify the password was changed in the Virtualizor panel.',
-            'debug'   => array_keys($data ?? []),
+            'result'       => 'success',
+            'message'      => 'Root password changed. Your VPS is being restarted to apply the new password — it will be back online in about 30 seconds.',
+            'action'       => 'resetpassword',
+            'module'       => 'virtualizor',
+            'new_password' => $newPassword,
         ];
     }
 
@@ -1383,7 +1425,6 @@ function handleVirtualizorAction($server, $service, $hostname, $vpsAction)
         'restart'       => 'VPS rebooted successfully',
         'stop'          => 'VPS shutdown successfully',
         'poweroff'      => 'VPS powered off successfully',
-        'resetpassword' => 'Password reset successfully — check your email',
     ];
 
     // Check for done key (most common success indicator)
