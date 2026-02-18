@@ -144,12 +144,42 @@ class ServiceController extends Controller
             'action' => 'required|string|in:reboot,shutdown,boot,resetpassword,console,vnc',
         ]);
 
-        $result = $this->whmcs->moduleCustom($id, $request->action);
+        $clientId = $request->user()->whmcs_client_id;
+        $action   = $request->action;
 
-        if (($result['result'] ?? '') !== 'success') {
-            return back()->withErrors(['whmcs' => $result['message'] ?? 'Action failed.']);
+        try {
+            // Detect if this is a VPS service — route through SSO proxy instead of ModuleCustom
+            $serviceInfo = $this->whmcs->getServiceInfo($id, $clientId);
+            $module      = strtolower($serviceInfo['module'] ?? '');
+            $vpsModules  = ['virtualizor', 'proxmox', 'solusvm'];
+
+            if (in_array($module, $vpsModules)) {
+                // VPS: use SSO proxy which calls Virtualizor/Proxmox API directly
+                $result = $this->whmcs->vpsAction($id, $clientId, $action);
+
+                if (($result['result'] ?? '') !== 'success') {
+                    return back()->withErrors(['whmcs' => $result['message'] ?? 'Action failed.']);
+                }
+
+                // VNC/Console returns a redirect_url — open in new window
+                if (($action === 'vnc' || $action === 'console') && !empty($result['redirect_url'])) {
+                    return back()->with('success', 'VNC console opened.')
+                                 ->with('redirect_url', $result['redirect_url']);
+                }
+
+                return back()->with('success', $result['message'] ?? ucfirst($action) . ' action executed successfully.');
+            }
+
+            // Non-VPS: use standard WHMCS ModuleCustom API
+            $result = $this->whmcs->moduleCustom($id, $action);
+
+            if (($result['result'] ?? '') !== 'success') {
+                return back()->withErrors(['whmcs' => $result['message'] ?? 'Action failed.']);
+            }
+
+            return back()->with('success', ucfirst($action) . ' action executed successfully.');
+        } catch (\Exception $e) {
+            return back()->withErrors(['whmcs' => 'Action failed: ' . $e->getMessage()]);
         }
-
-        return back()->with('success', ucfirst($request->action) . ' action executed successfully.');
     }
 }

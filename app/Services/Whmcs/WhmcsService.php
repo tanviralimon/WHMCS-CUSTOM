@@ -154,6 +154,19 @@ class WhmcsService
     }
 
     /**
+     * Execute a VPS action via the SSO proxy (Virtualizor, etc.)
+     * This bypasses ModuleCustom which doesn't work for most VPS modules.
+     */
+    public function vpsAction(int $serviceId, int $clientId, string $action): array
+    {
+        return $this->client->callSsoProxy('VpsAction', [
+            'serviceid'  => $serviceId,
+            'clientid'   => $clientId,
+            'vps_action' => $action,
+        ]);
+    }
+
+    /**
      * Get service info from SSO proxy (module type, panel URLs, etc.)
      */
     public function getServiceInfo(int $serviceId, int $clientId = 0): array

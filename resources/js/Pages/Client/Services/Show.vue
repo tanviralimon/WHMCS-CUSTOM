@@ -166,6 +166,13 @@ function executeAction() {
 
     router.post(route('client.services.action', s.id), { action }, {
         preserveScroll: true,
+        onSuccess: (page) => {
+            // VNC/Console: server returns a redirect_url — open in new tab
+            const redirectUrl = page.props?.flash?.redirect_url;
+            if (redirectUrl && (action === 'vnc' || action === 'console')) {
+                window.open(redirectUrl, '_blank');
+            }
+        },
         onFinish: () => {
             actionLoading.value = null;
             pendingAction.value = null;

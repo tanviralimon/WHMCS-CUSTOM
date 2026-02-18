@@ -36,9 +36,10 @@ class HandleInertiaRequests extends Middleware
                 'user' => $request->user(),
             ],
             'flash' => [
-                'success' => fn () => $request->session()->get('success'),
-                'error'   => fn () => $request->session()->get('error'),
-                'eppCode' => fn () => $request->session()->get('eppCode'),
+                'success'      => fn () => $request->session()->get('success'),
+                'error'        => fn () => $request->session()->get('error'),
+                'eppCode'      => fn () => $request->session()->get('eppCode'),
+                'redirect_url' => fn () => $request->session()->get('redirect_url'),
             ],
             'features' => config('client-features'),
             'whmcsUrl' => rtrim(config('whmcs.base_url'), '/'),

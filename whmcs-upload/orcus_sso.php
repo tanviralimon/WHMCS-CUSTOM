@@ -230,6 +230,58 @@ if ($action === 'SsoLogin') {
     }
 }
 
+// ── VPS Actions (Virtualizor / Proxmox) ────────────────────
+if ($action === 'VpsAction') {
+    if (!$serviceId) {
+        echo json_encode(['result' => 'error', 'message' => 'serviceid is required']);
+        exit;
+    }
+
+    $vpsAction = strtolower(trim($_POST['vps_action'] ?? ''));
+    $allowed   = ['boot', 'reboot', 'shutdown', 'resetpassword', 'vnc', 'console', 'start', 'stop', 'restart'];
+    if (!in_array($vpsAction, $allowed)) {
+        echo json_encode(['result' => 'error', 'message' => 'Invalid VPS action: ' . $vpsAction]);
+        exit;
+    }
+
+    $service = Capsule::table('tblhosting')->where('id', $serviceId)->first();
+    if (!$service) {
+        echo json_encode(['result' => 'error', 'message' => 'Service not found']);
+        exit;
+    }
+
+    if ($clientId && $service->userid != $clientId) {
+        echo json_encode(['result' => 'error', 'message' => 'Service does not belong to client']);
+        exit;
+    }
+
+    $server = Capsule::table('tblservers')->where('id', $service->server)->first();
+    if (!$server) {
+        echo json_encode(['result' => 'error', 'message' => 'Server not found']);
+        exit;
+    }
+
+    $module   = strtolower($server->type ?? '');
+    $hostname = $server->hostname ?: $server->ipaddress;
+
+    if ($module === 'virtualizor') {
+        echo json_encode(handleVirtualizorAction($server, $service, $hostname, $vpsAction));
+        exit;
+    }
+
+    // Fallback: try WHMCS ModuleCustom for non-Virtualizor modules
+    $result = localAPI('ModuleCustom', [
+        'serviceid'  => $serviceId,
+        'func_name'  => $vpsAction,
+    ]);
+    echo json_encode([
+        'result'  => $result['result'] ?? 'error',
+        'message' => $result['message'] ?? ($result['result'] === 'success' ? 'Action executed' : 'Action failed'),
+        'module'  => $module,
+    ]);
+    exit;
+}
+
 if ($action === 'GetGatewayConfig') {
     // Return payment gateway module configuration.
     // Uses WHMCS's built-in getGatewayVariables() which handles decryption
@@ -676,4 +728,174 @@ function handleVirtualizorSso($server, $service, $hostname)
         'sso_type'     => 'direct_url',
         'message'      => 'Unexpected Virtualizor API response',
     ];
+}
+
+
+// ═══════════════════════════════════════════════════════════
+// Virtualizor VPS Action Handler (boot, reboot, shutdown, etc.)
+// ═══════════════════════════════════════════════════════════
+function handleVirtualizorAction($server, $service, $hostname, $vpsAction)
+{
+    $apiKey  = trim($server->username ?? '');
+    $apiPass = '';
+
+    if (!empty($server->password)) {
+        $apiPass = decrypt($server->password);
+    }
+    if (empty($apiKey) && !empty($server->accesshash)) {
+        $apiKey = trim($server->accesshash);
+    }
+
+    if (empty($apiKey) || empty($apiPass)) {
+        return ['result' => 'error', 'message' => 'Virtualizor API credentials not configured on server'];
+    }
+
+    // Find the VPS ID (same logic as SSO handler)
+    $vpsId = 0;
+
+    $customFields = Capsule::table('tblcustomfields')
+        ->where('relid', $service->packageid)
+        ->where('type', 'product')
+        ->get();
+
+    foreach ($customFields as $cf) {
+        $fieldName = strtolower($cf->fieldname);
+        if (in_array($fieldName, ['vpsid', 'vps id', 'vserverid', 'vps_id'])) {
+            $cfVal = Capsule::table('tblcustomfieldsvalues')
+                ->where('fieldid', $cf->id)
+                ->where('relid', $service->id)
+                ->value('value');
+            if (!empty($cfVal)) {
+                $vpsId = (int) $cfVal;
+                break;
+            }
+        }
+    }
+
+    if (!$vpsId && !empty($service->domain) && is_numeric($service->domain)) {
+        $vpsId = (int) $service->domain;
+    }
+
+    if (!$vpsId) {
+        foreach ($customFields as $cf) {
+            $fieldName = strtolower($cf->fieldname);
+            if (str_contains($fieldName, 'server') || str_contains($fieldName, 'vps')) {
+                $cfVal = Capsule::table('tblcustomfieldsvalues')
+                    ->where('fieldid', $cf->id)
+                    ->where('relid', $service->id)
+                    ->value('value');
+                if (!empty($cfVal) && is_numeric($cfVal)) {
+                    $vpsId = (int) $cfVal;
+                    break;
+                }
+            }
+        }
+    }
+
+    if (!$vpsId) {
+        return ['result' => 'error', 'message' => 'VPS ID not found for this service'];
+    }
+
+    // Map our action names to Virtualizor Admin API actions
+    // Virtualizor Admin API: https://hostname:4085/index.php?act=vs&action=ACTION&vpsid=ID&api=json
+    $actionMap = [
+        'boot'          => 'start',
+        'start'         => 'start',
+        'reboot'        => 'restart',
+        'restart'       => 'restart',
+        'shutdown'      => 'stop',
+        'stop'          => 'stop',
+        'resetpassword' => 'resetpassword',
+    ];
+
+    // VNC / Console: return the VNC URL instead of executing an action
+    if ($vpsAction === 'vnc' || $vpsAction === 'console') {
+        // Virtualizor VNC is accessed via the enduser panel
+        // Use SSO to get auto-login, then redirect to VNC page
+        $ssoResult = handleVirtualizorSso($server, $service, $hostname);
+        if (!empty($ssoResult['redirect_url'])) {
+            // Append VNC path to SSO URL
+            $vncUrl = $ssoResult['redirect_url'];
+            // If it's an SSO URL, we add the act parameter
+            if (str_contains($vncUrl, '?sso=')) {
+                $vncUrl .= '&act=vnc&vpsid=' . $vpsId;
+            }
+            return [
+                'result'       => 'success',
+                'redirect_url' => $vncUrl,
+                'message'      => 'VNC console ready',
+                'action'       => 'vnc',
+                'module'       => 'virtualizor',
+            ];
+        }
+        // Fallback: direct VNC URL
+        return [
+            'result'       => 'success',
+            'redirect_url' => 'https://' . $hostname . ':4083/index.php?act=vnc&vpsid=' . $vpsId,
+            'message'      => 'VNC console (login required)',
+            'action'       => 'vnc',
+            'module'       => 'virtualizor',
+        ];
+    }
+
+    $apiAction = $actionMap[$vpsAction] ?? null;
+    if (!$apiAction) {
+        return ['result' => 'error', 'message' => 'Unsupported action: ' . $vpsAction];
+    }
+
+    // Call Virtualizor Admin API
+    $adminUrl = 'https://' . $hostname . ':4085/index.php';
+    $params = [
+        'act'     => 'vs',
+        'action'  => $apiAction,
+        'vpsid'   => $vpsId,
+        'api'     => 'json',
+        'apikey'  => $apiKey,
+        'apipass' => $apiPass,
+    ];
+
+    $url = $adminUrl . '?' . http_build_query($params);
+
+    $ch = curl_init();
+    curl_setopt($ch, CURLOPT_URL, $url);
+    curl_setopt($ch, CURLOPT_RETURNTRANSFER, 1);
+    curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+    curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, false);
+    curl_setopt($ch, CURLOPT_TIMEOUT, 30);
+    curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 10);
+
+    $response  = curl_exec($ch);
+    $httpCode  = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    $curlError = curl_error($ch);
+    curl_close($ch);
+
+    if ($curlError) {
+        return ['result' => 'error', 'message' => 'Virtualizor API connection failed: ' . $curlError];
+    }
+
+    $data = json_decode($response, true);
+
+    // Virtualizor API returns { "done": true/1, ... } on success
+    if (!empty($data['done']) || (isset($data['done']) && $data['done'] !== false)) {
+        $actionLabels = [
+            'start'         => 'VPS booted successfully',
+            'restart'       => 'VPS rebooted successfully',
+            'stop'          => 'VPS shutdown successfully',
+            'resetpassword' => 'Password reset successfully — check your email',
+        ];
+        return [
+            'result'  => 'success',
+            'message' => $actionLabels[$apiAction] ?? ucfirst($vpsAction) . ' executed successfully',
+            'action'  => $vpsAction,
+            'module'  => 'virtualizor',
+        ];
+    }
+
+    // Check for errors
+    if (!empty($data['error'])) {
+        $errorMsg = is_array($data['error']) ? implode(', ', $data['error']) : $data['error'];
+        return ['result' => 'error', 'message' => 'Virtualizor: ' . $errorMsg];
+    }
+
+    return ['result' => 'error', 'message' => 'Unexpected Virtualizor API response for ' . $vpsAction];
 }
