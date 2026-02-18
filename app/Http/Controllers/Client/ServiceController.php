@@ -86,6 +86,21 @@ class ServiceController extends Controller
             $isVps     = str_contains($groupName, 'vps') || str_contains($groupName, 'virtual');
         }
 
+        // Fetch VPS stats if applicable
+        $vpsStats = null;
+        $vpsStatsError = null;
+        if ($isVps && $service['status'] === 'Active') {
+            $statsResult = $this->whmcs->getVpsStats($id, $clientId);
+            if (($statsResult['result'] ?? '') === 'success' && !empty($statsResult['vps'])) {
+                $vpsStats = $statsResult['vps'];
+            } else {
+                $vpsStatsError = $statsResult['message'] ?? 'Failed to load VPS stats';
+                if (!empty($statsResult['debug'])) {
+                    \Log::warning('VPS stats failed', ['service' => $id, 'result' => $statsResult]);
+                }
+            }
+        }
+
         return Inertia::render('Client/Services/Show', [
             'service'         => $service,
             'serviceType'     => $isHosting ? 'hosting' : ($isVps ? 'vps' : 'other'),
@@ -93,9 +108,8 @@ class ServiceController extends Controller
             'controlPanelUrl' => $serviceInfo['panelUrl'] ?? null,
             'webmailUrl'      => $serviceInfo['webmailUrl'] ?? null,
             'ssoSupported'    => $serviceInfo['ssoSupported'] ?? false,
-            'vpsStats'        => $isVps && $service['status'] === 'Active'
-                                    ? ($this->whmcs->getVpsStats($id, $clientId)['vps'] ?? null)
-                                    : null,
+            'vpsStats'        => $vpsStats,
+            'vpsStatsError'   => $vpsStatsError,
         ]);
     }
 

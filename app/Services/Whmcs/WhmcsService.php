@@ -178,6 +178,16 @@ class WhmcsService
     }
 
     /**
+     * Debug: Test Virtualizor API connection for a service.
+     */
+    public function testVirtApi(int $serviceId): array
+    {
+        return $this->client->callSsoProxySafe('TestVirtApi', [
+            'serviceid' => $serviceId,
+        ]);
+    }
+
+    /**
      * Get service info from SSO proxy (module type, panel URLs, etc.)
      */
     public function getServiceInfo(int $serviceId, int $clientId = 0): array

@@ -282,6 +282,55 @@ if ($action === 'VpsAction') {
     exit;
 }
 
+// ── Debug: Test Virtualizor API connection ─────────────────
+if ($action === 'TestVirtApi') {
+    if (!$serviceId) {
+        echo json_encode(['result' => 'error', 'message' => 'serviceid is required']);
+        exit;
+    }
+
+    $service = Capsule::table('tblhosting')->where('id', $serviceId)->first();
+    if (!$service) {
+        echo json_encode(['result' => 'error', 'message' => 'Service not found']);
+        exit;
+    }
+
+    $server = Capsule::table('tblservers')->where('id', $service->server)->first();
+    if (!$server) {
+        echo json_encode(['result' => 'error', 'message' => 'Server not found']);
+        exit;
+    }
+
+    $hostname = $server->hostname ?: $server->ipaddress;
+    $creds = getVirtualizorCredentials($server);
+
+    // Test a simple API call
+    $testUrl = 'https://' . $hostname . ':4085/index.php?' . http_build_query([
+        'act'     => 'vs',
+        'api'     => 'json',
+        'apikey'  => $creds['apiKey'],
+        'apipass' => $creds['apiPass'],
+    ]);
+
+    $testResult = virtualizorApiGet($testUrl);
+
+    echo json_encode([
+        'result'     => 'success',
+        'test'       => [
+            'hostname'        => $hostname,
+            'server_type'     => $server->type ?? '',
+            'api_key_length'  => strlen($creds['apiKey']),
+            'api_pass_length' => strlen($creds['apiPass']),
+            'decrypt_method'  => $creds['method'],
+            'api_call_ok'     => $testResult['ok'] ?? false,
+            'api_http_code'   => $testResult['http_code'] ?? 0,
+            'api_error'       => $testResult['error'] ?? null,
+            'api_data_keys'   => $testResult['ok'] ? array_keys($testResult['data']) : null,
+        ],
+    ]);
+    exit;
+}
+
 // ── VPS Stats (Virtualizor) ────────────────────────────────
 if ($action === 'GetVpsStats') {
     if (!$serviceId) {
@@ -606,17 +655,9 @@ function handleVirtualizorSso($server, $service, $hostname)
     // - server username = API Key
     // - server password = API Pass (encrypted by WHMCS)
     // Admin panel runs on port 4085
-    $apiKey  = trim($server->username ?? '');
-    $apiPass = '';
-
-    if (!empty($server->password)) {
-        $apiPass = decrypt($server->password);
-    }
-
-    // Also try accesshash as fallback for API key
-    if (empty($apiKey) && !empty($server->accesshash)) {
-        $apiKey = trim($server->accesshash);
-    }
+    $creds = getVirtualizorCredentials($server);
+    $apiKey  = $creds['apiKey'];
+    $apiPass = $creds['apiPass'];
 
     if (empty($apiKey) || empty($apiPass)) {
         // Fallback: direct panel URL without SSO
@@ -709,6 +750,7 @@ function handleVirtualizorSso($server, $service, $hostname)
     curl_setopt($ch, CURLOPT_RETURNTRANSFER, 1);
     curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
     curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, false);
+    curl_setopt($ch, CURLOPT_FOLLOWLOCATION, false);
     curl_setopt($ch, CURLOPT_TIMEOUT, 15);
     curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 10);
 
@@ -772,18 +814,22 @@ function handleVirtualizorSso($server, $service, $hostname)
 // ═══════════════════════════════════════════════════════════
 function handleVirtualizorAction($server, $service, $hostname, $vpsAction)
 {
-    $apiKey  = trim($server->username ?? '');
-    $apiPass = '';
-
-    if (!empty($server->password)) {
-        $apiPass = decrypt($server->password);
-    }
-    if (empty($apiKey) && !empty($server->accesshash)) {
-        $apiKey = trim($server->accesshash);
-    }
+    // Extract API credentials — try multiple approaches for WHMCS compatibility
+    $creds = getVirtualizorCredentials($server);
+    $apiKey  = $creds['apiKey'];
+    $apiPass = $creds['apiPass'];
 
     if (empty($apiKey) || empty($apiPass)) {
-        return ['result' => 'error', 'message' => 'Virtualizor API credentials not configured on server'];
+        return [
+            'result'  => 'error',
+            'message' => 'Virtualizor API credentials not configured on server',
+            'debug'   => [
+                'username_set' => !empty($server->username),
+                'password_set' => !empty($server->password),
+                'accesshash_set' => !empty($server->accesshash),
+                'decrypt_method' => $creds['method'] ?? 'none',
+            ],
+        ];
     }
 
     // Find the VPS ID (same logic as SSO handler)
@@ -904,6 +950,7 @@ function handleVirtualizorAction($server, $service, $hostname, $vpsAction)
     curl_setopt($ch, CURLOPT_RETURNTRANSFER, 1);
     curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
     curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, false);
+    curl_setopt($ch, CURLOPT_FOLLOWLOCATION, false);
     curl_setopt($ch, CURLOPT_TIMEOUT, 30);
     curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 10);
 
@@ -914,6 +961,19 @@ function handleVirtualizorAction($server, $service, $hostname, $vpsAction)
 
     if ($curlError) {
         return ['result' => 'error', 'message' => 'Virtualizor API connection failed: ' . $curlError];
+    }
+
+    // HTTP 302 = redirect to login page = auth failed
+    if ($httpCode === 302 || $httpCode === 301) {
+        return [
+            'result'  => 'error',
+            'message' => 'Virtualizor API authentication failed (HTTP ' . $httpCode . ' redirect)',
+            'debug'   => [
+                'hostname'    => $hostname,
+                'api_key_len' => strlen($apiKey),
+                'api_pass_len' => strlen($apiPass),
+            ],
+        ];
     }
 
     $data = json_decode($response, true);
@@ -991,18 +1051,22 @@ function handleVirtualizorAction($server, $service, $hostname, $vpsAction)
 // ═══════════════════════════════════════════════════════════
 function handleVirtualizorStats($server, $service, $hostname)
 {
-    $apiKey  = trim($server->username ?? '');
-    $apiPass = '';
-
-    if (!empty($server->password)) {
-        $apiPass = decrypt($server->password);
-    }
-    if (empty($apiKey) && !empty($server->accesshash)) {
-        $apiKey = trim($server->accesshash);
-    }
+    // Extract API credentials — try multiple approaches for WHMCS compatibility
+    $creds = getVirtualizorCredentials($server);
+    $apiKey  = $creds['apiKey'];
+    $apiPass = $creds['apiPass'];
 
     if (empty($apiKey) || empty($apiPass)) {
-        return ['result' => 'error', 'message' => 'Virtualizor API credentials not configured on server'];
+        return [
+            'result'  => 'error',
+            'message' => 'Virtualizor API credentials not configured on server',
+            'debug'   => [
+                'username_set' => !empty($server->username),
+                'password_set' => !empty($server->password),
+                'accesshash_set' => !empty($server->accesshash),
+                'decrypt_method' => $creds['method'] ?? 'none',
+            ],
+        ];
     }
 
     // Find the VPS ID (same logic as action/SSO handlers)
@@ -1064,7 +1128,21 @@ function handleVirtualizorStats($server, $service, $hostname)
     ];
 
     $statusUrl = $adminUrl . '?' . http_build_query($statusParams);
-    $statusData = virtualizorApiGet($statusUrl);
+    $statusResult = virtualizorApiGet($statusUrl);
+
+    if (!$statusResult['ok']) {
+        return [
+            'result'  => 'error',
+            'message' => 'Virtualizor Status API failed: ' . $statusResult['error'],
+            'debug'   => [
+                'http_code' => $statusResult['http_code'] ?? 0,
+                'hostname'  => $hostname,
+                'api_key_len' => strlen($apiKey),
+                'api_pass_len' => strlen($apiPass),
+            ],
+        ];
+    }
+    $statusData = $statusResult['data'];
 
     // ── 2. List VS API — full VPS config details ──
     // GET https://hostname:4085/index.php?act=vs&api=json&apikey=KEY&apipass=PASS
@@ -1077,7 +1155,8 @@ function handleVirtualizorStats($server, $service, $hostname)
     ];
 
     $listUrl = $adminUrl . '?' . http_build_query($listParams);
-    $listData = virtualizorApiPost($listUrl, ['vpsid' => $vpsId]);
+    $listResult = virtualizorApiPost($listUrl, ['vpsid' => $vpsId]);
+    $listData = $listResult['ok'] ? $listResult['data'] : [];
 
     // Parse status data
     $liveStats = [];
@@ -1202,7 +1281,89 @@ function handleVirtualizorStats($server, $service, $hostname)
     ];
 }
 
+// ═══════════════════════════════════════════════════════════
+// Shared helper: Extract Virtualizor API credentials from WHMCS server record
+// Handles multiple WHMCS versions and encryption approaches
+// ═══════════════════════════════════════════════════════════
+function getVirtualizorCredentials($server)
+{
+    $apiKey  = trim($server->username ?? '');
+    $apiPass = '';
+    $method  = 'none';
+
+    // Try WHMCS decrypt() for the server password
+    if (!empty($server->password)) {
+        // Method 1: Standard WHMCS decrypt() function
+        if (function_exists('decrypt')) {
+            try {
+                $decrypted = decrypt($server->password);
+                if (!empty($decrypted) && $decrypted !== $server->password) {
+                    $apiPass = $decrypted;
+                    $method = 'decrypt';
+                }
+            } catch (\Exception $e) {
+                // decrypt() failed, try alternatives
+            }
+        }
+
+        // Method 2: WHMCS 8.x+ uses the Security helper
+        if (empty($apiPass) && class_exists('\\WHMCS\\Security\\Encryption')) {
+            try {
+                $decrypted = \WHMCS\Security\Encryption::decode($server->password);
+                if (!empty($decrypted)) {
+                    $apiPass = $decrypted;
+                    $method = 'WHMCS\\Security\\Encryption';
+                }
+            } catch (\Exception $e) {
+                // Not available
+            }
+        }
+
+        // Method 3: localAPI DecryptPassword
+        if (empty($apiPass)) {
+            try {
+                $result = localAPI('DecryptPassword', ['password2' => $server->password]);
+                if (($result['result'] ?? '') === 'success' && !empty($result['password'])) {
+                    $apiPass = $result['password'];
+                    $method = 'localAPI_DecryptPassword';
+                }
+            } catch (\Exception $e) {
+                // Not available
+            }
+        }
+
+        // Method 4: If all decryption failed, try using the raw value
+        // (some setups store the password in plain text)
+        if (empty($apiPass)) {
+            $apiPass = $server->password;
+            $method = 'raw_password';
+        }
+    }
+
+    // Fallback: try accesshash for API key
+    if (empty($apiKey) && !empty($server->accesshash)) {
+        $apiKey = trim($server->accesshash);
+    }
+
+    // Also try accesshash for API pass if password decryption failed
+    if (empty($apiPass) && !empty($server->accesshash) && !empty($apiKey)) {
+        // Some configurations store apipass in accesshash
+        // Only use if apiKey came from username (not accesshash)
+        if (trim($server->username ?? '') === $apiKey) {
+            // Don't use accesshash as both key and pass
+        }
+    }
+
+    return [
+        'apiKey'  => $apiKey,
+        'apiPass' => trim($apiPass),
+        'method'  => $method,
+    ];
+}
+
 // Helper: GET request to Virtualizor API
+// Returns ['ok' => true, 'data' => [...]] on success
+// Returns ['ok' => false, 'error' => '...', 'http_code' => N] on failure
 function virtualizorApiGet($url)
 {
     $ch = curl_init();
@@ -1211,16 +1372,38 @@ function virtualizorApiGet($url)
     curl_setopt($ch, CURLOPT_RETURNTRANSFER, 1);
     curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
     curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, false);
+    curl_setopt($ch, CURLOPT_FOLLOWLOCATION, false);
     curl_setopt($ch, CURLOPT_TIMEOUT, 15);
     curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 10);
 
-    $response = curl_exec($ch);
+    $response  = curl_exec($ch);
+    $httpCode  = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    $curlError = curl_error($ch);
     curl_close($ch);
 
-    return json_decode($response, true) ?: [];
+    if ($curlError) {
+        return ['ok' => false, 'error' => 'cURL error: ' . $curlError, 'http_code' => 0];
+    }
+
+    if ($httpCode === 302 || $httpCode === 301) {
+        return ['ok' => false, 'error' => 'API returned redirect (HTTP ' . $httpCode . ') — authentication failed', 'http_code' => $httpCode];
+    }
+
+    if ($httpCode < 200 || $httpCode >= 300) {
+        return ['ok' => false, 'error' => 'API returned HTTP ' . $httpCode, 'http_code' => $httpCode];
+    }
+
+    $data = json_decode($response, true);
+    if ($data === null) {
+        return ['ok' => false, 'error' => 'Invalid JSON response (HTTP ' . $httpCode . ')', 'http_code' => $httpCode, 'body' => substr($response, 0, 300)];
+    }
+
+    return ['ok' => true, 'data' => $data, 'http_code' => $httpCode];
 }
 
 // Helper: POST request to Virtualizor API
+// Returns ['ok' => true, 'data' => [...]] on success
+// Returns ['ok' => false, 'error' => '...', 'http_code' => N] on failure
 function virtualizorApiPost($url, $postData = [])
 {
     $ch = curl_init();
@@ -1230,11 +1413,31 @@ function virtualizorApiPost($url, $postData = [])
     curl_setopt($ch, CURLOPT_RETURNTRANSFER, 1);
     curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
     curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, false);
+    curl_setopt($ch, CURLOPT_FOLLOWLOCATION, false);
     curl_setopt($ch, CURLOPT_TIMEOUT, 15);
     curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 10);
 
-    $response = curl_exec($ch);
+    $response  = curl_exec($ch);
+    $httpCode  = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    $curlError = curl_error($ch);
     curl_close($ch);
 
-    return json_decode($response, true) ?: [];
+    if ($curlError) {
+        return ['ok' => false, 'error' => 'cURL error: ' . $curlError, 'http_code' => 0];
+    }
+
+    if ($httpCode === 302 || $httpCode === 301) {
+        return ['ok' => false, 'error' => 'API returned redirect (HTTP ' . $httpCode . ') — authentication failed', 'http_code' => $httpCode];
+    }
+
+    if ($httpCode < 200 || $httpCode >= 300) {
+        return ['ok' => false, 'error' => 'API returned HTTP ' . $httpCode, 'http_code' => $httpCode];
+    }
+
+    $data = json_decode($response, true);
+    if ($data === null) {
+        return ['ok' => false, 'error' => 'Invalid JSON response (HTTP ' . $httpCode . ')', 'http_code' => $httpCode, 'body' => substr($response, 0, 300)];
+    }
+
+    return ['ok' => true, 'data' => $data, 'http_code' => $httpCode];
 }
