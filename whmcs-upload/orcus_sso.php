@@ -1291,26 +1291,51 @@ function handleVirtualizorStats($server, $service, $hostname)
     $listData = $listResult['ok'] ? $listResult['data'] : [];
 
     // Parse status data
+    // Virtualizor returns: { "title": "...", "status": { "85": { ... } }, "timenow": ... }
+    // The live stats are nested under the "status" key
     $liveStats = [];
-    if (is_array($statusData) && isset($statusData[(string) $vpsId])) {
-        $liveStats = $statusData[(string) $vpsId];
-    } elseif (is_array($statusData)) {
-        // Sometimes the key might be integer
-        $liveStats = $statusData[$vpsId] ?? reset($statusData) ?: [];
+    $statusBlock = $statusData;
+
+    // Check if data is nested under "status" key
+    if (isset($statusData['status']) && is_array($statusData['status'])) {
+        $statusBlock = $statusData['status'];
+    }
+
+    if (is_array($statusBlock) && isset($statusBlock[(string) $vpsId])) {
+        $liveStats = $statusBlock[(string) $vpsId];
+    } elseif (is_array($statusBlock) && isset($statusBlock[$vpsId])) {
+        $liveStats = $statusBlock[$vpsId];
+    } elseif (is_array($statusBlock)) {
+        // Try first element
+        foreach ($statusBlock as $k => $v) {
+            if (is_array($v) && isset($v['status'])) {
+                $liveStats = $v;
+                break;
+            }
+        }
     }
 
     // Parse VPS info from list data
+    // Virtualizor returns: { "title": "...", "vs": { "85": { ... } }, ... }
+    // VPS info is nested under the "vs" key
     $vpsInfo = [];
-    if (is_array($listData)) {
-        if (isset($listData[(string) $vpsId])) {
-            $vpsInfo = $listData[(string) $vpsId];
-        } elseif (isset($listData[$vpsId])) {
-            $vpsInfo = $listData[$vpsId];
-        } elseif (isset($listData['vs_info'])) {
-            $vpsInfo = $listData['vs_info'];
-        } else {
-            // Try to find the VPS in the response (could be nested under any key)
-            foreach ($listData as $key => $value) {
+    $vsBlock = $listData;
+
+    // Check if data is nested under "vs" key
+    if (isset($listData['vs']) && is_array($listData['vs'])) {
+        $vsBlock = $listData['vs'];
+    }
+
+    if (is_array($vsBlock) && isset($vsBlock[(string) $vpsId])) {
+        $vpsInfo = $vsBlock[(string) $vpsId];
+    } elseif (is_array($vsBlock) && isset($vsBlock[$vpsId])) {
+        $vpsInfo = $vsBlock[$vpsId];
+    } elseif (isset($listData['vs_info']) && is_array($listData['vs_info'])) {
+        $vpsInfo = $listData['vs_info'];
+    } else {
+        // Try to find the VPS in the response (could be nested under any key)
+        if (is_array($vsBlock)) {
+            foreach ($vsBlock as $key => $value) {
                 if (is_array($value) && isset($value['vpsid']) && (int) $value['vpsid'] === $vpsId) {
                     $vpsInfo = $value;
                     break;
