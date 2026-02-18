@@ -346,14 +346,51 @@ if ($action === 'TestVirtApi') {
         'localAPI_func'     => function_exists('localAPI'),
     ];
 
-    // Test 1: Basic API connectivity (list VPS)
-    $testUrl = 'https://' . $hostname . ':4085/index.php?' . http_build_query([
+    // Test 1: Basic API connectivity (list VPS) — try HTTPS first, then HTTP
+    $queryStr = http_build_query([
         'act'     => 'vs',
         'api'     => 'json',
         'apikey'  => $creds['apiKey'],
         'apipass' => $creds['apiPass'],
     ]);
+    $testUrl = 'https://' . $hostname . ':4085/index.php?' . $queryStr;
     $testResult = virtualizorApiGet($testUrl);
+
+    // If HTTPS failed with 302 or connection error, try HTTP
+    $usedProtocol = 'https';
+    if (!$testResult['ok']) {
+        $httpUrl = 'http://' . $hostname . ':4085/index.php?' . $queryStr;
+        $httpResult = virtualizorApiGet($httpUrl);
+        if ($httpResult['ok'] || ($httpResult['http_code'] ?? 0) !== 0) {
+            $testResult = $httpResult;
+            $usedProtocol = 'http';
+        }
+    }
+
+    // If still failing, try with server IP instead of hostname
+    if (!$testResult['ok'] && !empty($server->ipaddress) && $server->ipaddress !== $hostname) {
+        $ipQueryStr = http_build_query([
+            'act'     => 'vs',
+            'api'     => 'json',
+            'apikey'  => $creds['apiKey'],
+            'apipass' => $creds['apiPass'],
+        ]);
+        $ipUrl = 'https://' . $server->ipaddress . ':4085/index.php?' . $ipQueryStr;
+        $ipResult = virtualizorApiGet($ipUrl);
+        if ($ipResult['ok']) {
+            $testResult = $ipResult;
+            $hostname = $server->ipaddress;
+            $usedProtocol = 'https_ip';
+        } else {
+            $ipUrl2 = 'http://' . $server->ipaddress . ':4085/index.php?' . $ipQueryStr;
+            $ipResult2 = virtualizorApiGet($ipUrl2);
+            if ($ipResult2['ok']) {
+                $testResult = $ipResult2;
+                $hostname = $server->ipaddress;
+                $usedProtocol = 'http_ip';
+            }
+        }
+    }
 
     // Test 2: If UUID or VPSID given, try fetching that specific VPS status
     $vpsTest = null;
@@ -422,14 +459,18 @@ if ($action === 'TestVirtApi') {
         'result'     => 'success',
         'test'       => [
             'hostname'           => $hostname,
+            'server_hostname'    => $server->hostname ?? '',
+            'server_ip'          => $server->ipaddress ?? '',
             'server_id'          => $server->id ?? 0,
             'server_type'        => $server->type ?? '',
-            'username_field'     => !empty($server->username) ? substr($server->username, 0, 4) . '...' : '(empty)',
+            'protocol_used'      => $usedProtocol,
+            'username_field'     => !empty($server->username) ? substr($server->username, 0, 8) . '...' : '(empty)',
             'password_field_len' => strlen($server->password ?? ''),
             'accesshash_field'   => !empty($server->accesshash) ? 'set (' . strlen($server->accesshash) . ' chars)' : '(empty)',
             'api_key_length'     => strlen($creds['apiKey']),
+            'api_key_first8'     => strlen($creds['apiKey']) > 8 ? substr($creds['apiKey'], 0, 8) . '...' : $creds['apiKey'],
             'api_pass_length'    => strlen($creds['apiPass']),
-            'api_pass_first4'    => strlen($creds['apiPass']) > 4 ? substr($creds['apiPass'], 0, 4) . '...' : '(short)',
+            'api_pass_first8'    => strlen($creds['apiPass']) > 8 ? substr($creds['apiPass'], 0, 8) . '...' : $creds['apiPass'],
             'decrypt_method'     => $creds['method'],
             'available_methods'  => $available,
             'api_call_ok'        => $testResult['ok'] ?? false,
@@ -1513,6 +1554,7 @@ function virtualizorApiGet($url)
 
     $response  = curl_exec($ch);
     $httpCode  = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    $redirectUrl = curl_getinfo($ch, CURLINFO_REDIRECT_URL);
     $curlError = curl_error($ch);
     curl_close($ch);
 
@@ -1521,7 +1563,7 @@ function virtualizorApiGet($url)
     }
 
     if ($httpCode === 302 || $httpCode === 301) {
-        return ['ok' => false, 'error' => 'API returned redirect (HTTP ' . $httpCode . ') — authentication failed', 'http_code' => $httpCode];
+        return ['ok' => false, 'error' => 'API returned redirect (HTTP ' . $httpCode . ') — authentication failed', 'http_code' => $httpCode, 'redirect_to' => $redirectUrl ?: null, 'body_preview' => substr($response, 0, 200)];
     }
 
     if ($httpCode < 200 || $httpCode >= 300) {
@@ -1554,6 +1596,7 @@ function virtualizorApiPost($url, $postData = [])
 
     $response  = curl_exec($ch);
     $httpCode  = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    $redirectUrl = curl_getinfo($ch, CURLINFO_REDIRECT_URL);
     $curlError = curl_error($ch);
     curl_close($ch);
 
@@ -1562,7 +1605,7 @@ function virtualizorApiPost($url, $postData = [])
     }
 
     if ($httpCode === 302 || $httpCode === 301) {
-        return ['ok' => false, 'error' => 'API returned redirect (HTTP ' . $httpCode . ') — authentication failed', 'http_code' => $httpCode];
+        return ['ok' => false, 'error' => 'API returned redirect (HTTP ' . $httpCode . ') — authentication failed', 'http_code' => $httpCode, 'redirect_to' => $redirectUrl ?: null];
     }
 
     if ($httpCode < 200 || $httpCode >= 300) {
