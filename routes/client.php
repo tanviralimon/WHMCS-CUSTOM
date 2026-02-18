@@ -149,7 +149,7 @@ Route::middleware('feature:orders')->prefix('orders')->name('orders.')->group(fu
     Route::delete('/cart/{index}', [OrderController::class, 'removeFromCart'])->name('cart.remove');
     Route::post('/cart/promo', [OrderController::class, 'applyPromo'])->name('cart.promo');
     Route::post('/checkout', [OrderController::class, 'checkout'])->name('checkout')
-        ->middleware('throttle:5,1');
+        ->middleware('throttle:15,1');
     Route::get('/', [OrderController::class, 'orders'])->name('index');
 });
 

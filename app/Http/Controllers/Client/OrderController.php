@@ -399,9 +399,9 @@ class OrderController extends Controller
         }
 
         if (!empty($pids)) {
-            $orderData['pid']          = implode(',', $pids);
-            $orderData['domain']       = implode(',', $domains);
-            $orderData['billingcycle'] = implode(',', $cycles);
+            $orderData['pid']          = $pids;
+            $orderData['domain']       = $domains;
+            $orderData['billingcycle'] = $cycles;
             $orderData['hostname']     = $hostnames;
             $orderData['rootpw']       = $rootpws;
             $orderData['ns1prefix']    = $ns1s;
@@ -441,7 +441,14 @@ class OrderController extends Controller
             $orderData['promocode'] = $cart['promo']['code'] ?? '';
         }
 
-        $result = $this->whmcs->addOrder($clientId, $orderData);
+        try {
+            $result = $this->whmcs->addOrder($clientId, $orderData);
+        } catch (\App\Exceptions\WhmcsApiException $e) {
+            return back()->withErrors(['checkout' => $e->getMessage()]);
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::error('Checkout failed', ['error' => $e->getMessage(), 'orderData' => $orderData]);
+            return back()->withErrors(['checkout' => 'Something went wrong placing your order. Please try again.']);
+        }
 
         // Clear cart
         session()->forget('cart');

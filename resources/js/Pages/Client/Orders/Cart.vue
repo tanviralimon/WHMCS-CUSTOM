@@ -11,6 +11,7 @@ const { formatCurrency } = useCurrency();
 const props = defineProps({
     cart: Object,
     paymentMethods: Array,
+    errors: { type: Object, default: () => ({}) },
 });
 
 const items = computed(() => props.cart?.items || []);
@@ -55,6 +56,17 @@ function checkout() {
                 Continue Shopping
             </Link>
         </template>
+
+        <!-- Checkout / WHMCS errors -->
+        <div v-if="$page.props.errors?.checkout || $page.props.errors?.whmcs || $page.props.errors?.cart" class="mb-4 p-4 rounded-lg bg-red-50 border border-red-200">
+            <div class="flex items-start gap-2">
+                <svg class="w-5 h-5 text-red-500 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z" /></svg>
+                <div>
+                    <p class="text-[13px] font-medium text-red-800">Order could not be placed</p>
+                    <p class="text-[12.5px] text-red-700 mt-0.5">{{ $page.props.errors.checkout || $page.props.errors.whmcs || $page.props.errors.cart }}</p>
+                </div>
+            </div>
+        </div>
 
         <div v-if="items.length === 0">
             <EmptyState title="Your cart is empty" message="Browse our products and add items to get started.">
