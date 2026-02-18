@@ -40,6 +40,7 @@ class HandleInertiaRequests extends Middleware
                 'error'        => fn () => $request->session()->get('error'),
                 'eppCode'      => fn () => $request->session()->get('eppCode'),
                 'redirect_url' => fn () => $request->session()->get('redirect_url'),
+                'new_password' => fn () => $request->session()->get('new_password'),
             ],
             'features' => config('client-features'),
             'whmcsUrl' => rtrim(config('whmcs.base_url'), '/'),

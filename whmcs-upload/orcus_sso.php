@@ -1148,8 +1148,85 @@ function handleVirtualizorAction($server, $service, $hostname, $vpsAction)
         'shutdown'      => 'stop',
         'stop'          => 'stop',
         'poweroff'      => 'poweroff',
-        'resetpassword' => 'resetpassword',
     ];
+
+    // ── Password Reset: Use Virtualizor Manage VPS API (act=managevps) ──
+    // The correct API for changing root password is act=managevps with POST rootpass=NEWPASS
+    // NOT act=vs&action=resetpassword (which doesn't exist in Virtualizor)
+    if ($vpsAction === 'resetpassword') {
+        // Generate a secure random password (16 chars, letters + digits + special)
+        $chars = 'abcdefghijkmnopqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789!@#$%&*';
+        $newPassword = '';
+        for ($i = 0; $i < 16; $i++) {
+            $newPassword .= $chars[random_int(0, strlen($chars) - 1)];
+        }
+
+        $adminUrl = 'https://' . $hostname . ':4085/index.php';
+        $queryParams = [
+            'act'          => 'managevps',
+            'vpsid'        => $vpsId,
+            'api'          => 'json',
+            'adminapikey'  => $apiKey,
+            'adminapipass' => $apiPass,
+        ];
+        $manageUrl = $adminUrl . '?' . http_build_query($queryParams);
+
+        // POST the new root password
+        $postResult = virtualizorApiPost($manageUrl, [
+            'vpsid'    => $vpsId,
+            'rootpass' => $newPassword,
+        ]);
+
+        if (!$postResult['ok']) {
+            return [
+                'result'  => 'error',
+                'message' => 'Failed to connect to Virtualizor API: ' . ($postResult['error'] ?? 'Unknown error'),
+            ];
+        }
+
+        $data = $postResult['data'];
+
+        // Check for errors
+        if (!empty($data['error'])) {
+            $errors = $data['error'];
+            if (is_array($errors)) {
+                $errorMsg = implode(', ', array_values($errors));
+            } else {
+                $errorMsg = (string) $errors;
+            }
+            return ['result' => 'error', 'message' => 'Virtualizor: ' . $errorMsg];
+        }
+
+        // Check for success (Manage VPS returns "done" => { "done" => true })
+        if (isset($data['done'])) {
+            return [
+                'result'       => 'success',
+                'message'      => 'Root password has been changed successfully.',
+                'action'       => 'resetpassword',
+                'module'       => 'virtualizor',
+                'new_password' => $newPassword,
+            ];
+        }
+
+        // If response has no error and no done, but HTTP was 2xx, still might be ok
+        if (($postResult['http_code'] ?? 0) >= 200 && ($postResult['http_code'] ?? 0) < 300) {
+            if (isset($data['vs_info']) || isset($data['title'])) {
+                return [
+                    'result'       => 'success',
+                    'message'      => 'Root password has been changed successfully.',
+                    'action'       => 'resetpassword',
+                    'module'       => 'virtualizor',
+                    'new_password' => $newPassword,
+                ];
+            }
+        }
+
+        return [
+            'result'  => 'error',
+            'message' => 'Virtualizor API response unclear. Please verify the password was changed in the Virtualizor panel.',
+            'debug'   => array_keys($data ?? []),
+        ];
+    }
 
     // VNC / Console: Get VNC info directly via Virtualizor VNC Info API
     // then try SSO for the URL; if SSO fails, build noVNC URL from VNC info

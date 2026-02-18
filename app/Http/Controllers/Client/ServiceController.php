@@ -146,19 +146,45 @@ class ServiceController extends Controller
 
     public function changePassword(Request $request, int $id)
     {
-        $result = $this->whmcs->moduleChangePassword($id);
+        $clientId = $request->user()->whmcs_client_id;
 
-        if (($result['result'] ?? '') !== 'success') {
-            return back()->withErrors(['whmcs' => $result['message'] ?? 'Password change failed.']);
+        try {
+            // Detect if this is a VPS — use Virtualizor Manage VPS API via SSO proxy
+            $serviceInfo = $this->whmcs->getServiceInfo($id, $clientId);
+            $module      = strtolower($serviceInfo['module'] ?? '');
+            $vpsModules  = ['virtualizor', 'proxmox', 'solusvm'];
+
+            if (in_array($module, $vpsModules)) {
+                $result = $this->whmcs->vpsAction($id, $clientId, 'resetpassword');
+
+                if (($result['result'] ?? '') !== 'success') {
+                    return back()->withErrors(['whmcs' => $result['message'] ?? 'Password change failed.']);
+                }
+
+                // Return new password so frontend can display it
+                $newPass = $result['new_password'] ?? null;
+                return back()->with('success', $result['message'] ?? 'Password has been changed successfully.')
+                             ->with('new_password', $newPass);
+            }
+
+            // Non-VPS: use standard WHMCS ModuleChangePassword
+            $result = $this->whmcs->moduleChangePassword($id);
+
+            if (($result['result'] ?? '') !== 'success') {
+                return back()->withErrors(['whmcs' => $result['message'] ?? 'Password change failed.']);
+            }
+
+            return back()->with('success', 'Password has been changed successfully.');
+        } catch (\Exception $e) {
+            \Log::error('Change password failed', ['service' => $id, 'error' => $e->getMessage()]);
+            return back()->withErrors(['whmcs' => 'Password change failed: ' . $e->getMessage()]);
         }
-
-        return back()->with('success', 'Password has been changed successfully.');
     }
 
     public function moduleAction(Request $request, int $id)
     {
         $request->validate([
-            'action' => 'required|string|in:reboot,shutdown,boot,resetpassword,console,vnc',
+            'action' => 'required|string|in:reboot,shutdown,boot,console,vnc',
         ]);
 
         $clientId = $request->user()->whmcs_client_id;
@@ -194,6 +220,12 @@ class ServiceController extends Controller
                         : 'VNC console opened.';
                     return back()->with('success', $msg)
                                  ->with('redirect_url', $result['redirect_url']);
+                }
+
+                // Password reset returns new password — pass to frontend for display
+                if ($action === 'resetpassword' && !empty($result['new_password'])) {
+                    return back()->with('success', $result['message'] ?? 'Password changed successfully.')
+                                 ->with('new_password', $result['new_password']);
                 }
 
                 return back()->with('success', $result['message'] ?? ucfirst($action) . ' action executed successfully.');

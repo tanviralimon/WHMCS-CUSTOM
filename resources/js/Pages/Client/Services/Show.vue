@@ -198,14 +198,13 @@ const actionLoading = ref(null);
 
 const actionLabels = {
     boot: 'Boot', reboot: 'Reboot', shutdown: 'Shutdown',
-    resetpassword: 'Reset Password', vnc: 'Open VNC Console', console: 'Open Console',
+    vnc: 'Open VNC Console', console: 'Open Console',
 };
 
 const actionDescriptions = {
     boot: 'This will start your VPS if it is currently powered off.',
     reboot: 'This will restart your VPS. All running processes will be temporarily interrupted.',
     shutdown: 'This will power off your VPS. You will need to boot it again to bring it back online.',
-    resetpassword: 'This will reset the root password of your VPS. A new password will be emailed to you.',
     vnc: 'This will open a VNC console session to your VPS.',
     console: 'This will open a direct console to your VPS.',
 };
@@ -253,13 +252,31 @@ function executeAction() {
 // Password Change
 const showPasswordModal = ref(false);
 const passwordLoading = ref(false);
+const showNewPasswordModal = ref(false);
+const newPassword = ref('');
+const passwordCopied = ref(false);
 
 function doChangePassword() {
     showPasswordModal.value = false;
     passwordLoading.value = true;
     router.post(route('client.services.changePassword', s.id), {}, {
         preserveScroll: true,
+        onSuccess: (page) => {
+            const pass = page.props?.flash?.new_password;
+            if (pass) {
+                newPassword.value = pass;
+                passwordCopied.value = false;
+                showNewPasswordModal.value = true;
+            }
+        },
         onFinish: () => { passwordLoading.value = false; },
+    });
+}
+
+function copyPassword() {
+    navigator.clipboard.writeText(newPassword.value).then(() => {
+        passwordCopied.value = true;
+        setTimeout(() => { passwordCopied.value = false; }, 3000);
     });
 }
 
@@ -695,7 +712,7 @@ function executeReinstall() {
 
                     <!-- VPS Power Actions -->
                     <Card title="Power Actions" description="Control your VPS power state.">
-                        <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                        <div class="grid grid-cols-3 gap-3">
                             <button @click="confirmAction('boot')" :disabled="actionLoading === 'boot'" class="flex flex-col items-center gap-2.5 p-4 rounded-xl border border-gray-100 bg-gray-50/50 hover:bg-emerald-50 hover:border-emerald-200 hover:shadow-sm transition-all group disabled:opacity-50 disabled:cursor-wait">
                                 <div class="w-10 h-10 rounded-lg bg-emerald-100 flex items-center justify-center">
                                     <svg v-if="actionLoading !== 'boot'" class="w-5 h-5 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M5.636 5.636a9 9 0 1012.728 0M12 3v9" /></svg>
@@ -716,13 +733,6 @@ function executeReinstall() {
                                     <svg v-else class="w-5 h-5 text-red-600 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" /><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
                                 </div>
                                 <span class="text-[12px] font-medium text-gray-700 group-hover:text-red-700 text-center">Shutdown</span>
-                            </button>
-                            <button @click="confirmAction('resetpassword')" :disabled="actionLoading === 'resetpassword'" class="flex flex-col items-center gap-2.5 p-4 rounded-xl border border-gray-100 bg-gray-50/50 hover:bg-blue-50 hover:border-blue-200 hover:shadow-sm transition-all group disabled:opacity-50 disabled:cursor-wait">
-                                <div class="w-10 h-10 rounded-lg bg-blue-100 flex items-center justify-center">
-                                    <svg v-if="actionLoading !== 'resetpassword'" class="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M15.75 5.25a3 3 0 013 3m3 0a6 6 0 01-7.029 5.912c-.563-.097-1.159.026-1.563.43L10.5 17.25H8.25v2.25H6v2.25H2.25v-2.818c0-.597.237-1.17.659-1.591l6.499-6.499c.404-.404.527-1 .43-1.563A6 6 0 1121.75 8.25z" /></svg>
-                                    <svg v-else class="w-5 h-5 text-blue-600 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" /><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
-                                </div>
-                                <span class="text-[12px] font-medium text-gray-700 group-hover:text-blue-700 text-center">Reset Password</span>
                             </button>
                         </div>
                     </Card>
@@ -907,7 +917,38 @@ function executeReinstall() {
         <!-- Modals -->
         <ConfirmModal :show="showActionModal" :title="pendingAction ? actionLabels[pendingAction] : 'Confirm Action'" :message="pendingAction ? actionDescriptions[pendingAction] : 'Are you sure?'" :confirm-text="pendingAction ? actionLabels[pendingAction] : 'Confirm'" @confirm="executeAction" @close="showActionModal = false; pendingAction = null" />
 
-        <ConfirmModal :show="showPasswordModal" title="Change Password" message="This will reset the password for this service. The new password will be emailed to you." confirm-text="Reset Password" @confirm="doChangePassword" @close="showPasswordModal = false" />
+        <ConfirmModal :show="showPasswordModal" title="Change Root Password" message="This will generate a new random root password for your VPS. The new password will be displayed on screen — make sure to copy it." confirm-text="Reset Password" @confirm="doChangePassword" @close="showPasswordModal = false" />
+
+        <!-- New Password Display Modal -->
+        <div v-if="showNewPasswordModal" class="fixed inset-0 z-50 overflow-y-auto" aria-modal="true">
+            <div class="flex items-center justify-center min-h-screen px-4 pt-4 pb-20">
+                <div class="fixed inset-0 bg-gray-500/75 transition-opacity" @click="showNewPasswordModal = false"></div>
+                <div class="relative bg-white rounded-2xl shadow-xl max-w-md w-full p-6 z-10">
+                    <div class="flex items-center gap-3 mb-4">
+                        <div class="w-10 h-10 rounded-full bg-emerald-100 flex items-center justify-center flex-shrink-0">
+                            <svg class="w-5 h-5 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" /></svg>
+                        </div>
+                        <h3 class="text-lg font-semibold text-gray-900">Password Changed</h3>
+                    </div>
+                    <p class="text-[13px] text-gray-600 mb-4">Your new root password has been set. Please copy it now — it will not be shown again.</p>
+                    <div class="flex items-center gap-2 p-3 bg-gray-50 rounded-lg border border-gray-200">
+                        <code class="flex-1 text-[14px] font-mono text-gray-900 break-all select-all">{{ newPassword }}</code>
+                        <button @click="copyPassword" class="flex-shrink-0 px-3 py-1.5 text-[12px] font-medium rounded-md transition-colors" :class="passwordCopied ? 'bg-emerald-100 text-emerald-700' : 'bg-indigo-100 text-indigo-700 hover:bg-indigo-200'">
+                            {{ passwordCopied ? 'Copied!' : 'Copy' }}
+                        </button>
+                    </div>
+                    <div class="mt-4 p-3 bg-amber-50 rounded-lg border border-amber-200">
+                        <p class="text-[12px] text-amber-800 flex items-start gap-2">
+                            <svg class="w-4 h-4 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.27 16.5c-.77.833.192 2.5 1.732 2.5z" /></svg>
+                            <span>Save this password in a secure location. You'll need it to log in to your VPS via SSH or console.</span>
+                        </p>
+                    </div>
+                    <button @click="showNewPasswordModal = false" class="mt-4 w-full px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-[13px] font-semibold rounded-lg transition-colors">
+                        I've Saved My Password
+                    </button>
+                </div>
+            </div>
+        </div>
 
         <ConfirmModal :show="showCancelModal" title="Request Cancellation" message="This will submit a cancellation request for this service." confirm-text="Submit Request" @confirm="submitCancel" @close="showCancelModal = false">
             <div class="mt-4 space-y-3">
