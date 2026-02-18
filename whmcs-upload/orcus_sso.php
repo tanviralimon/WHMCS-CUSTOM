@@ -346,12 +346,12 @@ if ($action === 'TestVirtApi') {
         'localAPI_func'     => function_exists('localAPI'),
     ];
 
-    // Test 1: Basic API connectivity (list VPS) — try HTTPS first, then HTTP
+    // Test 1: Basic API connectivity (list VPS)
     $queryStr = http_build_query([
-        'act'     => 'vs',
-        'api'     => 'json',
-        'apikey'  => $creds['apiKey'],
-        'apipass' => $creds['apiPass'],
+        'act'          => 'vs',
+        'api'          => 'json',
+        'adminapikey'  => $creds['apiKey'],
+        'adminapipass' => $creds['apiPass'],
     ]);
 
     // Virtualizor admin panel runs on port 4085 over HTTPS
@@ -389,11 +389,11 @@ if ($action === 'TestVirtApi') {
         if ($resolvedVpsId) {
             // Get live status for this specific VPS
             $statusUrl = 'https://' . $hostname . ':4085/index.php?' . http_build_query([
-                'act'       => 'vs',
-                'vs_status' => $resolvedVpsId,
-                'api'       => 'json',
-                'apikey'    => $creds['apiKey'],
-                'apipass'   => $creds['apiPass'],
+                'act'          => 'vs',
+                'vs_status'    => $resolvedVpsId,
+                'api'          => 'json',
+                'adminapikey'  => $creds['apiKey'],
+                'adminapipass' => $creds['apiPass'],
             ]);
             $statusResult = virtualizorApiGet($statusUrl);
             $vpsTest = [
@@ -868,11 +868,11 @@ function handleVirtualizorSso($server, $service, $hostname)
     $adminUrl = 'https://' . $hostname . ':4085/index.php';
 
     $params = [
-        'act'     => 'sso',
-        'api'     => 'json',
-        'apikey'  => $apiKey,
-        'apipass' => $apiPass,
-        'vpsid'   => $vpsId,
+        'act'          => 'sso',
+        'api'          => 'json',
+        'adminapikey'  => $apiKey,
+        'adminapipass' => $apiPass,
+        'vpsid'        => $vpsId,
     ];
 
     $url = $adminUrl . '?' . http_build_query($params);
@@ -1066,12 +1066,12 @@ function handleVirtualizorAction($server, $service, $hostname, $vpsAction)
 
     // ALL parameters go in query string — Virtualizor ignores POST body for these actions
     $queryParams = [
-        'act'     => 'vs',
-        'action'  => $apiAction,
-        'vpsid'   => $vpsId,
-        'api'     => 'json',
-        'apikey'  => $apiKey,
-        'apipass' => $apiPass,
+        'act'          => 'vs',
+        'action'       => $apiAction,
+        'vpsid'        => $vpsId,
+        'api'          => 'json',
+        'adminapikey'  => $apiKey,
+        'adminapipass' => $apiPass,
     ];
 
     $url = $adminUrl . '?' . http_build_query($queryParams);
@@ -1252,11 +1252,11 @@ function handleVirtualizorStats($server, $service, $hostname)
     // ── 1. VPS Status API — live resource usage ──
     // GET https://hostname:4085/index.php?act=vs&vs_status=VPSID&api=json&apikey=KEY&apipass=PASS
     $statusParams = [
-        'act'      => 'vs',
-        'vs_status' => $vpsId,
-        'api'      => 'json',
-        'apikey'   => $apiKey,
-        'apipass'  => $apiPass,
+        'act'          => 'vs',
+        'vs_status'    => $vpsId,
+        'api'          => 'json',
+        'adminapikey'  => $apiKey,
+        'adminapipass' => $apiPass,
     ];
 
     $statusUrl = $adminUrl . '?' . http_build_query($statusParams);
@@ -1280,10 +1280,10 @@ function handleVirtualizorStats($server, $service, $hostname)
     // GET https://hostname:4085/index.php?act=vs&api=json&apikey=KEY&apipass=PASS
     // POST: vpsid=ID
     $listParams = [
-        'act'     => 'vs',
-        'api'     => 'json',
-        'apikey'  => $apiKey,
-        'apipass' => $apiPass,
+        'act'          => 'vs',
+        'api'          => 'json',
+        'adminapikey'  => $apiKey,
+        'adminapipass' => $apiPass,
     ];
 
     $listUrl = $adminUrl . '?' . http_build_query($listParams);
