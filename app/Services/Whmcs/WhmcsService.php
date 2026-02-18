@@ -167,6 +167,17 @@ class WhmcsService
     }
 
     /**
+     * Get live VPS stats from Virtualizor (CPU, RAM, disk, bandwidth, OS, status).
+     */
+    public function getVpsStats(int $serviceId, int $clientId): array
+    {
+        return $this->client->callSsoProxySafe('GetVpsStats', [
+            'serviceid' => $serviceId,
+            'clientid'  => $clientId,
+        ]);
+    }
+
+    /**
      * Get service info from SSO proxy (module type, panel URLs, etc.)
      */
     public function getServiceInfo(int $serviceId, int $clientId = 0): array

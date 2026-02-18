@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed } from 'vue';
+import { ref, computed, onMounted, onUnmounted } from 'vue';
 import { Link, router, usePage } from '@inertiajs/vue3';
 import ClientLayout from '@/Layouts/ClientLayout.vue';
 import StatusBadge from '@/Components/StatusBadge.vue';
@@ -17,12 +17,14 @@ const props = defineProps({
     controlPanelUrl: { type: String, default: null },
     webmailUrl: { type: String, default: null },
     ssoSupported: { type: Boolean, default: false },
+    vpsStats: { type: Object, default: null },
 });
 
 const s = props.service;
 const isHosting = props.serviceType === 'hosting';
 const isVps = props.serviceType === 'vps';
 const isActive = s.status === 'Active';
+const vps = computed(() => props.vpsStats);
 
 // SSO login URL
 const panelLoginUrl = computed(() => {
@@ -30,7 +32,7 @@ const panelLoginUrl = computed(() => {
     return props.controlPanelUrl;
 });
 
-// SSO deep link (SPanel: "category/page" format)
+// SSO deep link
 function ssoUrl(redirect) {
     if (props.ssoSupported && redirect) {
         return route('client.services.sso', s.id) + '?redirect=' + encodeURIComponent(redirect);
@@ -48,41 +50,40 @@ const moduleName = computed(() => {
     return names[props.serverModule] || props.serverModule || 'Control Panel';
 });
 
-// ─── Tabs ──────────────────────────────────────────────────
+// Tabs
 const tabs = computed(() => {
     const t = [{ id: 'overview', label: 'Overview' }];
     if (isHosting || isVps) t.push({ id: 'management', label: 'Management' });
     if (hasConfig.value || hasCustomFields.value) t.push({ id: 'config', label: 'Configuration' });
     return t;
 });
-// Default to management tab for VPS services
 const activeTab = ref(isVps ? 'management' : 'overview');
 
-// ─── Details ───────────────────────────────────────────────
+// Details
 const details = computed(() => {
     const d = [
         { label: 'Product / Service', value: s.name || s.groupname },
-        { label: 'Domain', value: s.domain || '—' },
+        { label: 'Domain', value: s.domain || '\u2014' },
         { label: 'Status', value: s.status, badge: true },
         { label: 'Billing Cycle', value: s.billingcycle },
         { label: 'Amount', value: formatCurrency(s.recurringamount) + ' / ' + s.billingcycle },
-        { label: 'Payment Method', value: s.paymentmethodname || s.paymentmethod || '—' },
-        { label: 'Next Due Date', value: s.nextduedate && s.nextduedate !== '0000-00-00' ? s.nextduedate : '—' },
-        { label: 'Registration Date', value: s.regdate || '—' },
+        { label: 'Payment Method', value: s.paymentmethodname || s.paymentmethod || '\u2014' },
+        { label: 'Next Due Date', value: s.nextduedate && s.nextduedate !== '0000-00-00' ? s.nextduedate : '\u2014' },
+        { label: 'Registration Date', value: s.regdate || '\u2014' },
     ];
     if (s.dedicatedip) d.push({ label: 'Dedicated IP', value: s.dedicatedip });
     if (s.assignedips) d.push({ label: 'Assigned IPs', value: s.assignedips });
     if (isHosting) {
-        d.push({ label: 'Username', value: s.username || '—' });
-        d.push({ label: 'Server', value: s.servername || '—' });
+        d.push({ label: 'Username', value: s.username || '\u2014' });
+        d.push({ label: 'Server', value: s.servername || '\u2014' });
     }
     if (isVps) {
-        d.push({ label: 'Server', value: s.servername || '—' });
+        d.push({ label: 'Server', value: s.servername || '\u2014' });
     }
     return d;
 });
 
-// ─── Config Options ────────────────────────────────────────
+// Config Options
 const configOptions = computed(() => {
     const opts = s.configoptions?.configoption || [];
     return Array.isArray(opts) ? opts : [opts];
@@ -95,7 +96,7 @@ const customFields = computed(() => {
 });
 const hasCustomFields = computed(() => customFields.value.length > 0);
 
-// ─── Usage Statistics (for hosting) ────────────────────────
+// Usage Statistics (hosting)
 const usageStats = computed(() => {
     if (!isHosting) return [];
     return [
@@ -114,7 +115,66 @@ function formatUsage(val, unit) {
     return val + ' ' + unit;
 }
 
-// ─── Cancel Modal ──────────────────────────────────────────
+// VPS Stats Helpers
+const vpsStatus = computed(() => vps.value?.status || 'unknown');
+
+const vpsStatusColor = computed(() => {
+    const colors = { online: 'bg-emerald-500', offline: 'bg-red-500', suspended: 'bg-amber-500' };
+    return colors[vpsStatus.value] || 'bg-gray-400';
+});
+
+const vpsStatusLabel = computed(() => {
+    const labels = { online: 'Online', offline: 'Offline', suspended: 'Suspended' };
+    return labels[vpsStatus.value] || 'Unknown';
+});
+
+function vpsPercent(used, total) {
+    if (!total || total === 0) return 0;
+    return Math.min(100, Math.round((used / total) * 100));
+}
+
+function formatDisk(gb) {
+    if (gb >= 1024) return (gb / 1024).toFixed(1) + ' TB';
+    if (gb >= 1) return gb.toFixed(2) + ' GB';
+    return (gb * 1024).toFixed(0) + ' MB';
+}
+
+function formatRam(mb) {
+    if (mb >= 1024) return (mb / 1024).toFixed(1) + ' GB';
+    return mb + ' MB';
+}
+
+function formatBandwidth(gb) {
+    if (!gb || gb === 0) return '0 GB';
+    if (gb >= 1024) return (gb / 1024).toFixed(2) + ' TB';
+    return gb.toFixed(2) + ' GB';
+}
+
+function progressColor(pct) {
+    if (pct > 90) return 'bg-red-500';
+    if (pct > 70) return 'bg-amber-500';
+    return 'bg-indigo-500';
+}
+
+function progressRingColor(pct) {
+    if (pct > 90) return 'text-red-500';
+    if (pct > 70) return 'text-amber-500';
+    return 'text-indigo-500';
+}
+
+const osIcon = computed(() => {
+    if (!vps.value) return '\uD83D\uDDA5\uFE0F';
+    const distro = (vps.value.os_distro || vps.value.os_name || '').toLowerCase();
+    if (distro.includes('ubuntu')) return '\uD83D\uDFE0';
+    if (distro.includes('centos')) return '\uD83D\uDFE3';
+    if (distro.includes('debian')) return '\uD83D\uDD34';
+    if (distro.includes('almalinux') || distro.includes('alma')) return '\uD83D\uDD35';
+    if (distro.includes('rocky')) return '\uD83D\uDFE2';
+    if (distro.includes('windows')) return '\uD83E\uDE9F';
+    return '\uD83D\uDC27';
+});
+
+// Cancel Modal
 const showCancelModal = ref(false);
 const cancelType = ref('End of Billing Period');
 const cancelReason = ref('');
@@ -130,18 +190,14 @@ function submitCancel() {
     });
 }
 
-// ─── Action Confirmation Modal ─────────────────────────────
+// Action Confirmation Modal
 const showActionModal = ref(false);
 const pendingAction = ref(null);
 const actionLoading = ref(null);
 
 const actionLabels = {
-    boot: 'Boot',
-    reboot: 'Reboot',
-    shutdown: 'Shutdown',
-    resetpassword: 'Reset Password',
-    vnc: 'Open VNC Console',
-    console: 'Open Console',
+    boot: 'Boot', reboot: 'Reboot', shutdown: 'Shutdown',
+    resetpassword: 'Reset Password', vnc: 'Open VNC Console', console: 'Open Console',
 };
 
 const actionDescriptions = {
@@ -167,7 +223,6 @@ function executeAction() {
     router.post(route('client.services.action', s.id), { action }, {
         preserveScroll: true,
         onSuccess: (page) => {
-            // VNC/Console: server returns a redirect_url — open in new tab
             const redirectUrl = page.props?.flash?.redirect_url;
             if (redirectUrl && (action === 'vnc' || action === 'console')) {
                 window.open(redirectUrl, '_blank');
@@ -180,7 +235,7 @@ function executeAction() {
     });
 }
 
-// ─── Password Change ───────────────────────────────────────
+// Password Change
 const showPasswordModal = ref(false);
 const passwordLoading = ref(false);
 
@@ -192,6 +247,19 @@ function doChangePassword() {
         onFinish: () => { passwordLoading.value = false; },
     });
 }
+
+// Auto-refresh VPS stats
+let refreshInterval = null;
+onMounted(() => {
+    if (isVps && isActive) {
+        refreshInterval = setInterval(() => {
+            router.reload({ only: ['vpsStats'], preserveScroll: true });
+        }, 30000);
+    }
+});
+onUnmounted(() => {
+    if (refreshInterval) clearInterval(refreshInterval);
+});
 </script>
 
 <template>
@@ -222,53 +290,131 @@ function doChangePassword() {
             {{ flash.error || $page.props.errors.whmcs }}
         </div>
 
-        <!-- ═══ VPS Hero Panel ═══ -->
-        <div v-if="isVps && isActive" class="mb-6 rounded-xl bg-gradient-to-r from-slate-800 to-slate-900 p-5 text-white shadow-lg">
-            <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-                <div class="flex items-center gap-4">
-                    <div class="w-12 h-12 rounded-xl bg-white/10 backdrop-blur flex items-center justify-center">
-                        <svg class="w-6 h-6 text-indigo-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2m-2-4h.01M17 16h.01" /></svg>
-                    </div>
-                    <div>
-                        <h2 class="text-base font-semibold">{{ s.name || s.groupname }}</h2>
-                        <div class="flex items-center gap-3 mt-1 text-[13px] text-slate-300">
-                            <span v-if="s.dedicatedip" class="flex items-center gap-1">
-                                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9" /></svg>
-                                {{ s.dedicatedip }}
-                            </span>
-                            <span v-if="s.domain" class="flex items-center gap-1">
-                                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2" /></svg>
-                                {{ s.domain }}
-                            </span>
+        <!-- VPS DASHBOARD HERO -->
+        <div v-if="isVps && isActive" class="mb-6">
+            <!-- VPS Info Header -->
+            <div class="rounded-t-xl bg-gradient-to-r from-slate-800 via-slate-800 to-indigo-900 p-5 text-white">
+                <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+                    <div class="flex items-center gap-4">
+                        <div class="relative">
+                            <div class="w-14 h-14 rounded-xl bg-white/10 backdrop-blur flex items-center justify-center text-2xl">{{ osIcon }}</div>
+                            <span :class="[vpsStatusColor, 'absolute -bottom-0.5 -right-0.5 w-4 h-4 rounded-full border-2 border-slate-800']" :title="vpsStatusLabel"></span>
+                        </div>
+                        <div>
+                            <div class="flex items-center gap-2.5">
+                                <h2 class="text-base font-semibold">{{ vps?.hostname || s.name || s.groupname }}</h2>
+                                <span :class="[vpsStatus === 'online' ? 'bg-emerald-500/20 text-emerald-300' : vpsStatus === 'offline' ? 'bg-red-500/20 text-red-300' : 'bg-amber-500/20 text-amber-300', 'text-[11px] px-2 py-0.5 rounded-full font-medium']">{{ vpsStatusLabel }}</span>
+                            </div>
+                            <div class="flex flex-wrap items-center gap-x-4 gap-y-1 mt-1.5 text-[13px] text-slate-300">
+                                <span v-if="vps?.os_name" class="flex items-center gap-1.5">
+                                    <svg class="w-3.5 h-3.5 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2zM9 9h6v6H9V9z" /></svg>
+                                    {{ vps.os_name }}
+                                </span>
+                                <span v-if="vps?.ips?.length" class="flex items-center gap-1.5 font-mono text-[12px]">
+                                    <svg class="w-3.5 h-3.5 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9" /></svg>
+                                    {{ vps.ips[0] }}<span v-if="vps.ips.length > 1" class="text-slate-500 ml-1">+{{ vps.ips.length - 1 }}</span>
+                                </span>
+                                <span v-else-if="s.dedicatedip" class="flex items-center gap-1.5 font-mono text-[12px]">
+                                    <svg class="w-3.5 h-3.5 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9" /></svg>
+                                    {{ s.dedicatedip }}
+                                </span>
+                                <span v-if="vps?.server_name" class="flex items-center gap-1.5">
+                                    <svg class="w-3.5 h-3.5 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2" /></svg>
+                                    {{ vps.server_name }}
+                                </span>
+                            </div>
                         </div>
                     </div>
+                    <div class="flex items-center gap-2 flex-shrink-0">
+                        <a v-if="panelLoginUrl" :href="panelLoginUrl" target="_blank" class="inline-flex items-center gap-2 px-4 py-2 bg-indigo-500 hover:bg-indigo-400 text-white text-[13px] font-semibold rounded-lg transition-colors shadow-sm">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" /></svg>
+                            {{ moduleName }}
+                        </a>
+                        <button @click="confirmAction('vnc')" :disabled="actionLoading === 'vnc'" class="inline-flex items-center gap-2 px-4 py-2 bg-white/10 hover:bg-white/20 text-white text-[13px] font-semibold rounded-lg transition-colors backdrop-blur">
+                            <svg v-if="actionLoading !== 'vnc'" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" /></svg>
+                            <svg v-else class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" /><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
+                            VNC
+                        </button>
+                    </div>
                 </div>
-                <div class="flex items-center gap-2">
-                    <a v-if="panelLoginUrl" :href="panelLoginUrl" target="_blank"
-                        class="inline-flex items-center gap-2 px-4 py-2 bg-indigo-500 hover:bg-indigo-400 text-white text-[13px] font-semibold rounded-lg transition-colors shadow-sm">
-                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" /></svg>
-                        Open {{ moduleName }}
-                    </a>
-                    <button @click="confirmAction('vnc')"
-                        :disabled="actionLoading === 'vnc'"
-                        class="inline-flex items-center gap-2 px-4 py-2 bg-white/10 hover:bg-white/20 text-white text-[13px] font-semibold rounded-lg transition-colors backdrop-blur">
-                        <svg v-if="actionLoading !== 'vnc'" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" /></svg>
-                        <svg v-else class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" /><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
-                        VNC Console
-                    </button>
+            </div>
+
+            <!-- Resource Usage Rings -->
+            <div v-if="vps" class="grid grid-cols-2 lg:grid-cols-4 gap-0 border-x border-b border-gray-200 rounded-b-xl bg-white overflow-hidden divide-x divide-gray-100">
+                <!-- CPU -->
+                <div class="p-4 text-center">
+                    <div class="relative w-20 h-20 mx-auto mb-2">
+                        <svg class="w-20 h-20 -rotate-90" viewBox="0 0 80 80">
+                            <circle cx="40" cy="40" r="34" fill="none" stroke-width="6" class="text-gray-100" stroke="currentColor" />
+                            <circle cx="40" cy="40" r="34" fill="none" stroke-width="6" :class="progressRingColor(vps.cpu_used)" stroke="currentColor" stroke-linecap="round" :stroke-dasharray="2 * Math.PI * 34" :stroke-dashoffset="2 * Math.PI * 34 * (1 - Math.min(vps.cpu_used, 100) / 100)" />
+                        </svg>
+                        <div class="absolute inset-0 flex items-center justify-center">
+                            <span class="text-[15px] font-bold text-gray-900">{{ vps.cpu_used.toFixed(1) }}%</span>
+                        </div>
+                    </div>
+                    <p class="text-[12px] font-semibold text-gray-700">CPU</p>
+                    <p class="text-[11px] text-gray-400">{{ vps.cpu_cores }} Core{{ vps.cpu_cores !== 1 ? 's' : '' }}</p>
+                </div>
+                <!-- RAM -->
+                <div class="p-4 text-center">
+                    <div class="relative w-20 h-20 mx-auto mb-2">
+                        <svg class="w-20 h-20 -rotate-90" viewBox="0 0 80 80">
+                            <circle cx="40" cy="40" r="34" fill="none" stroke-width="6" class="text-gray-100" stroke="currentColor" />
+                            <circle cx="40" cy="40" r="34" fill="none" stroke-width="6" :class="progressRingColor(vpsPercent(vps.ram_used, vps.ram_total))" stroke="currentColor" stroke-linecap="round" :stroke-dasharray="2 * Math.PI * 34" :stroke-dashoffset="2 * Math.PI * 34 * (1 - vpsPercent(vps.ram_used, vps.ram_total) / 100)" />
+                        </svg>
+                        <div class="absolute inset-0 flex items-center justify-center">
+                            <span class="text-[15px] font-bold text-gray-900">{{ vpsPercent(vps.ram_used, vps.ram_total) }}%</span>
+                        </div>
+                    </div>
+                    <p class="text-[12px] font-semibold text-gray-700">RAM</p>
+                    <p class="text-[11px] text-gray-400">{{ formatRam(vps.ram_used) }} / {{ formatRam(vps.ram_total) }}</p>
+                </div>
+                <!-- Disk -->
+                <div class="p-4 text-center">
+                    <div class="relative w-20 h-20 mx-auto mb-2">
+                        <svg class="w-20 h-20 -rotate-90" viewBox="0 0 80 80">
+                            <circle cx="40" cy="40" r="34" fill="none" stroke-width="6" class="text-gray-100" stroke="currentColor" />
+                            <circle cx="40" cy="40" r="34" fill="none" stroke-width="6" :class="progressRingColor(vpsPercent(vps.disk_used, vps.disk_total))" stroke="currentColor" stroke-linecap="round" :stroke-dasharray="2 * Math.PI * 34" :stroke-dashoffset="2 * Math.PI * 34 * (1 - vpsPercent(vps.disk_used, vps.disk_total) / 100)" />
+                        </svg>
+                        <div class="absolute inset-0 flex items-center justify-center">
+                            <span class="text-[15px] font-bold text-gray-900">{{ vpsPercent(vps.disk_used, vps.disk_total) }}%</span>
+                        </div>
+                    </div>
+                    <p class="text-[12px] font-semibold text-gray-700">Disk</p>
+                    <p class="text-[11px] text-gray-400">{{ formatDisk(vps.disk_used) }} / {{ formatDisk(vps.disk_total) }}</p>
+                </div>
+                <!-- Bandwidth -->
+                <div class="p-4 text-center">
+                    <div class="relative w-20 h-20 mx-auto mb-2">
+                        <svg class="w-20 h-20 -rotate-90" viewBox="0 0 80 80">
+                            <circle cx="40" cy="40" r="34" fill="none" stroke-width="6" class="text-gray-100" stroke="currentColor" />
+                            <circle cx="40" cy="40" r="34" fill="none" stroke-width="6" :class="progressRingColor(vps.bandwidth_total > 0 ? vpsPercent(vps.bandwidth_used, vps.bandwidth_total) : 0)" stroke="currentColor" stroke-linecap="round" :stroke-dasharray="2 * Math.PI * 34" :stroke-dashoffset="2 * Math.PI * 34 * (1 - (vps.bandwidth_total > 0 ? vpsPercent(vps.bandwidth_used, vps.bandwidth_total) : 0) / 100)" />
+                        </svg>
+                        <div class="absolute inset-0 flex items-center justify-center">
+                            <span class="text-[15px] font-bold text-gray-900">{{ vps.bandwidth_total > 0 ? vpsPercent(vps.bandwidth_used, vps.bandwidth_total) : 0 }}%</span>
+                        </div>
+                    </div>
+                    <p class="text-[12px] font-semibold text-gray-700">Bandwidth</p>
+                    <p class="text-[11px] text-gray-400">{{ formatBandwidth(vps.bandwidth_used) }} / {{ vps.bandwidth_total > 0 ? formatBandwidth(vps.bandwidth_total) : '\u221E' }}</p>
+                </div>
+            </div>
+            <!-- Loading skeleton -->
+            <div v-else class="grid grid-cols-2 lg:grid-cols-4 gap-0 border-x border-b border-gray-200 rounded-b-xl bg-white overflow-hidden divide-x divide-gray-100">
+                <div v-for="i in 4" :key="i" class="p-4 text-center animate-pulse">
+                    <div class="w-20 h-20 mx-auto mb-2 rounded-full bg-gray-100"></div>
+                    <div class="h-3 bg-gray-100 rounded w-12 mx-auto mb-1"></div>
+                    <div class="h-2.5 bg-gray-50 rounded w-20 mx-auto"></div>
                 </div>
             </div>
         </div>
 
-        <!-- ═══ Hosting Login Bar ═══ -->
+        <!-- Hosting Login Bar -->
         <div v-if="isHosting && isActive && panelLoginUrl" class="mb-6 flex flex-wrap gap-3">
-            <a :href="panelLoginUrl" target="_blank"
-                class="inline-flex items-center gap-2 px-5 py-2.5 bg-indigo-600 text-white text-[13px] font-semibold rounded-lg hover:bg-indigo-700 shadow-sm transition-colors">
+            <a :href="panelLoginUrl" target="_blank" class="inline-flex items-center gap-2 px-5 py-2.5 bg-indigo-600 text-white text-[13px] font-semibold rounded-lg hover:bg-indigo-700 shadow-sm transition-colors">
                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2zM9 9h6v6H9V9z" /></svg>
                 Login to {{ moduleName }}
             </a>
-            <a v-if="webmailUrl" :href="webmailUrl" target="_blank" rel="noopener"
-                class="inline-flex items-center gap-2 px-5 py-2.5 bg-white text-gray-700 text-[13px] font-semibold rounded-lg border border-gray-300 hover:bg-gray-50 shadow-sm transition-colors">
+            <a v-if="webmailUrl" :href="webmailUrl" target="_blank" rel="noopener" class="inline-flex items-center gap-2 px-5 py-2.5 bg-white text-gray-700 text-[13px] font-semibold rounded-lg border border-gray-300 hover:bg-gray-50 shadow-sm transition-colors">
                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" /></svg>
                 Login to Webmail
             </a>
@@ -277,18 +423,15 @@ function doChangePassword() {
         <!-- Tab Navigation -->
         <div v-if="tabs.length > 1" class="mb-6 border-b border-gray-200">
             <nav class="flex gap-6">
-                <button v-for="tab in tabs" :key="tab.id" @click="activeTab = tab.id"
-                    :class="['pb-3 text-[13px] font-medium border-b-2 transition-colors', activeTab === tab.id ? 'border-indigo-500 text-indigo-600' : 'border-transparent text-gray-500 hover:text-gray-700']">
-                    {{ tab.label }}
-                </button>
+                <button v-for="tab in tabs" :key="tab.id" @click="activeTab = tab.id" :class="['pb-3 text-[13px] font-medium border-b-2 transition-colors', activeTab === tab.id ? 'border-indigo-500 text-indigo-600' : 'border-transparent text-gray-500 hover:text-gray-700']">{{ tab.label }}</button>
             </nav>
         </div>
 
         <div class="grid lg:grid-cols-3 gap-6">
-            <!-- ═══ MAIN COLUMN ═══ -->
+            <!-- MAIN COLUMN -->
             <div class="lg:col-span-2 space-y-6">
 
-                <!-- ─── Overview Tab ─── -->
+                <!-- Overview Tab -->
                 <template v-if="activeTab === 'overview'">
                     <Card title="Service Details">
                         <dl class="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-4">
@@ -301,31 +444,20 @@ function doChangePassword() {
                             </div>
                         </dl>
                     </Card>
-
-                    <!-- Usage Statistics (Hosting) -->
                     <Card v-if="isHosting" title="Usage Statistics">
                         <div class="space-y-4">
                             <div v-for="stat in usageStats" :key="stat.label">
                                 <div class="flex justify-between text-[13px] mb-1.5">
                                     <span class="font-medium text-gray-700">{{ stat.label }}</span>
-                                    <span class="text-gray-500">
-                                        {{ formatUsage(stat.used, stat.unit) }} / {{ stat.limit > 0 ? formatUsage(stat.limit, stat.unit) : 'Unlimited' }}
-                                    </span>
+                                    <span class="text-gray-500">{{ formatUsage(stat.used, stat.unit) }} / {{ stat.limit > 0 ? formatUsage(stat.limit, stat.unit) : 'Unlimited' }}</span>
                                 </div>
                                 <div class="w-full bg-gray-100 rounded-full h-2.5">
-                                    <div class="h-2.5 rounded-full transition-all duration-500"
-                                        :class="usagePercent(stat.used, stat.limit) > 90 ? 'bg-red-500' : usagePercent(stat.used, stat.limit) > 70 ? 'bg-amber-500' : 'bg-indigo-500'"
-                                        :style="{ width: (stat.limit > 0 ? usagePercent(stat.used, stat.limit) : 0) + '%' }">
-                                    </div>
+                                    <div class="h-2.5 rounded-full transition-all duration-500" :class="usagePercent(stat.used, stat.limit) > 90 ? 'bg-red-500' : usagePercent(stat.used, stat.limit) > 70 ? 'bg-amber-500' : 'bg-indigo-500'" :style="{ width: (stat.limit > 0 ? usagePercent(stat.used, stat.limit) : 0) + '%' }"></div>
                                 </div>
                             </div>
-                            <p v-if="usageStats.every(u => u.used === 0 && u.limit === 0)" class="text-[13px] text-gray-400 text-center py-2">
-                                Usage statistics are updated periodically. Data may not be available immediately.
-                            </p>
+                            <p v-if="usageStats.every(u => u.used === 0 && u.limit === 0)" class="text-[13px] text-gray-400 text-center py-2">Usage statistics are updated periodically.</p>
                         </div>
                     </Card>
-
-                    <!-- Config Options (inline on overview if no management tab) -->
                     <Card v-if="hasConfig && !isHosting && !isVps" title="Configuration Options">
                         <dl class="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-3">
                             <div v-for="opt in configOptions" :key="opt.id || opt.option">
@@ -334,8 +466,6 @@ function doChangePassword() {
                             </div>
                         </dl>
                     </Card>
-
-                    <!-- Custom Fields -->
                     <Card v-if="hasCustomFields" title="Additional Details">
                         <dl class="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-3">
                             <div v-for="cf in customFields" :key="cf.id">
@@ -346,166 +476,132 @@ function doChangePassword() {
                     </Card>
                 </template>
 
-                <!-- ─── Management Tab (Hosting) ─── -->
+                <!-- Management Tab (Hosting) -->
                 <template v-if="activeTab === 'management' && isHosting">
                     <Card title="Quick Access" description="Login to your hosting control panel to manage your website.">
                         <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                            <a v-if="panelLoginUrl" :href="panelLoginUrl" target="_blank"
-                                class="flex items-center gap-3 p-4 rounded-xl border border-gray-200 hover:border-indigo-300 hover:bg-indigo-50/60 transition-all group">
-                                <div class="w-10 h-10 rounded-lg bg-indigo-100 flex items-center justify-center flex-shrink-0">
-                                    <svg class="w-5 h-5 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2zM9 9h6v6H9V9z" /></svg>
-                                </div>
-                                <div class="min-w-0">
-                                    <p class="text-[13px] font-semibold text-gray-900 group-hover:text-indigo-700">Login to {{ moduleName }}</p>
-                                    <p class="text-[11px] text-gray-500">Manage files, emails, databases &amp; more</p>
-                                </div>
+                            <a v-if="panelLoginUrl" :href="panelLoginUrl" target="_blank" class="flex items-center gap-3 p-4 rounded-xl border border-gray-200 hover:border-indigo-300 hover:bg-indigo-50/60 transition-all group">
+                                <div class="w-10 h-10 rounded-lg bg-indigo-100 flex items-center justify-center flex-shrink-0"><svg class="w-5 h-5 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2zM9 9h6v6H9V9z" /></svg></div>
+                                <div class="min-w-0"><p class="text-[13px] font-semibold text-gray-900 group-hover:text-indigo-700">Login to {{ moduleName }}</p><p class="text-[11px] text-gray-500">Manage files, emails, databases and more</p></div>
                                 <svg class="w-4 h-4 text-gray-300 ml-auto flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" /></svg>
                             </a>
-                            <a v-if="webmailUrl" :href="webmailUrl" target="_blank" rel="noopener"
-                                class="flex items-center gap-3 p-4 rounded-xl border border-gray-200 hover:border-emerald-300 hover:bg-emerald-50/60 transition-all group">
-                                <div class="w-10 h-10 rounded-lg bg-emerald-100 flex items-center justify-center flex-shrink-0">
-                                    <svg class="w-5 h-5 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" /></svg>
-                                </div>
-                                <div class="min-w-0">
-                                    <p class="text-[13px] font-semibold text-gray-900 group-hover:text-emerald-700">Login to Webmail</p>
-                                    <p class="text-[11px] text-gray-500">Access your email inbox</p>
-                                </div>
+                            <a v-if="webmailUrl" :href="webmailUrl" target="_blank" rel="noopener" class="flex items-center gap-3 p-4 rounded-xl border border-gray-200 hover:border-emerald-300 hover:bg-emerald-50/60 transition-all group">
+                                <div class="w-10 h-10 rounded-lg bg-emerald-100 flex items-center justify-center flex-shrink-0"><svg class="w-5 h-5 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" /></svg></div>
+                                <div class="min-w-0"><p class="text-[13px] font-semibold text-gray-900 group-hover:text-emerald-700">Login to Webmail</p><p class="text-[11px] text-gray-500">Access your email inbox</p></div>
                                 <svg class="w-4 h-4 text-gray-300 ml-auto flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" /></svg>
                             </a>
                         </div>
                     </Card>
-
-                    <!-- Management Tools Grid (Hosting) -->
                     <Card title="Management Tools" description="Common hosting management tasks via your control panel.">
                         <div class="grid grid-cols-2 sm:grid-cols-3 gap-3">
-                            <a :href="ssoUrl('file/filemanager')" target="_blank"
-                                class="flex flex-col items-center gap-2.5 p-4 rounded-xl border border-gray-100 bg-gray-50/50 hover:bg-white hover:border-gray-200 hover:shadow-sm transition-all group">
-                                <div class="w-10 h-10 rounded-lg bg-blue-100 flex items-center justify-center">
-                                    <svg class="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" /></svg>
-                                </div>
-                                <span class="text-[12px] font-medium text-gray-700 group-hover:text-gray-900 text-center">File Manager</span>
-                            </a>
-                            <a :href="ssoUrl('email/emailaccounts')" target="_blank"
-                                class="flex flex-col items-center gap-2.5 p-4 rounded-xl border border-gray-100 bg-gray-50/50 hover:bg-white hover:border-gray-200 hover:shadow-sm transition-all group">
-                                <div class="w-10 h-10 rounded-lg bg-emerald-100 flex items-center justify-center">
-                                    <svg class="w-5 h-5 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M16 12a4 4 0 10-8 0 4 4 0 008 0zm0 0v1.5a2.5 2.5 0 005 0V12a9 9 0 10-9 9m4.5-1.206a8.959 8.959 0 01-4.5 1.207" /></svg>
-                                </div>
-                                <span class="text-[12px] font-medium text-gray-700 group-hover:text-gray-900 text-center">Email Accounts</span>
-                            </a>
-                            <a :href="ssoUrl('database/mysqldatabases')" target="_blank"
-                                class="flex flex-col items-center gap-2.5 p-4 rounded-xl border border-gray-100 bg-gray-50/50 hover:bg-white hover:border-gray-200 hover:shadow-sm transition-all group">
-                                <div class="w-10 h-10 rounded-lg bg-orange-100 flex items-center justify-center">
-                                    <svg class="w-5 h-5 text-orange-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4m0 5c0 2.21-3.582 4-8 4s-8-1.79-8-4" /></svg>
-                                </div>
-                                <span class="text-[12px] font-medium text-gray-700 group-hover:text-gray-900 text-center">MySQL Databases</span>
-                            </a>
-                            <a :href="ssoUrl('tool/sslcertificates')" target="_blank"
-                                class="flex flex-col items-center gap-2.5 p-4 rounded-xl border border-gray-100 bg-gray-50/50 hover:bg-white hover:border-gray-200 hover:shadow-sm transition-all group">
-                                <div class="w-10 h-10 rounded-lg bg-purple-100 flex items-center justify-center">
-                                    <svg class="w-5 h-5 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" /></svg>
-                                </div>
-                                <span class="text-[12px] font-medium text-gray-700 group-hover:text-gray-900 text-center">Security / SSL</span>
-                            </a>
-                            <a :href="ssoUrl('domain/addondomains')" target="_blank"
-                                class="flex flex-col items-center gap-2.5 p-4 rounded-xl border border-gray-100 bg-gray-50/50 hover:bg-white hover:border-gray-200 hover:shadow-sm transition-all group">
-                                <div class="w-10 h-10 rounded-lg bg-cyan-100 flex items-center justify-center">
-                                    <svg class="w-5 h-5 text-cyan-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9" /></svg>
-                                </div>
-                                <span class="text-[12px] font-medium text-gray-700 group-hover:text-gray-900 text-center">Domains</span>
-                            </a>
-                            <a :href="ssoUrl('domain/dnseditor')" target="_blank"
-                                class="flex flex-col items-center gap-2.5 p-4 rounded-xl border border-gray-100 bg-gray-50/50 hover:bg-white hover:border-gray-200 hover:shadow-sm transition-all group">
-                                <div class="w-10 h-10 rounded-lg bg-indigo-100 flex items-center justify-center">
-                                    <svg class="w-5 h-5 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2m-2-4h.01M17 16h.01" /></svg>
-                                </div>
-                                <span class="text-[12px] font-medium text-gray-700 group-hover:text-gray-900 text-center">DNS Editor</span>
-                            </a>
+                            <a :href="ssoUrl('file/filemanager')" target="_blank" class="flex flex-col items-center gap-2.5 p-4 rounded-xl border border-gray-100 bg-gray-50/50 hover:bg-white hover:border-gray-200 hover:shadow-sm transition-all group"><div class="w-10 h-10 rounded-lg bg-blue-100 flex items-center justify-center"><svg class="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" /></svg></div><span class="text-[12px] font-medium text-gray-700 group-hover:text-gray-900 text-center">File Manager</span></a>
+                            <a :href="ssoUrl('email/emailaccounts')" target="_blank" class="flex flex-col items-center gap-2.5 p-4 rounded-xl border border-gray-100 bg-gray-50/50 hover:bg-white hover:border-gray-200 hover:shadow-sm transition-all group"><div class="w-10 h-10 rounded-lg bg-emerald-100 flex items-center justify-center"><svg class="w-5 h-5 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M16 12a4 4 0 10-8 0 4 4 0 008 0zm0 0v1.5a2.5 2.5 0 005 0V12a9 9 0 10-9 9m4.5-1.206a8.959 8.959 0 01-4.5 1.207" /></svg></div><span class="text-[12px] font-medium text-gray-700 group-hover:text-gray-900 text-center">Email Accounts</span></a>
+                            <a :href="ssoUrl('database/mysqldatabases')" target="_blank" class="flex flex-col items-center gap-2.5 p-4 rounded-xl border border-gray-100 bg-gray-50/50 hover:bg-white hover:border-gray-200 hover:shadow-sm transition-all group"><div class="w-10 h-10 rounded-lg bg-orange-100 flex items-center justify-center"><svg class="w-5 h-5 text-orange-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4m0 5c0 2.21-3.582 4-8 4s-8-1.79-8-4" /></svg></div><span class="text-[12px] font-medium text-gray-700 group-hover:text-gray-900 text-center">MySQL Databases</span></a>
+                            <a :href="ssoUrl('tool/sslcertificates')" target="_blank" class="flex flex-col items-center gap-2.5 p-4 rounded-xl border border-gray-100 bg-gray-50/50 hover:bg-white hover:border-gray-200 hover:shadow-sm transition-all group"><div class="w-10 h-10 rounded-lg bg-purple-100 flex items-center justify-center"><svg class="w-5 h-5 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" /></svg></div><span class="text-[12px] font-medium text-gray-700 group-hover:text-gray-900 text-center">Security / SSL</span></a>
+                            <a :href="ssoUrl('domain/addondomains')" target="_blank" class="flex flex-col items-center gap-2.5 p-4 rounded-xl border border-gray-100 bg-gray-50/50 hover:bg-white hover:border-gray-200 hover:shadow-sm transition-all group"><div class="w-10 h-10 rounded-lg bg-cyan-100 flex items-center justify-center"><svg class="w-5 h-5 text-cyan-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9" /></svg></div><span class="text-[12px] font-medium text-gray-700 group-hover:text-gray-900 text-center">Domains</span></a>
+                            <a :href="ssoUrl('domain/dnseditor')" target="_blank" class="flex flex-col items-center gap-2.5 p-4 rounded-xl border border-gray-100 bg-gray-50/50 hover:bg-white hover:border-gray-200 hover:shadow-sm transition-all group"><div class="w-10 h-10 rounded-lg bg-indigo-100 flex items-center justify-center"><svg class="w-5 h-5 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2m-2-4h.01M17 16h.01" /></svg></div><span class="text-[12px] font-medium text-gray-700 group-hover:text-gray-900 text-center">DNS Editor</span></a>
                         </div>
                         <p class="mt-3 text-[11px] text-gray-400 text-center">All tools open in {{ moduleName }} via SSO login.</p>
                     </Card>
-
                     <Card v-if="hasConfig" title="Configuration Options">
-                        <dl class="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-3">
-                            <div v-for="opt in configOptions" :key="opt.id || opt.option">
-                                <dt class="text-[12px] font-medium text-gray-500">{{ opt.option || opt.optionname }}</dt>
-                                <dd class="text-[14px] text-gray-900 mt-0.5">{{ opt.value }}</dd>
-                            </div>
-                        </dl>
+                        <dl class="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-3"><div v-for="opt in configOptions" :key="opt.id || opt.option"><dt class="text-[12px] font-medium text-gray-500">{{ opt.option || opt.optionname }}</dt><dd class="text-[14px] text-gray-900 mt-0.5">{{ opt.value }}</dd></div></dl>
                     </Card>
                 </template>
 
-                <!-- ─── Management Tab (VPS) ─── -->
+                <!-- Management Tab (VPS) -->
                 <template v-if="activeTab === 'management' && isVps">
-                    <!-- VPS Panel Access -->
-                    <Card title="Panel Access" description="Access your VPS control panel to manage your virtual server.">
-                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                            <a v-if="panelLoginUrl" :href="panelLoginUrl" target="_blank"
-                                class="flex items-center gap-3 p-4 rounded-xl border border-gray-200 hover:border-indigo-300 hover:bg-indigo-50/60 transition-all group">
-                                <div class="w-10 h-10 rounded-lg bg-indigo-100 flex items-center justify-center flex-shrink-0">
-                                    <svg class="w-5 h-5 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2m-2-4h.01M17 16h.01" /></svg>
-                                </div>
-                                <div class="min-w-0">
-                                    <p class="text-[13px] font-semibold text-gray-900 group-hover:text-indigo-700">Login to {{ moduleName }}</p>
-                                    <p class="text-[11px] text-gray-500">Manage your VPS, OS, resources &amp; more</p>
-                                </div>
-                                <svg class="w-4 h-4 text-gray-300 ml-auto flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" /></svg>
-                            </a>
+                    <!-- VPS Information -->
+                    <Card v-if="vps" title="VPS Information" description="Live server details from Virtualizor.">
+                        <dl class="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-4">
+                            <div v-if="vps.os_name"><dt class="text-[12px] font-medium text-gray-500 uppercase tracking-wider">Operating System</dt><dd class="mt-1 text-[14px] text-gray-900 flex items-center gap-2"><span>{{ osIcon }}</span> {{ vps.os_name }}</dd></div>
+                            <div><dt class="text-[12px] font-medium text-gray-500 uppercase tracking-wider">Hostname</dt><dd class="mt-1 text-[13px] text-gray-900 font-mono">{{ vps.hostname || s.domain || '\u2014' }}</dd></div>
+                            <div><dt class="text-[12px] font-medium text-gray-500 uppercase tracking-wider">Status</dt><dd class="mt-1 flex items-center gap-2"><span :class="[vpsStatusColor, 'w-2.5 h-2.5 rounded-full inline-block']"></span><span class="text-[14px] text-gray-900 font-medium">{{ vpsStatusLabel }}</span></dd></div>
+                            <div v-if="vps.ips?.length"><dt class="text-[12px] font-medium text-gray-500 uppercase tracking-wider">IP Address{{ vps.ips.length > 1 ? 'es' : '' }}</dt><dd class="mt-1 space-y-0.5"><span v-for="ip in vps.ips" :key="ip" class="block text-[13px] text-gray-900 font-mono">{{ ip }}</span></dd></div>
+                            <div v-else-if="s.dedicatedip"><dt class="text-[12px] font-medium text-gray-500 uppercase tracking-wider">IP Address</dt><dd class="mt-1 text-[13px] text-gray-900 font-mono">{{ s.dedicatedip }}</dd></div>
+                            <div v-if="vps.ips6?.length"><dt class="text-[12px] font-medium text-gray-500 uppercase tracking-wider">IPv6</dt><dd class="mt-1 space-y-0.5"><span v-for="ip in vps.ips6" :key="ip" class="block text-[12px] text-gray-900 font-mono break-all">{{ ip }}</span></dd></div>
+                            <div v-if="vps.server_name"><dt class="text-[12px] font-medium text-gray-500 uppercase tracking-wider">Server</dt><dd class="mt-1 text-[14px] text-gray-900">{{ vps.server_name }}</dd></div>
+                            <div v-if="vps.virt"><dt class="text-[12px] font-medium text-gray-500 uppercase tracking-wider">Virtualization</dt><dd class="mt-1 text-[14px] text-gray-900 uppercase">{{ vps.virt }}</dd></div>
+                            <div v-if="vps.cpu_cores"><dt class="text-[12px] font-medium text-gray-500 uppercase tracking-wider">CPU Cores</dt><dd class="mt-1 text-[14px] text-gray-900">{{ vps.cpu_cores }}</dd></div>
+                            <div v-if="vps.ram_total"><dt class="text-[12px] font-medium text-gray-500 uppercase tracking-wider">RAM</dt><dd class="mt-1 text-[14px] text-gray-900">{{ formatRam(vps.ram_total) }}</dd></div>
+                            <div v-if="vps.disk_total"><dt class="text-[12px] font-medium text-gray-500 uppercase tracking-wider">Disk Space</dt><dd class="mt-1 text-[14px] text-gray-900">{{ formatDisk(vps.disk_total) }}</dd></div>
+                        </dl>
+                    </Card>
 
-                            <button @click="confirmAction('vnc')"
-                                :disabled="actionLoading === 'vnc'"
-                                class="flex items-center gap-3 p-4 rounded-xl border border-gray-200 hover:border-violet-300 hover:bg-violet-50/60 transition-all group text-left disabled:opacity-50 disabled:cursor-wait">
-                                <div class="w-10 h-10 rounded-lg bg-violet-100 flex items-center justify-center flex-shrink-0">
-                                    <svg v-if="actionLoading !== 'vnc'" class="w-5 h-5 text-violet-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" /></svg>
-                                    <svg v-else class="w-5 h-5 text-violet-600 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" /><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
+                    <!-- Resource Usage Bars -->
+                    <Card v-if="vps" title="Resource Usage" description="Live resource consumption. Auto-refreshes every 30 seconds.">
+                        <div class="space-y-5">
+                            <div>
+                                <div class="flex justify-between text-[13px] mb-1.5">
+                                    <span class="font-medium text-gray-700 flex items-center gap-2">
+                                        <svg class="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2zM9 9h6v6H9V9z" /></svg>
+                                        CPU ({{ vps.cpu_cores }} Core{{ vps.cpu_cores !== 1 ? 's' : '' }})
+                                    </span>
+                                    <span class="text-gray-500 font-semibold">{{ vps.cpu_used.toFixed(1) }}%</span>
                                 </div>
-                                <div class="min-w-0">
-                                    <p class="text-[13px] font-semibold text-gray-900 group-hover:text-violet-700">VNC Console</p>
-                                    <p class="text-[11px] text-gray-500">Direct console access to your VPS</p>
+                                <div class="w-full bg-gray-100 rounded-full h-3"><div class="h-3 rounded-full transition-all duration-700" :class="progressColor(vps.cpu_used)" :style="{ width: Math.min(vps.cpu_used, 100) + '%' }"></div></div>
+                            </div>
+                            <div>
+                                <div class="flex justify-between text-[13px] mb-1.5">
+                                    <span class="font-medium text-gray-700 flex items-center gap-2">
+                                        <svg class="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" /></svg>
+                                        RAM
+                                    </span>
+                                    <span class="text-gray-500">{{ formatRam(vps.ram_used) }} / {{ formatRam(vps.ram_total) }}</span>
                                 </div>
-                            </button>
+                                <div class="w-full bg-gray-100 rounded-full h-3"><div class="h-3 rounded-full transition-all duration-700" :class="progressColor(vpsPercent(vps.ram_used, vps.ram_total))" :style="{ width: vpsPercent(vps.ram_used, vps.ram_total) + '%' }"></div></div>
+                            </div>
+                            <div>
+                                <div class="flex justify-between text-[13px] mb-1.5">
+                                    <span class="font-medium text-gray-700 flex items-center gap-2">
+                                        <svg class="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4 7v10c0 2 1.79 4 4 4h8c2.21 0 4-1.79 4-4V7M4 7c0-2 1.79-4 4-4h8c2.21 0 4 1.79 4 4M4 7h16M12 11v6m-3-3h6" /></svg>
+                                        Disk
+                                    </span>
+                                    <span class="text-gray-500">{{ formatDisk(vps.disk_used) }} / {{ formatDisk(vps.disk_total) }}</span>
+                                </div>
+                                <div class="w-full bg-gray-100 rounded-full h-3"><div class="h-3 rounded-full transition-all duration-700" :class="progressColor(vpsPercent(vps.disk_used, vps.disk_total))" :style="{ width: vpsPercent(vps.disk_used, vps.disk_total) + '%' }"></div></div>
+                            </div>
+                            <div>
+                                <div class="flex justify-between text-[13px] mb-1.5">
+                                    <span class="font-medium text-gray-700 flex items-center gap-2">
+                                        <svg class="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M7 16V4m0 0L3 8m4-4l4 4m6 0v12m0 0l4-4m-4 4l-4-4" /></svg>
+                                        Bandwidth
+                                    </span>
+                                    <span class="text-gray-500">{{ formatBandwidth(vps.bandwidth_used) }} / {{ vps.bandwidth_total > 0 ? formatBandwidth(vps.bandwidth_total) : 'Unlimited' }}</span>
+                                </div>
+                                <div class="w-full bg-gray-100 rounded-full h-3"><div class="h-3 rounded-full transition-all duration-700" :class="progressColor(vps.bandwidth_total > 0 ? vpsPercent(vps.bandwidth_used, vps.bandwidth_total) : 0)" :style="{ width: (vps.bandwidth_total > 0 ? vpsPercent(vps.bandwidth_used, vps.bandwidth_total) : 0) + '%' }"></div></div>
+                            </div>
                         </div>
+                        <p class="mt-4 text-[11px] text-gray-400 text-center flex items-center justify-center gap-1">
+                            <svg class="w-3.5 h-3.5 animate-pulse" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
+                            Auto-refreshing every 30 seconds
+                        </p>
                     </Card>
 
                     <!-- VPS Power Actions -->
                     <Card title="Power Actions" description="Control your VPS power state.">
                         <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                            <!-- Boot -->
-                            <button @click="confirmAction('boot')"
-                                :disabled="actionLoading === 'boot'"
-                                class="flex flex-col items-center gap-2.5 p-4 rounded-xl border border-gray-100 bg-gray-50/50 hover:bg-emerald-50 hover:border-emerald-200 hover:shadow-sm transition-all group disabled:opacity-50 disabled:cursor-wait">
+                            <button @click="confirmAction('boot')" :disabled="actionLoading === 'boot'" class="flex flex-col items-center gap-2.5 p-4 rounded-xl border border-gray-100 bg-gray-50/50 hover:bg-emerald-50 hover:border-emerald-200 hover:shadow-sm transition-all group disabled:opacity-50 disabled:cursor-wait">
                                 <div class="w-10 h-10 rounded-lg bg-emerald-100 flex items-center justify-center">
                                     <svg v-if="actionLoading !== 'boot'" class="w-5 h-5 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M5.636 5.636a9 9 0 1012.728 0M12 3v9" /></svg>
                                     <svg v-else class="w-5 h-5 text-emerald-600 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" /><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
                                 </div>
                                 <span class="text-[12px] font-medium text-gray-700 group-hover:text-emerald-700 text-center">Boot</span>
                             </button>
-
-                            <!-- Reboot -->
-                            <button @click="confirmAction('reboot')"
-                                :disabled="actionLoading === 'reboot'"
-                                class="flex flex-col items-center gap-2.5 p-4 rounded-xl border border-gray-100 bg-gray-50/50 hover:bg-amber-50 hover:border-amber-200 hover:shadow-sm transition-all group disabled:opacity-50 disabled:cursor-wait">
+                            <button @click="confirmAction('reboot')" :disabled="actionLoading === 'reboot'" class="flex flex-col items-center gap-2.5 p-4 rounded-xl border border-gray-100 bg-gray-50/50 hover:bg-amber-50 hover:border-amber-200 hover:shadow-sm transition-all group disabled:opacity-50 disabled:cursor-wait">
                                 <div class="w-10 h-10 rounded-lg bg-amber-100 flex items-center justify-center">
                                     <svg v-if="actionLoading !== 'reboot'" class="w-5 h-5 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
                                     <svg v-else class="w-5 h-5 text-amber-600 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" /><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
                                 </div>
                                 <span class="text-[12px] font-medium text-gray-700 group-hover:text-amber-700 text-center">Reboot</span>
                             </button>
-
-                            <!-- Shutdown -->
-                            <button @click="confirmAction('shutdown')"
-                                :disabled="actionLoading === 'shutdown'"
-                                class="flex flex-col items-center gap-2.5 p-4 rounded-xl border border-gray-100 bg-gray-50/50 hover:bg-red-50 hover:border-red-200 hover:shadow-sm transition-all group disabled:opacity-50 disabled:cursor-wait">
+                            <button @click="confirmAction('shutdown')" :disabled="actionLoading === 'shutdown'" class="flex flex-col items-center gap-2.5 p-4 rounded-xl border border-gray-100 bg-gray-50/50 hover:bg-red-50 hover:border-red-200 hover:shadow-sm transition-all group disabled:opacity-50 disabled:cursor-wait">
                                 <div class="w-10 h-10 rounded-lg bg-red-100 flex items-center justify-center">
                                     <svg v-if="actionLoading !== 'shutdown'" class="w-5 h-5 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" /></svg>
                                     <svg v-else class="w-5 h-5 text-red-600 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" /><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
                                 </div>
                                 <span class="text-[12px] font-medium text-gray-700 group-hover:text-red-700 text-center">Shutdown</span>
                             </button>
-
-                            <!-- Reset Password -->
-                            <button @click="confirmAction('resetpassword')"
-                                :disabled="actionLoading === 'resetpassword'"
-                                class="flex flex-col items-center gap-2.5 p-4 rounded-xl border border-gray-100 bg-gray-50/50 hover:bg-blue-50 hover:border-blue-200 hover:shadow-sm transition-all group disabled:opacity-50 disabled:cursor-wait">
+                            <button @click="confirmAction('resetpassword')" :disabled="actionLoading === 'resetpassword'" class="flex flex-col items-center gap-2.5 p-4 rounded-xl border border-gray-100 bg-gray-50/50 hover:bg-blue-50 hover:border-blue-200 hover:shadow-sm transition-all group disabled:opacity-50 disabled:cursor-wait">
                                 <div class="w-10 h-10 rounded-lg bg-blue-100 flex items-center justify-center">
                                     <svg v-if="actionLoading !== 'resetpassword'" class="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M15.75 5.25a3 3 0 013 3m3 0a6 6 0 01-7.029 5.912c-.563-.097-1.159.026-1.563.43L10.5 17.25H8.25v2.25H6v2.25H2.25v-2.818c0-.597.237-1.17.659-1.591l6.499-6.499c.404-.404.527-1 .43-1.563A6 6 0 1121.75 8.25z" /></svg>
                                     <svg v-else class="w-5 h-5 text-blue-600 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" /><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
@@ -515,7 +611,24 @@ function doChangePassword() {
                         </div>
                     </Card>
 
-                    <!-- Config Options on VPS Management tab -->
+                    <!-- Panel Access -->
+                    <Card title="Panel Access" description="Access your VPS control panel.">
+                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                            <a v-if="panelLoginUrl" :href="panelLoginUrl" target="_blank" class="flex items-center gap-3 p-4 rounded-xl border border-gray-200 hover:border-indigo-300 hover:bg-indigo-50/60 transition-all group">
+                                <div class="w-10 h-10 rounded-lg bg-indigo-100 flex items-center justify-center flex-shrink-0"><svg class="w-5 h-5 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2m-2-4h.01M17 16h.01" /></svg></div>
+                                <div class="min-w-0"><p class="text-[13px] font-semibold text-gray-900 group-hover:text-indigo-700">Login to {{ moduleName }}</p><p class="text-[11px] text-gray-500">Manage your VPS, OS, resources and more</p></div>
+                                <svg class="w-4 h-4 text-gray-300 ml-auto flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" /></svg>
+                            </a>
+                            <button @click="confirmAction('vnc')" :disabled="actionLoading === 'vnc'" class="flex items-center gap-3 p-4 rounded-xl border border-gray-200 hover:border-violet-300 hover:bg-violet-50/60 transition-all group text-left disabled:opacity-50 disabled:cursor-wait">
+                                <div class="w-10 h-10 rounded-lg bg-violet-100 flex items-center justify-center flex-shrink-0">
+                                    <svg v-if="actionLoading !== 'vnc'" class="w-5 h-5 text-violet-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" /></svg>
+                                    <svg v-else class="w-5 h-5 text-violet-600 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" /><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
+                                </div>
+                                <div class="min-w-0"><p class="text-[13px] font-semibold text-gray-900 group-hover:text-violet-700">VNC Console</p><p class="text-[11px] text-gray-500">Direct console access to your VPS</p></div>
+                            </button>
+                        </div>
+                    </Card>
+
                     <Card v-if="hasConfig" title="Configuration Options">
                         <dl class="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-3">
                             <div v-for="opt in configOptions" :key="opt.id || opt.option">
@@ -526,7 +639,7 @@ function doChangePassword() {
                     </Card>
                 </template>
 
-                <!-- ─── Configuration Tab ─── -->
+                <!-- Configuration Tab -->
                 <template v-if="activeTab === 'config'">
                     <Card v-if="hasConfig" title="Configuration Options">
                         <dl class="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-3">
@@ -547,35 +660,26 @@ function doChangePassword() {
                 </template>
             </div>
 
-            <!-- ═══ SIDEBAR ═══ -->
+            <!-- SIDEBAR -->
             <div class="space-y-4">
-
-                <!-- VPS Quick Actions (sidebar) -->
                 <Card v-if="isVps && isActive" title="Quick Actions">
                     <div class="space-y-2">
-                        <a v-if="panelLoginUrl" :href="panelLoginUrl" target="_blank"
-                            class="w-full flex items-center gap-2.5 px-3 py-2.5 text-[13px] font-medium text-indigo-700 bg-indigo-50 rounded-lg hover:bg-indigo-100 transition-colors">
+                        <a v-if="panelLoginUrl" :href="panelLoginUrl" target="_blank" class="w-full flex items-center gap-2.5 px-3 py-2.5 text-[13px] font-medium text-indigo-700 bg-indigo-50 rounded-lg hover:bg-indigo-100 transition-colors">
                             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2m-2-4h.01M17 16h.01" /></svg>
                             Open {{ moduleName }}
                             <svg class="w-3.5 h-3.5 ml-auto text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" /></svg>
                         </a>
-
-                        <button @click="confirmAction('boot')" :disabled="actionLoading === 'boot'"
-                            class="w-full flex items-center gap-2.5 px-3 py-2.5 text-[13px] font-medium text-emerald-700 bg-emerald-50 rounded-lg hover:bg-emerald-100 transition-colors disabled:opacity-50">
+                        <button @click="confirmAction('boot')" :disabled="actionLoading === 'boot'" class="w-full flex items-center gap-2.5 px-3 py-2.5 text-[13px] font-medium text-emerald-700 bg-emerald-50 rounded-lg hover:bg-emerald-100 transition-colors disabled:opacity-50">
                             <svg v-if="actionLoading !== 'boot'" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5.636 5.636a9 9 0 1012.728 0M12 3v9" /></svg>
                             <svg v-else class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" /><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
                             Boot
                         </button>
-
-                        <button @click="confirmAction('reboot')" :disabled="actionLoading === 'reboot'"
-                            class="w-full flex items-center gap-2.5 px-3 py-2.5 text-[13px] font-medium text-amber-700 bg-amber-50 rounded-lg hover:bg-amber-100 transition-colors disabled:opacity-50">
+                        <button @click="confirmAction('reboot')" :disabled="actionLoading === 'reboot'" class="w-full flex items-center gap-2.5 px-3 py-2.5 text-[13px] font-medium text-amber-700 bg-amber-50 rounded-lg hover:bg-amber-100 transition-colors disabled:opacity-50">
                             <svg v-if="actionLoading !== 'reboot'" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
                             <svg v-else class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" /><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
                             Reboot
                         </button>
-
-                        <button @click="confirmAction('shutdown')" :disabled="actionLoading === 'shutdown'"
-                            class="w-full flex items-center gap-2.5 px-3 py-2.5 text-[13px] font-medium text-red-700 bg-red-50 rounded-lg hover:bg-red-100 transition-colors disabled:opacity-50">
+                        <button @click="confirmAction('shutdown')" :disabled="actionLoading === 'shutdown'" class="w-full flex items-center gap-2.5 px-3 py-2.5 text-[13px] font-medium text-red-700 bg-red-50 rounded-lg hover:bg-red-100 transition-colors disabled:opacity-50">
                             <svg v-if="actionLoading !== 'shutdown'" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" /></svg>
                             <svg v-else class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" /><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
                             Shutdown
@@ -583,50 +687,70 @@ function doChangePassword() {
                     </div>
                 </Card>
 
-                <!-- Hosting Actions (sidebar) -->
                 <Card v-if="isHosting" title="Actions">
                     <div class="space-y-2">
-                        <a v-if="isActive && panelLoginUrl" :href="panelLoginUrl" target="_blank"
-                            class="w-full flex items-center gap-2.5 px-3 py-2.5 text-[13px] font-medium text-indigo-700 bg-indigo-50 rounded-lg hover:bg-indigo-100 transition-colors">
+                        <a v-if="isActive && panelLoginUrl" :href="panelLoginUrl" target="_blank" class="w-full flex items-center gap-2.5 px-3 py-2.5 text-[13px] font-medium text-indigo-700 bg-indigo-50 rounded-lg hover:bg-indigo-100 transition-colors">
                             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2zM9 9h6v6H9V9z" /></svg>
                             Login to {{ moduleName }}
                         </a>
-                        <a v-if="isActive && webmailUrl" :href="webmailUrl" target="_blank" rel="noopener"
-                            class="w-full flex items-center gap-2.5 px-3 py-2.5 text-[13px] font-medium text-emerald-700 bg-emerald-50 rounded-lg hover:bg-emerald-100 transition-colors">
+                        <a v-if="isActive && webmailUrl" :href="webmailUrl" target="_blank" rel="noopener" class="w-full flex items-center gap-2.5 px-3 py-2.5 text-[13px] font-medium text-emerald-700 bg-emerald-50 rounded-lg hover:bg-emerald-100 transition-colors">
                             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" /></svg>
                             Login to Webmail
                         </a>
                     </div>
                 </Card>
 
-                <!-- Manage Card (shared) -->
                 <Card title="Manage">
                     <div class="space-y-2">
-                        <button v-if="isActive" @click="showPasswordModal = true" :disabled="passwordLoading"
-                            class="w-full flex items-center gap-2.5 px-3 py-2.5 text-[13px] font-medium text-gray-700 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors disabled:opacity-50">
+                        <button v-if="isActive" @click="showPasswordModal = true" :disabled="passwordLoading" class="w-full flex items-center gap-2.5 px-3 py-2.5 text-[13px] font-medium text-gray-700 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors disabled:opacity-50">
                             <svg v-if="!passwordLoading" class="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M15.75 5.25a3 3 0 013 3m3 0a6 6 0 01-7.029 5.912c-.563-.097-1.159.026-1.563.43L10.5 17.25H8.25v2.25H6v2.25H2.25v-2.818c0-.597.237-1.17.659-1.591l6.499-6.499c.404-.404.527-1 .43-1.563A6 6 0 1121.75 8.25z" /></svg>
                             <svg v-else class="w-4 h-4 text-gray-400 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" /><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
                             Change Password
                         </button>
-
-                        <a v-if="isActive" :href="'https://dash.orcustech.com/upgrade.php?type=package&id=' + s.id" target="_blank" rel="noopener"
-                            class="w-full flex items-center gap-2.5 px-3 py-2.5 text-[13px] font-medium text-gray-700 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors">
+                        <a v-if="isActive" :href="'https://dash.orcustech.com/upgrade.php?type=package&id=' + s.id" target="_blank" rel="noopener" class="w-full flex items-center gap-2.5 px-3 py-2.5 text-[13px] font-medium text-gray-700 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors">
                             <svg class="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M7 11l5-5m0 0l5 5m-5-5v12" /></svg>
                             Upgrade / Downgrade
                         </a>
-
                         <hr class="my-1.5 border-gray-100" />
-
-                        <button @click="showCancelModal = true"
-                            class="w-full flex items-center gap-2.5 px-3 py-2.5 text-[13px] font-medium text-red-600 bg-red-50 rounded-lg hover:bg-red-100 transition-colors">
+                        <button @click="showCancelModal = true" class="w-full flex items-center gap-2.5 px-3 py-2.5 text-[13px] font-medium text-red-600 bg-red-50 rounded-lg hover:bg-red-100 transition-colors">
                             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" /></svg>
                             Request Cancellation
                         </button>
                     </div>
                 </Card>
 
-                <!-- Server Info -->
-                <Card v-if="(isHosting || isVps) && (s.servername || s.serverhostname || s.serverip || s.dedicatedip || s.username)" title="Server Information">
+                <!-- VPS Server Details sidebar -->
+                <Card v-if="isVps && isActive && vps" title="Server Details">
+                    <dl class="space-y-3">
+                        <div v-if="vps.hostname">
+                            <dt class="text-[11px] font-medium text-gray-500 uppercase">Hostname</dt>
+                            <dd class="text-[12px] text-gray-900 mt-0.5 font-mono">{{ vps.hostname }}</dd>
+                        </div>
+                        <div v-if="vps.ips?.length">
+                            <dt class="text-[11px] font-medium text-gray-500 uppercase">IP{{ vps.ips.length > 1 ? 's' : '' }}</dt>
+                            <dd class="mt-0.5"><span v-for="ip in vps.ips" :key="ip" class="block text-[12px] text-gray-900 font-mono">{{ ip }}</span></dd>
+                        </div>
+                        <div v-else-if="s.dedicatedip">
+                            <dt class="text-[11px] font-medium text-gray-500 uppercase">IP</dt>
+                            <dd class="text-[12px] text-gray-900 mt-0.5 font-mono">{{ s.dedicatedip }}</dd>
+                        </div>
+                        <div v-if="vps.os_name">
+                            <dt class="text-[11px] font-medium text-gray-500 uppercase">OS</dt>
+                            <dd class="text-[13px] text-gray-900 mt-0.5">{{ vps.os_name }}</dd>
+                        </div>
+                        <div v-if="vps.server_name">
+                            <dt class="text-[11px] font-medium text-gray-500 uppercase">Server</dt>
+                            <dd class="text-[13px] text-gray-900 mt-0.5">{{ vps.server_name }}</dd>
+                        </div>
+                        <div v-if="vps.virt">
+                            <dt class="text-[11px] font-medium text-gray-500 uppercase">Type</dt>
+                            <dd class="text-[13px] text-gray-900 mt-0.5 uppercase">{{ vps.virt }}</dd>
+                        </div>
+                    </dl>
+                </Card>
+
+                <!-- Fallback server info -->
+                <Card v-if="(!isVps || !vps) && (isHosting || isVps) && (s.servername || s.dedicatedip || s.username)" title="Server Information">
                     <dl class="space-y-3">
                         <div v-if="s.servername">
                             <dt class="text-[11px] font-medium text-gray-500 uppercase">Server</dt>
@@ -634,28 +758,19 @@ function doChangePassword() {
                         </div>
                         <div v-if="s.serverhostname">
                             <dt class="text-[11px] font-medium text-gray-500 uppercase">Hostname</dt>
-                            <dd class="text-[13px] text-gray-900 mt-0.5 font-mono text-[12px]">{{ s.serverhostname }}</dd>
-                        </div>
-                        <div v-if="s.serverip">
-                            <dt class="text-[11px] font-medium text-gray-500 uppercase">Server IP</dt>
-                            <dd class="text-[13px] text-gray-900 mt-0.5 font-mono text-[12px]">{{ s.serverip }}</dd>
+                            <dd class="text-[12px] text-gray-900 mt-0.5 font-mono">{{ s.serverhostname }}</dd>
                         </div>
                         <div v-if="s.dedicatedip">
-                            <dt class="text-[11px] font-medium text-gray-500 uppercase">Dedicated IP</dt>
-                            <dd class="text-[13px] text-gray-900 mt-0.5 font-mono text-[12px]">{{ s.dedicatedip }}</dd>
-                        </div>
-                        <div v-if="s.assignedips">
-                            <dt class="text-[11px] font-medium text-gray-500 uppercase">Assigned IPs</dt>
-                            <dd class="text-[13px] text-gray-900 mt-0.5 font-mono text-[12px]">{{ s.assignedips }}</dd>
+                            <dt class="text-[11px] font-medium text-gray-500 uppercase">IP</dt>
+                            <dd class="text-[12px] text-gray-900 mt-0.5 font-mono">{{ s.dedicatedip }}</dd>
                         </div>
                         <div v-if="s.username">
                             <dt class="text-[11px] font-medium text-gray-500 uppercase">Username</dt>
-                            <dd class="text-[13px] text-gray-900 mt-0.5 font-mono text-[12px]">{{ s.username }}</dd>
+                            <dd class="text-[12px] text-gray-900 mt-0.5 font-mono">{{ s.username }}</dd>
                         </div>
                     </dl>
                 </Card>
 
-                <!-- Billing Summary -->
                 <Card title="Billing">
                     <dl class="space-y-3">
                         <div>
@@ -664,11 +779,11 @@ function doChangePassword() {
                         </div>
                         <div>
                             <dt class="text-[11px] font-medium text-gray-500 uppercase">Payment Method</dt>
-                            <dd class="text-[13px] text-gray-900 mt-0.5">{{ s.paymentmethodname || s.paymentmethod || '—' }}</dd>
+                            <dd class="text-[13px] text-gray-900 mt-0.5">{{ s.paymentmethodname || s.paymentmethod || '\u2014' }}</dd>
                         </div>
                         <div>
                             <dt class="text-[11px] font-medium text-gray-500 uppercase">Next Due Date</dt>
-                            <dd class="text-[13px] text-gray-900 mt-0.5">{{ s.nextduedate && s.nextduedate !== '0000-00-00' ? s.nextduedate : '—' }}</dd>
+                            <dd class="text-[13px] text-gray-900 mt-0.5">{{ s.nextduedate && s.nextduedate !== '0000-00-00' ? s.nextduedate : '\u2014' }}</dd>
                         </div>
                         <div>
                             <dt class="text-[11px] font-medium text-gray-500 uppercase">First Payment</dt>
@@ -679,35 +794,12 @@ function doChangePassword() {
             </div>
         </div>
 
-        <!-- ═══ Action Confirmation Modal ═══ -->
-        <ConfirmModal
-            :show="showActionModal"
-            :title="pendingAction ? actionLabels[pendingAction] : 'Confirm Action'"
-            :message="pendingAction ? actionDescriptions[pendingAction] : 'Are you sure?'"
-            :confirm-text="pendingAction ? actionLabels[pendingAction] : 'Confirm'"
-            @confirm="executeAction"
-            @close="showActionModal = false; pendingAction = null"
-        />
+        <!-- Modals -->
+        <ConfirmModal :show="showActionModal" :title="pendingAction ? actionLabels[pendingAction] : 'Confirm Action'" :message="pendingAction ? actionDescriptions[pendingAction] : 'Are you sure?'" :confirm-text="pendingAction ? actionLabels[pendingAction] : 'Confirm'" @confirm="executeAction" @close="showActionModal = false; pendingAction = null" />
 
-        <!-- ═══ Change Password Confirmation Modal ═══ -->
-        <ConfirmModal
-            :show="showPasswordModal"
-            title="Change Password"
-            message="This will reset the password for this service. The new password will be emailed to you."
-            confirm-text="Reset Password"
-            @confirm="doChangePassword"
-            @close="showPasswordModal = false"
-        />
+        <ConfirmModal :show="showPasswordModal" title="Change Password" message="This will reset the password for this service. The new password will be emailed to you." confirm-text="Reset Password" @confirm="doChangePassword" @close="showPasswordModal = false" />
 
-        <!-- ═══ Cancel Modal ═══ -->
-        <ConfirmModal
-            :show="showCancelModal"
-            title="Request Cancellation"
-            message="This will submit a cancellation request for this service."
-            confirm-text="Submit Request"
-            @confirm="submitCancel"
-            @close="showCancelModal = false"
-        >
+        <ConfirmModal :show="showCancelModal" title="Request Cancellation" message="This will submit a cancellation request for this service." confirm-text="Submit Request" @confirm="submitCancel" @close="showCancelModal = false">
             <div class="mt-4 space-y-3">
                 <div>
                     <label class="block text-[13px] font-medium text-gray-700 mb-1">When?</label>

@@ -93,6 +93,9 @@ class ServiceController extends Controller
             'controlPanelUrl' => $serviceInfo['panelUrl'] ?? null,
             'webmailUrl'      => $serviceInfo['webmailUrl'] ?? null,
             'ssoSupported'    => $serviceInfo['ssoSupported'] ?? false,
+            'vpsStats'        => $isVps && $service['status'] === 'Active'
+                                    ? ($this->whmcs->getVpsStats($id, $clientId)['vps'] ?? null)
+                                    : null,
         ]);
     }
 

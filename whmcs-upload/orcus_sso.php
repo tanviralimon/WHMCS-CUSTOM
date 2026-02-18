@@ -282,6 +282,42 @@ if ($action === 'VpsAction') {
     exit;
 }
 
+// ── VPS Stats (Virtualizor) ────────────────────────────────
+if ($action === 'GetVpsStats') {
+    if (!$serviceId) {
+        echo json_encode(['result' => 'error', 'message' => 'serviceid is required']);
+        exit;
+    }
+
+    $service = Capsule::table('tblhosting')->where('id', $serviceId)->first();
+    if (!$service) {
+        echo json_encode(['result' => 'error', 'message' => 'Service not found']);
+        exit;
+    }
+
+    if ($clientId && $service->userid != $clientId) {
+        echo json_encode(['result' => 'error', 'message' => 'Service does not belong to client']);
+        exit;
+    }
+
+    $server = Capsule::table('tblservers')->where('id', $service->server)->first();
+    if (!$server) {
+        echo json_encode(['result' => 'error', 'message' => 'Server not found']);
+        exit;
+    }
+
+    $module   = strtolower($server->type ?? '');
+    $hostname = $server->hostname ?: $server->ipaddress;
+
+    if ($module === 'virtualizor') {
+        echo json_encode(handleVirtualizorStats($server, $service, $hostname));
+        exit;
+    }
+
+    echo json_encode(['result' => 'error', 'message' => 'VPS stats not supported for module: ' . $module]);
+    exit;
+}
+
 if ($action === 'GetGatewayConfig') {
     // Return payment gateway module configuration.
     // Uses WHMCS's built-in getGatewayVariables() which handles decryption
@@ -947,4 +983,258 @@ function handleVirtualizorAction($server, $service, $hostname, $vpsAction)
         'message' => 'Virtualizor API response unclear for ' . $vpsAction . '. Please check the VPS status in Virtualizor panel.',
         'debug'   => array_keys($data),
     ];
+}
+
+// ═══════════════════════════════════════════════════════════
+// Virtualizor VPS Stats Handler — Get live VPS information
+// Uses both VPS Status API (live CPU/RAM/disk) and List VS API (config details)
+// ═══════════════════════════════════════════════════════════
+function handleVirtualizorStats($server, $service, $hostname)
+{
+    $apiKey  = trim($server->username ?? '');
+    $apiPass = '';
+
+    if (!empty($server->password)) {
+        $apiPass = decrypt($server->password);
+    }
+    if (empty($apiKey) && !empty($server->accesshash)) {
+        $apiKey = trim($server->accesshash);
+    }
+
+    if (empty($apiKey) || empty($apiPass)) {
+        return ['result' => 'error', 'message' => 'Virtualizor API credentials not configured on server'];
+    }
+
+    // Find the VPS ID (same logic as action/SSO handlers)
+    $vpsId = 0;
+
+    $customFields = Capsule::table('tblcustomfields')
+        ->where('relid', $service->packageid)
+        ->where('type', 'product')
+        ->get();
+
+    foreach ($customFields as $cf) {
+        $fieldName = strtolower($cf->fieldname);
+        if (in_array($fieldName, ['vpsid', 'vps id', 'vserverid', 'vps_id'])) {
+            $cfVal = Capsule::table('tblcustomfieldsvalues')
+                ->where('fieldid', $cf->id)
+                ->where('relid', $service->id)
+                ->value('value');
+            if (!empty($cfVal)) {
+                $vpsId = (int) $cfVal;
+                break;
+            }
+        }
+    }
+
+    if (!$vpsId && !empty($service->domain) && is_numeric($service->domain)) {
+        $vpsId = (int) $service->domain;
+    }
+
+    if (!$vpsId) {
+        foreach ($customFields as $cf) {
+            $fieldName = strtolower($cf->fieldname);
+            if (str_contains($fieldName, 'server') || str_contains($fieldName, 'vps')) {
+                $cfVal = Capsule::table('tblcustomfieldsvalues')
+                    ->where('fieldid', $cf->id)
+                    ->where('relid', $service->id)
+                    ->value('value');
+                if (!empty($cfVal) && is_numeric($cfVal)) {
+                    $vpsId = (int) $cfVal;
+                    break;
+                }
+            }
+        }
+    }
+
+    if (!$vpsId) {
+        return ['result' => 'error', 'message' => 'VPS ID not found for this service'];
+    }
+
+    $adminUrl = 'https://' . $hostname . ':4085/index.php';
+
+    // ── 1. VPS Status API — live resource usage ──
+    // GET https://hostname:4085/index.php?act=vs&vs_status=VPSID&api=json&apikey=KEY&apipass=PASS
+    $statusParams = [
+        'act'      => 'vs',
+        'vs_status' => $vpsId,
+        'api'      => 'json',
+        'apikey'   => $apiKey,
+        'apipass'  => $apiPass,
+    ];
+
+    $statusUrl = $adminUrl . '?' . http_build_query($statusParams);
+    $statusData = virtualizorApiGet($statusUrl);
+
+    // ── 2. List VS API — full VPS config details ──
+    // GET https://hostname:4085/index.php?act=vs&api=json&apikey=KEY&apipass=PASS
+    // POST: vpsid=ID
+    $listParams = [
+        'act'     => 'vs',
+        'api'     => 'json',
+        'apikey'  => $apiKey,
+        'apipass' => $apiPass,
+    ];
+
+    $listUrl = $adminUrl . '?' . http_build_query($listParams);
+    $listData = virtualizorApiPost($listUrl, ['vpsid' => $vpsId]);
+
+    // Parse status data
+    $liveStats = [];
+    if (is_array($statusData) && isset($statusData[(string) $vpsId])) {
+        $liveStats = $statusData[(string) $vpsId];
+    } elseif (is_array($statusData)) {
+        // Sometimes the key might be integer
+        $liveStats = $statusData[$vpsId] ?? reset($statusData) ?: [];
+    }
+
+    // Parse VPS info from list data
+    $vpsInfo = [];
+    if (is_array($listData)) {
+        if (isset($listData[(string) $vpsId])) {
+            $vpsInfo = $listData[(string) $vpsId];
+        } elseif (isset($listData[$vpsId])) {
+            $vpsInfo = $listData[$vpsId];
+        } elseif (isset($listData['vs_info'])) {
+            $vpsInfo = $listData['vs_info'];
+        } else {
+            // Try to find the VPS in the response (could be nested under any key)
+            foreach ($listData as $key => $value) {
+                if (is_array($value) && isset($value['vpsid']) && (int) $value['vpsid'] === $vpsId) {
+                    $vpsInfo = $value;
+                    break;
+                }
+            }
+        }
+    }
+
+    // Parse cached_disk (may be serialized string or array)
+    $cachedDisk = [];
+    if (!empty($vpsInfo['cached_disk'])) {
+        if (is_string($vpsInfo['cached_disk'])) {
+            $cachedDisk = @unserialize($vpsInfo['cached_disk']) ?: [];
+        } else {
+            $cachedDisk = $vpsInfo['cached_disk'];
+        }
+    }
+
+    // Build normalized response
+    $status = 'unknown';
+    $statusCode = $liveStats['status'] ?? null;
+    if ($statusCode !== null) {
+        $statusMap = [0 => 'offline', 1 => 'online', 2 => 'suspended'];
+        $status = $statusMap[(int) $statusCode] ?? 'unknown';
+    }
+
+    // Disk usage
+    $totalDisk = floatval($vpsInfo['space'] ?? $liveStats['disk'] ?? 0);
+    $usedDisk  = floatval($liveStats['used_disk'] ?? 0);
+    if (!$usedDisk && !empty($cachedDisk['disk']['Use%'])) {
+        $usedDisk = round($totalDisk * $cachedDisk['disk']['Use%'] / 100, 2);
+    }
+
+    // Bandwidth
+    $totalBw = floatval($vpsInfo['bandwidth'] ?? $liveStats['bandwidth'] ?? 0);
+    $usedBw  = floatval($vpsInfo['used_bandwidth'] ?? $liveStats['used_bandwidth'] ?? 0);
+
+    // RAM
+    $totalRam = floatval($vpsInfo['ram'] ?? $liveStats['ram'] ?? 0);
+    $usedRam  = floatval($liveStats['used_ram'] ?? 0);
+
+    // CPU
+    $usedCpu  = floatval($liveStats['used_cpu'] ?? 0);
+    $cores    = intval($vpsInfo['cores'] ?? 0);
+
+    // IPs
+    $ips = [];
+    if (!empty($vpsInfo['ips'])) {
+        $ips = is_array($vpsInfo['ips']) ? array_values($vpsInfo['ips']) : [$vpsInfo['ips']];
+    }
+    $ips6 = [];
+    if (!empty($vpsInfo['ips6'])) {
+        $ips6 = is_array($vpsInfo['ips6']) ? array_values($vpsInfo['ips6']) : [$vpsInfo['ips6']];
+    }
+
+    return [
+        'result' => 'success',
+        'vps' => [
+            'vpsid'          => $vpsId,
+            'hostname'       => $vpsInfo['hostname'] ?? $service->domain ?? '',
+            'os_name'        => $vpsInfo['os_name'] ?? '',
+            'os_distro'      => $vpsInfo['os_distro'] ?? '',
+            'virt'           => $vpsInfo['virt'] ?? '',
+            'status'         => $status,
+            'server_name'    => $vpsInfo['server_name'] ?? $server->name ?? '',
+
+            // Resource usage
+            'cpu_used'       => $usedCpu,
+            'cpu_cores'      => $cores,
+
+            'ram_total'      => $totalRam,    // MB
+            'ram_used'       => $usedRam,     // MB
+
+            'disk_total'     => $totalDisk,   // GB
+            'disk_used'      => $usedDisk,    // GB
+
+            'bandwidth_total' => $totalBw,    // GB
+            'bandwidth_used'  => $usedBw,     // GB
+
+            // Network
+            'ips'            => $ips,
+            'ips6'           => $ips6,
+            'network_speed'  => intval($vpsInfo['network_speed'] ?? 0),
+
+            // VNC
+            'vnc_enabled'    => ($vpsInfo['vnc'] ?? '0') === '1',
+            'vncport'        => $vpsInfo['vncport'] ?? '',
+
+            // Misc
+            'vps_name'       => $vpsInfo['vps_name'] ?? '',
+            'suspended'      => ($vpsInfo['suspended'] ?? '0') !== '0',
+            'rescue'         => ($vpsInfo['rescue'] ?? '0') !== '0',
+
+            // IO
+            'io_read'        => floatval($liveStats['io_read'] ?? 0),
+            'io_write'       => floatval($liveStats['io_write'] ?? 0),
+            'net_in'         => floatval($liveStats['net_in'] ?? 0),
+            'net_out'        => floatval($liveStats['net_out'] ?? 0),
+        ],
+    ];
+}
+
+// Helper: GET request to Virtualizor API
+function virtualizorApiGet($url)
+{
+    $ch = curl_init();
+    curl_setopt($ch, CURLOPT_URL, $url);
+    curl_setopt($ch, CURLOPT_HTTPGET, true);
+    curl_setopt($ch, CURLOPT_RETURNTRANSFER, 1);
+    curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+    curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, false);
+    curl_setopt($ch, CURLOPT_TIMEOUT, 15);
+    curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 10);
+
+    $response = curl_exec($ch);
+    curl_close($ch);
+
+    return json_decode($response, true) ?: [];
+}
+
+// Helper: POST request to Virtualizor API
+function virtualizorApiPost($url, $postData = [])
+{
+    $ch = curl_init();
+    curl_setopt($ch, CURLOPT_URL, $url);
+    curl_setopt($ch, CURLOPT_POST, true);
+    curl_setopt($ch, CURLOPT_POSTFIELDS, http_build_query($postData));
+    curl_setopt($ch, CURLOPT_RETURNTRANSFER, 1);
+    curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+    curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, false);
+    curl_setopt($ch, CURLOPT_TIMEOUT, 15);
+    curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 10);
+
+    $response = curl_exec($ch);
+    curl_close($ch);
+
+    return json_decode($response, true) ?: [];
 }
