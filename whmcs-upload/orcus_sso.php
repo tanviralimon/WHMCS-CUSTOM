@@ -1177,13 +1177,12 @@ function handleVirtualizorAction($server, $service, $hostname, $vpsAction)
 
         if ($ssoType === 'virtualizor_sso' && !empty($ssoResult['redirect_url'])) {
             // SSO worked — build VNC URL with SSO session
-            $vncRedirectUrl = $ssoResult['redirect_url'];
-            // Append VNC act to the SSO URL
-            if (str_contains($vncRedirectUrl, '?')) {
-                $vncRedirectUrl .= '&act=vnc&novnc=' . $vpsId;
-            } else {
-                $vncRedirectUrl .= '?act=vnc&novnc=' . $vpsId;
-            }
+            // Virtualizor enduser panel uses HASH-BASED routing (#act=listvs&)
+            // so we must append the VNC destination as a URL fragment, NOT query params.
+            // Browsers preserve hash fragments through 302 redirects, so after SSO
+            // authenticates and redirects to index.php, the #act=vnc&novnc=ID fragment
+            // will load the VNC page automatically.
+            $vncRedirectUrl = $ssoResult['redirect_url'] . '#act=vnc&novnc=' . $vpsId;
             return [
                 'result'       => 'success',
                 'redirect_url' => $vncRedirectUrl,
@@ -1195,16 +1194,12 @@ function handleVirtualizorAction($server, $service, $hostname, $vpsAction)
             ];
         }
 
-        // Step 3: SSO failed — use noVNC via Virtualizor's built-in noVNC proxy
-        // Virtualizor has a built-in noVNC at: https://hostname:4083/index.php?act=vnc&novnc=VPSID
-        // But it requires login. With VNC info, we can offer direct connection details.
+        // Step 3: SSO failed — use hash-based routing to VNC page (login required)
+        // Virtualizor enduser panel uses hash routing: index.php?#act=vnc&novnc=VPSID
         if ($vncInfo) {
-            // Build a direct noVNC URL using Virtualizor's enduser panel
-            // Even without SSO, the VNC page at port 4083 shows a login page,
-            // but noVNC on the enduser panel works at: https://hostname:4083/?act=vnc&novnc=VPSID
             return [
                 'result'       => 'success',
-                'redirect_url' => 'https://' . $hostname . ':4083/index.php?act=vnc&novnc=' . $vpsId,
+                'redirect_url' => 'https://' . $hostname . ':4083/index.php?#act=vnc&novnc=' . $vpsId,
                 'message'      => 'VNC console (login required)',
                 'action'       => 'vnc',
                 'module'       => 'virtualizor',
@@ -1213,10 +1208,10 @@ function handleVirtualizorAction($server, $service, $hostname, $vpsAction)
             ];
         }
 
-        // Fallback: direct panel URL
+        // Fallback: direct panel VNC URL with hash routing
         return [
             'result'       => 'success',
-            'redirect_url' => 'https://' . $hostname . ':4083/index.php?act=vnc&novnc=' . $vpsId,
+            'redirect_url' => 'https://' . $hostname . ':4083/index.php?#act=vnc&novnc=' . $vpsId,
             'message'      => 'VNC console (login required)',
             'action'       => 'vnc',
             'module'       => 'virtualizor',
