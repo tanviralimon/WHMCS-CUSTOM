@@ -24,14 +24,13 @@ const isHosting = props.serviceType === 'hosting';
 const isVps = props.serviceType === 'vps';
 const isActive = s.status === 'Active';
 
-// SSO login URL — use route if SSO is supported, otherwise fall back to direct panel URL
+// SSO login URL
 const panelLoginUrl = computed(() => {
     if (props.ssoSupported) return route('client.services.sso', s.id);
     return props.controlPanelUrl;
 });
-const panelLoginIsSSO = props.ssoSupported;
 
-// SSO deep link — append redirect param for specific panel pages (SPanel: "category/page" format)
+// SSO deep link (SPanel: "category/page" format)
 function ssoUrl(redirect) {
     if (props.ssoSupported && redirect) {
         return route('client.services.sso', s.id) + '?redirect=' + encodeURIComponent(redirect);
@@ -41,19 +40,23 @@ function ssoUrl(redirect) {
 
 // Module display name
 const moduleName = computed(() => {
-    const names = { spanel: 'HostPanel', cpanel: 'cPanel', plesk: 'Plesk', directadmin: 'DirectAdmin', virtualizor: 'Virtualizor', proxmox: 'Proxmox', solusvm: 'SolusVM' };
+    const names = {
+        spanel: 'HostPanel', cpanel: 'cPanel', plesk: 'Plesk',
+        directadmin: 'DirectAdmin', virtualizor: 'Virtualizor',
+        proxmox: 'Proxmox', solusvm: 'SolusVM',
+    };
     return names[props.serverModule] || props.serverModule || 'Control Panel';
 });
 
 // ─── Tabs ──────────────────────────────────────────────────
 const tabs = computed(() => {
     const t = [{ id: 'overview', label: 'Overview' }];
-    if (isHosting) t.push({ id: 'management', label: 'Management' });
-    if (isVps) t.push({ id: 'management', label: 'Management' });
+    if (isHosting || isVps) t.push({ id: 'management', label: 'Management' });
     if (hasConfig.value || hasCustomFields.value) t.push({ id: 'config', label: 'Configuration' });
     return t;
 });
-const activeTab = ref('overview');
+// Default to management tab for VPS services
+const activeTab = ref(isVps ? 'management' : 'overview');
 
 // ─── Details ───────────────────────────────────────────────
 const details = computed(() => {
@@ -127,18 +130,61 @@ function submitCancel() {
     });
 }
 
-// ─── Actions ───────────────────────────────────────────────
-function changePassword() {
-    if (!confirm('Are you sure you want to reset the password?')) return;
-    router.post(route('client.services.changePassword', s.id));
+// ─── Action Confirmation Modal ─────────────────────────────
+const showActionModal = ref(false);
+const pendingAction = ref(null);
+const actionLoading = ref(null);
+
+const actionLabels = {
+    boot: 'Boot',
+    reboot: 'Reboot',
+    shutdown: 'Shutdown',
+    resetpassword: 'Reset Password',
+    vnc: 'Open VNC Console',
+    console: 'Open Console',
+};
+
+const actionDescriptions = {
+    boot: 'This will start your VPS if it is currently powered off.',
+    reboot: 'This will restart your VPS. All running processes will be temporarily interrupted.',
+    shutdown: 'This will power off your VPS. You will need to boot it again to bring it back online.',
+    resetpassword: 'This will reset the root password of your VPS. A new password will be emailed to you.',
+    vnc: 'This will open a VNC console session to your VPS.',
+    console: 'This will open a direct console to your VPS.',
+};
+
+function confirmAction(action) {
+    pendingAction.value = action;
+    showActionModal.value = true;
 }
 
-function doAction(action) {
-    if (!confirm(`Execute "${action}" on this service?`)) return;
-    router.post(route('client.services.action', s.id), { action });
+function executeAction() {
+    if (!pendingAction.value) return;
+    const action = pendingAction.value;
+    showActionModal.value = false;
+    actionLoading.value = action;
+
+    router.post(route('client.services.action', s.id), { action }, {
+        preserveScroll: true,
+        onFinish: () => {
+            actionLoading.value = null;
+            pendingAction.value = null;
+        },
+    });
 }
 
-const vpsActions = ['reboot', 'shutdown', 'boot'];
+// ─── Password Change ───────────────────────────────────────
+const showPasswordModal = ref(false);
+const passwordLoading = ref(false);
+
+function doChangePassword() {
+    showPasswordModal.value = false;
+    passwordLoading.value = true;
+    router.post(route('client.services.changePassword', s.id), {}, {
+        preserveScroll: true,
+        onFinish: () => { passwordLoading.value = false; },
+    });
+}
 </script>
 
 <template>
@@ -160,10 +206,54 @@ const vpsActions = ['reboot', 'shutdown', 'boot'];
         </template>
 
         <!-- Flash Messages -->
-        <div v-if="flash.success" class="mb-4 px-4 py-3 bg-emerald-50 border border-emerald-200 rounded-lg text-[13px] text-emerald-700">{{ flash.success }}</div>
-        <div v-if="flash.error || $page.props.errors?.whmcs" class="mb-4 px-4 py-3 bg-red-50 border border-red-200 rounded-lg text-[13px] text-red-700">{{ flash.error || $page.props.errors.whmcs }}</div>
+        <div v-if="flash.success" class="mb-4 px-4 py-3 bg-emerald-50 border border-emerald-200 rounded-lg text-[13px] text-emerald-700 flex items-center gap-2">
+            <svg class="w-5 h-5 text-emerald-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+            {{ flash.success }}
+        </div>
+        <div v-if="flash.error || $page.props.errors?.whmcs" class="mb-4 px-4 py-3 bg-red-50 border border-red-200 rounded-lg text-[13px] text-red-700 flex items-center gap-2">
+            <svg class="w-5 h-5 text-red-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+            {{ flash.error || $page.props.errors.whmcs }}
+        </div>
 
-        <!-- Login Buttons Bar (hosting, active) -->
+        <!-- ═══ VPS Hero Panel ═══ -->
+        <div v-if="isVps && isActive" class="mb-6 rounded-xl bg-gradient-to-r from-slate-800 to-slate-900 p-5 text-white shadow-lg">
+            <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+                <div class="flex items-center gap-4">
+                    <div class="w-12 h-12 rounded-xl bg-white/10 backdrop-blur flex items-center justify-center">
+                        <svg class="w-6 h-6 text-indigo-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2m-2-4h.01M17 16h.01" /></svg>
+                    </div>
+                    <div>
+                        <h2 class="text-base font-semibold">{{ s.name || s.groupname }}</h2>
+                        <div class="flex items-center gap-3 mt-1 text-[13px] text-slate-300">
+                            <span v-if="s.dedicatedip" class="flex items-center gap-1">
+                                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9" /></svg>
+                                {{ s.dedicatedip }}
+                            </span>
+                            <span v-if="s.domain" class="flex items-center gap-1">
+                                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2" /></svg>
+                                {{ s.domain }}
+                            </span>
+                        </div>
+                    </div>
+                </div>
+                <div class="flex items-center gap-2">
+                    <a v-if="panelLoginUrl" :href="panelLoginUrl" target="_blank"
+                        class="inline-flex items-center gap-2 px-4 py-2 bg-indigo-500 hover:bg-indigo-400 text-white text-[13px] font-semibold rounded-lg transition-colors shadow-sm">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" /></svg>
+                        Open {{ moduleName }}
+                    </a>
+                    <button @click="confirmAction('vnc')"
+                        :disabled="actionLoading === 'vnc'"
+                        class="inline-flex items-center gap-2 px-4 py-2 bg-white/10 hover:bg-white/20 text-white text-[13px] font-semibold rounded-lg transition-colors backdrop-blur">
+                        <svg v-if="actionLoading !== 'vnc'" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" /></svg>
+                        <svg v-else class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" /><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
+                        VNC Console
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- ═══ Hosting Login Bar ═══ -->
         <div v-if="isHosting && isActive && panelLoginUrl" class="mb-6 flex flex-wrap gap-3">
             <a :href="panelLoginUrl" target="_blank"
                 class="inline-flex items-center gap-2 px-5 py-2.5 bg-indigo-600 text-white text-[13px] font-semibold rounded-lg hover:bg-indigo-700 shadow-sm transition-colors">
@@ -174,15 +264,6 @@ const vpsActions = ['reboot', 'shutdown', 'boot'];
                 class="inline-flex items-center gap-2 px-5 py-2.5 bg-white text-gray-700 text-[13px] font-semibold rounded-lg border border-gray-300 hover:bg-gray-50 shadow-sm transition-colors">
                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" /></svg>
                 Login to Webmail
-            </a>
-        </div>
-
-        <!-- Login Buttons Bar (VPS, active) -->
-        <div v-if="isVps && isActive && panelLoginUrl" class="mb-6 flex flex-wrap gap-3">
-            <a :href="panelLoginUrl" target="_blank"
-                class="inline-flex items-center gap-2 px-5 py-2.5 bg-indigo-600 text-white text-[13px] font-semibold rounded-lg hover:bg-indigo-700 shadow-sm transition-colors">
-                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2m-2-4h.01M17 16h.01" /></svg>
-                Login to {{ moduleName }}
             </a>
         </div>
 
@@ -202,7 +283,6 @@ const vpsActions = ['reboot', 'shutdown', 'boot'];
 
                 <!-- ─── Overview Tab ─── -->
                 <template v-if="activeTab === 'overview'">
-                    <!-- Service Details Card -->
                     <Card title="Service Details">
                         <dl class="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-4">
                             <div v-for="d in details" :key="d.label">
@@ -239,7 +319,7 @@ const vpsActions = ['reboot', 'shutdown', 'boot'];
                     </Card>
 
                     <!-- Config Options (inline on overview if no management tab) -->
-                    <Card v-if="hasConfig && !isHosting" title="Configuration Options">
+                    <Card v-if="hasConfig && !isHosting && !isVps" title="Configuration Options">
                         <dl class="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-3">
                             <div v-for="opt in configOptions" :key="opt.id || opt.option">
                                 <dt class="text-[12px] font-medium text-gray-500">{{ opt.option || opt.optionname }}</dt>
@@ -261,7 +341,6 @@ const vpsActions = ['reboot', 'shutdown', 'boot'];
 
                 <!-- ─── Management Tab (Hosting) ─── -->
                 <template v-if="activeTab === 'management' && isHosting">
-                    <!-- Quick Access -->
                     <Card title="Quick Access" description="Login to your hosting control panel to manage your website.">
                         <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
                             <a v-if="panelLoginUrl" :href="panelLoginUrl" target="_blank"
@@ -275,7 +354,6 @@ const vpsActions = ['reboot', 'shutdown', 'boot'];
                                 </div>
                                 <svg class="w-4 h-4 text-gray-300 ml-auto flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" /></svg>
                             </a>
-
                             <a v-if="webmailUrl" :href="webmailUrl" target="_blank" rel="noopener"
                                 class="flex items-center gap-3 p-4 rounded-xl border border-gray-200 hover:border-emerald-300 hover:bg-emerald-50/60 transition-all group">
                                 <div class="w-10 h-10 rounded-lg bg-emerald-100 flex items-center justify-center flex-shrink-0">
@@ -290,10 +368,9 @@ const vpsActions = ['reboot', 'shutdown', 'boot'];
                         </div>
                     </Card>
 
-                    <!-- Management Tools Grid -->
+                    <!-- Management Tools Grid (Hosting) -->
                     <Card title="Management Tools" description="Common hosting management tasks via your control panel.">
                         <div class="grid grid-cols-2 sm:grid-cols-3 gap-3">
-                            <!-- File Manager -->
                             <a :href="ssoUrl('file/filemanager')" target="_blank"
                                 class="flex flex-col items-center gap-2.5 p-4 rounded-xl border border-gray-100 bg-gray-50/50 hover:bg-white hover:border-gray-200 hover:shadow-sm transition-all group">
                                 <div class="w-10 h-10 rounded-lg bg-blue-100 flex items-center justify-center">
@@ -301,8 +378,6 @@ const vpsActions = ['reboot', 'shutdown', 'boot'];
                                 </div>
                                 <span class="text-[12px] font-medium text-gray-700 group-hover:text-gray-900 text-center">File Manager</span>
                             </a>
-
-                            <!-- Email Accounts -->
                             <a :href="ssoUrl('email/emailaccounts')" target="_blank"
                                 class="flex flex-col items-center gap-2.5 p-4 rounded-xl border border-gray-100 bg-gray-50/50 hover:bg-white hover:border-gray-200 hover:shadow-sm transition-all group">
                                 <div class="w-10 h-10 rounded-lg bg-emerald-100 flex items-center justify-center">
@@ -310,8 +385,6 @@ const vpsActions = ['reboot', 'shutdown', 'boot'];
                                 </div>
                                 <span class="text-[12px] font-medium text-gray-700 group-hover:text-gray-900 text-center">Email Accounts</span>
                             </a>
-
-                            <!-- MySQL Databases -->
                             <a :href="ssoUrl('database/mysqldatabases')" target="_blank"
                                 class="flex flex-col items-center gap-2.5 p-4 rounded-xl border border-gray-100 bg-gray-50/50 hover:bg-white hover:border-gray-200 hover:shadow-sm transition-all group">
                                 <div class="w-10 h-10 rounded-lg bg-orange-100 flex items-center justify-center">
@@ -319,8 +392,6 @@ const vpsActions = ['reboot', 'shutdown', 'boot'];
                                 </div>
                                 <span class="text-[12px] font-medium text-gray-700 group-hover:text-gray-900 text-center">MySQL Databases</span>
                             </a>
-
-                            <!-- Security / SSL -->
                             <a :href="ssoUrl('tool/sslcertificates')" target="_blank"
                                 class="flex flex-col items-center gap-2.5 p-4 rounded-xl border border-gray-100 bg-gray-50/50 hover:bg-white hover:border-gray-200 hover:shadow-sm transition-all group">
                                 <div class="w-10 h-10 rounded-lg bg-purple-100 flex items-center justify-center">
@@ -328,8 +399,6 @@ const vpsActions = ['reboot', 'shutdown', 'boot'];
                                 </div>
                                 <span class="text-[12px] font-medium text-gray-700 group-hover:text-gray-900 text-center">Security / SSL</span>
                             </a>
-
-                            <!-- Domains -->
                             <a :href="ssoUrl('domain/addondomains')" target="_blank"
                                 class="flex flex-col items-center gap-2.5 p-4 rounded-xl border border-gray-100 bg-gray-50/50 hover:bg-white hover:border-gray-200 hover:shadow-sm transition-all group">
                                 <div class="w-10 h-10 rounded-lg bg-cyan-100 flex items-center justify-center">
@@ -337,8 +406,6 @@ const vpsActions = ['reboot', 'shutdown', 'boot'];
                                 </div>
                                 <span class="text-[12px] font-medium text-gray-700 group-hover:text-gray-900 text-center">Domains</span>
                             </a>
-
-                            <!-- DNS Editor -->
                             <a :href="ssoUrl('domain/dnseditor')" target="_blank"
                                 class="flex flex-col items-center gap-2.5 p-4 rounded-xl border border-gray-100 bg-gray-50/50 hover:bg-white hover:border-gray-200 hover:shadow-sm transition-all group">
                                 <div class="w-10 h-10 rounded-lg bg-indigo-100 flex items-center justify-center">
@@ -350,7 +417,6 @@ const vpsActions = ['reboot', 'shutdown', 'boot'];
                         <p class="mt-3 text-[11px] text-gray-400 text-center">All tools open in {{ moduleName }} via SSO login.</p>
                     </Card>
 
-                    <!-- Config Options on Management tab -->
                     <Card v-if="hasConfig" title="Configuration Options">
                         <dl class="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-3">
                             <div v-for="opt in configOptions" :key="opt.id || opt.option">
@@ -378,10 +444,12 @@ const vpsActions = ['reboot', 'shutdown', 'boot'];
                                 <svg class="w-4 h-4 text-gray-300 ml-auto flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" /></svg>
                             </a>
 
-                            <button @click="doAction('vnc')"
-                                class="flex items-center gap-3 p-4 rounded-xl border border-gray-200 hover:border-violet-300 hover:bg-violet-50/60 transition-all group text-left">
+                            <button @click="confirmAction('vnc')"
+                                :disabled="actionLoading === 'vnc'"
+                                class="flex items-center gap-3 p-4 rounded-xl border border-gray-200 hover:border-violet-300 hover:bg-violet-50/60 transition-all group text-left disabled:opacity-50 disabled:cursor-wait">
                                 <div class="w-10 h-10 rounded-lg bg-violet-100 flex items-center justify-center flex-shrink-0">
-                                    <svg class="w-5 h-5 text-violet-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" /></svg>
+                                    <svg v-if="actionLoading !== 'vnc'" class="w-5 h-5 text-violet-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" /></svg>
+                                    <svg v-else class="w-5 h-5 text-violet-600 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" /><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
                                 </div>
                                 <div class="min-w-0">
                                     <p class="text-[13px] font-semibold text-gray-900 group-hover:text-violet-700">VNC Console</p>
@@ -394,34 +462,46 @@ const vpsActions = ['reboot', 'shutdown', 'boot'];
                     <!-- VPS Power Actions -->
                     <Card title="Power Actions" description="Control your VPS power state.">
                         <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                            <button @click="doAction('boot')"
-                                class="flex flex-col items-center gap-2.5 p-4 rounded-xl border border-gray-100 bg-gray-50/50 hover:bg-emerald-50 hover:border-emerald-200 hover:shadow-sm transition-all group">
+                            <!-- Boot -->
+                            <button @click="confirmAction('boot')"
+                                :disabled="actionLoading === 'boot'"
+                                class="flex flex-col items-center gap-2.5 p-4 rounded-xl border border-gray-100 bg-gray-50/50 hover:bg-emerald-50 hover:border-emerald-200 hover:shadow-sm transition-all group disabled:opacity-50 disabled:cursor-wait">
                                 <div class="w-10 h-10 rounded-lg bg-emerald-100 flex items-center justify-center">
-                                    <svg class="w-5 h-5 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M5.636 5.636a9 9 0 1012.728 0M12 3v9" /></svg>
+                                    <svg v-if="actionLoading !== 'boot'" class="w-5 h-5 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M5.636 5.636a9 9 0 1012.728 0M12 3v9" /></svg>
+                                    <svg v-else class="w-5 h-5 text-emerald-600 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" /><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
                                 </div>
                                 <span class="text-[12px] font-medium text-gray-700 group-hover:text-emerald-700 text-center">Boot</span>
                             </button>
 
-                            <button @click="doAction('reboot')"
-                                class="flex flex-col items-center gap-2.5 p-4 rounded-xl border border-gray-100 bg-gray-50/50 hover:bg-amber-50 hover:border-amber-200 hover:shadow-sm transition-all group">
+                            <!-- Reboot -->
+                            <button @click="confirmAction('reboot')"
+                                :disabled="actionLoading === 'reboot'"
+                                class="flex flex-col items-center gap-2.5 p-4 rounded-xl border border-gray-100 bg-gray-50/50 hover:bg-amber-50 hover:border-amber-200 hover:shadow-sm transition-all group disabled:opacity-50 disabled:cursor-wait">
                                 <div class="w-10 h-10 rounded-lg bg-amber-100 flex items-center justify-center">
-                                    <svg class="w-5 h-5 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
+                                    <svg v-if="actionLoading !== 'reboot'" class="w-5 h-5 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
+                                    <svg v-else class="w-5 h-5 text-amber-600 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" /><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
                                 </div>
                                 <span class="text-[12px] font-medium text-gray-700 group-hover:text-amber-700 text-center">Reboot</span>
                             </button>
 
-                            <button @click="doAction('shutdown')"
-                                class="flex flex-col items-center gap-2.5 p-4 rounded-xl border border-gray-100 bg-gray-50/50 hover:bg-red-50 hover:border-red-200 hover:shadow-sm transition-all group">
+                            <!-- Shutdown -->
+                            <button @click="confirmAction('shutdown')"
+                                :disabled="actionLoading === 'shutdown'"
+                                class="flex flex-col items-center gap-2.5 p-4 rounded-xl border border-gray-100 bg-gray-50/50 hover:bg-red-50 hover:border-red-200 hover:shadow-sm transition-all group disabled:opacity-50 disabled:cursor-wait">
                                 <div class="w-10 h-10 rounded-lg bg-red-100 flex items-center justify-center">
-                                    <svg class="w-5 h-5 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" /></svg>
+                                    <svg v-if="actionLoading !== 'shutdown'" class="w-5 h-5 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" /></svg>
+                                    <svg v-else class="w-5 h-5 text-red-600 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" /><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
                                 </div>
                                 <span class="text-[12px] font-medium text-gray-700 group-hover:text-red-700 text-center">Shutdown</span>
                             </button>
 
-                            <button @click="doAction('resetpassword')"
-                                class="flex flex-col items-center gap-2.5 p-4 rounded-xl border border-gray-100 bg-gray-50/50 hover:bg-blue-50 hover:border-blue-200 hover:shadow-sm transition-all group">
+                            <!-- Reset Password -->
+                            <button @click="confirmAction('resetpassword')"
+                                :disabled="actionLoading === 'resetpassword'"
+                                class="flex flex-col items-center gap-2.5 p-4 rounded-xl border border-gray-100 bg-gray-50/50 hover:bg-blue-50 hover:border-blue-200 hover:shadow-sm transition-all group disabled:opacity-50 disabled:cursor-wait">
                                 <div class="w-10 h-10 rounded-lg bg-blue-100 flex items-center justify-center">
-                                    <svg class="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M15.75 5.25a3 3 0 013 3m3 0a6 6 0 01-7.029 5.912c-.563-.097-1.159.026-1.563.43L10.5 17.25H8.25v2.25H6v2.25H2.25v-2.818c0-.597.237-1.17.659-1.591l6.499-6.499c.404-.404.527-1 .43-1.563A6 6 0 1121.75 8.25z" /></svg>
+                                    <svg v-if="actionLoading !== 'resetpassword'" class="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M15.75 5.25a3 3 0 013 3m3 0a6 6 0 01-7.029 5.912c-.563-.097-1.159.026-1.563.43L10.5 17.25H8.25v2.25H6v2.25H2.25v-2.818c0-.597.237-1.17.659-1.591l6.499-6.499c.404-.404.527-1 .43-1.563A6 6 0 1121.75 8.25z" /></svg>
+                                    <svg v-else class="w-5 h-5 text-blue-600 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" /><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
                                 </div>
                                 <span class="text-[12px] font-medium text-gray-700 group-hover:text-blue-700 text-center">Reset Password</span>
                             </button>
@@ -463,51 +543,65 @@ const vpsActions = ['reboot', 'shutdown', 'boot'];
             <!-- ═══ SIDEBAR ═══ -->
             <div class="space-y-4">
 
-                <!-- Actions Card -->
-                <Card title="Actions">
+                <!-- VPS Quick Actions (sidebar) -->
+                <Card v-if="isVps && isActive" title="Quick Actions">
                     <div class="space-y-2">
-                        <!-- SSO Login shortcuts (hosting) -->
-                        <a v-if="isHosting && isActive && panelLoginUrl" :href="panelLoginUrl" target="_blank"
+                        <a v-if="panelLoginUrl" :href="panelLoginUrl" target="_blank"
+                            class="w-full flex items-center gap-2.5 px-3 py-2.5 text-[13px] font-medium text-indigo-700 bg-indigo-50 rounded-lg hover:bg-indigo-100 transition-colors">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2m-2-4h.01M17 16h.01" /></svg>
+                            Open {{ moduleName }}
+                            <svg class="w-3.5 h-3.5 ml-auto text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" /></svg>
+                        </a>
+
+                        <button @click="confirmAction('boot')" :disabled="actionLoading === 'boot'"
+                            class="w-full flex items-center gap-2.5 px-3 py-2.5 text-[13px] font-medium text-emerald-700 bg-emerald-50 rounded-lg hover:bg-emerald-100 transition-colors disabled:opacity-50">
+                            <svg v-if="actionLoading !== 'boot'" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5.636 5.636a9 9 0 1012.728 0M12 3v9" /></svg>
+                            <svg v-else class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" /><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
+                            Boot
+                        </button>
+
+                        <button @click="confirmAction('reboot')" :disabled="actionLoading === 'reboot'"
+                            class="w-full flex items-center gap-2.5 px-3 py-2.5 text-[13px] font-medium text-amber-700 bg-amber-50 rounded-lg hover:bg-amber-100 transition-colors disabled:opacity-50">
+                            <svg v-if="actionLoading !== 'reboot'" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
+                            <svg v-else class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" /><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
+                            Reboot
+                        </button>
+
+                        <button @click="confirmAction('shutdown')" :disabled="actionLoading === 'shutdown'"
+                            class="w-full flex items-center gap-2.5 px-3 py-2.5 text-[13px] font-medium text-red-700 bg-red-50 rounded-lg hover:bg-red-100 transition-colors disabled:opacity-50">
+                            <svg v-if="actionLoading !== 'shutdown'" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" /></svg>
+                            <svg v-else class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" /><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
+                            Shutdown
+                        </button>
+                    </div>
+                </Card>
+
+                <!-- Hosting Actions (sidebar) -->
+                <Card v-if="isHosting" title="Actions">
+                    <div class="space-y-2">
+                        <a v-if="isActive && panelLoginUrl" :href="panelLoginUrl" target="_blank"
                             class="w-full flex items-center gap-2.5 px-3 py-2.5 text-[13px] font-medium text-indigo-700 bg-indigo-50 rounded-lg hover:bg-indigo-100 transition-colors">
                             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2zM9 9h6v6H9V9z" /></svg>
                             Login to {{ moduleName }}
                         </a>
-
-                        <a v-if="isHosting && isActive && webmailUrl" :href="webmailUrl" target="_blank" rel="noopener"
+                        <a v-if="isActive && webmailUrl" :href="webmailUrl" target="_blank" rel="noopener"
                             class="w-full flex items-center gap-2.5 px-3 py-2.5 text-[13px] font-medium text-emerald-700 bg-emerald-50 rounded-lg hover:bg-emerald-100 transition-colors">
                             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" /></svg>
                             Login to Webmail
                         </a>
+                    </div>
+                </Card>
 
-                        <!-- VPS Actions -->
-                        <template v-if="isVps && isActive">
-                            <a v-if="panelLoginUrl" :href="panelLoginUrl" target="_blank"
-                                class="w-full flex items-center gap-2.5 px-3 py-2.5 text-[13px] font-medium text-indigo-700 bg-indigo-50 rounded-lg hover:bg-indigo-100 transition-colors">
-                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2m-2-4h.01M17 16h.01" /></svg>
-                                Login to {{ moduleName }}
-                            </a>
-
-                            <button v-for="action in vpsActions" :key="action" @click="doAction(action)"
-                                class="w-full flex items-center gap-2.5 px-3 py-2.5 text-[13px] font-medium text-gray-700 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors capitalize">
-                                <svg class="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path v-if="action === 'boot'" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5.636 5.636a9 9 0 1012.728 0M12 3v9" />
-                                    <path v-else-if="action === 'reboot'" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                                    <path v-else stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" />
-                                </svg>
-                                {{ action }}
-                            </button>
-                        </template>
-
-                        <hr v-if="isActive" class="my-1.5 border-gray-100" />
-
-                        <!-- Change Password -->
-                        <button v-if="isActive" @click="changePassword"
-                            class="w-full flex items-center gap-2.5 px-3 py-2.5 text-[13px] font-medium text-gray-700 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors">
-                            <svg class="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M15.75 5.25a3 3 0 013 3m3 0a6 6 0 01-7.029 5.912c-.563-.097-1.159.026-1.563.43L10.5 17.25H8.25v2.25H6v2.25H2.25v-2.818c0-.597.237-1.17.659-1.591l6.499-6.499c.404-.404.527-1 .43-1.563A6 6 0 1121.75 8.25z" /></svg>
+                <!-- Manage Card (shared) -->
+                <Card title="Manage">
+                    <div class="space-y-2">
+                        <button v-if="isActive" @click="showPasswordModal = true" :disabled="passwordLoading"
+                            class="w-full flex items-center gap-2.5 px-3 py-2.5 text-[13px] font-medium text-gray-700 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors disabled:opacity-50">
+                            <svg v-if="!passwordLoading" class="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M15.75 5.25a3 3 0 013 3m3 0a6 6 0 01-7.029 5.912c-.563-.097-1.159.026-1.563.43L10.5 17.25H8.25v2.25H6v2.25H2.25v-2.818c0-.597.237-1.17.659-1.591l6.499-6.499c.404-.404.527-1 .43-1.563A6 6 0 1121.75 8.25z" /></svg>
+                            <svg v-else class="w-4 h-4 text-gray-400 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" /><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
                             Change Password
                         </button>
 
-                        <!-- Upgrade/Downgrade -->
                         <a v-if="isActive" :href="'https://dash.orcustech.com/upgrade.php?type=package&id=' + s.id" target="_blank" rel="noopener"
                             class="w-full flex items-center gap-2.5 px-3 py-2.5 text-[13px] font-medium text-gray-700 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors">
                             <svg class="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M7 11l5-5m0 0l5 5m-5-5v12" /></svg>
@@ -516,7 +610,6 @@ const vpsActions = ['reboot', 'shutdown', 'boot'];
 
                         <hr class="my-1.5 border-gray-100" />
 
-                        <!-- Request Cancellation -->
                         <button @click="showCancelModal = true"
                             class="w-full flex items-center gap-2.5 px-3 py-2.5 text-[13px] font-medium text-red-600 bg-red-50 rounded-lg hover:bg-red-100 transition-colors">
                             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" /></svg>
@@ -543,6 +636,10 @@ const vpsActions = ['reboot', 'shutdown', 'boot'];
                         <div v-if="s.dedicatedip">
                             <dt class="text-[11px] font-medium text-gray-500 uppercase">Dedicated IP</dt>
                             <dd class="text-[13px] text-gray-900 mt-0.5 font-mono text-[12px]">{{ s.dedicatedip }}</dd>
+                        </div>
+                        <div v-if="s.assignedips">
+                            <dt class="text-[11px] font-medium text-gray-500 uppercase">Assigned IPs</dt>
+                            <dd class="text-[13px] text-gray-900 mt-0.5 font-mono text-[12px]">{{ s.assignedips }}</dd>
                         </div>
                         <div v-if="s.username">
                             <dt class="text-[11px] font-medium text-gray-500 uppercase">Username</dt>
@@ -575,7 +672,27 @@ const vpsActions = ['reboot', 'shutdown', 'boot'];
             </div>
         </div>
 
-        <!-- Cancel Modal -->
+        <!-- ═══ Action Confirmation Modal ═══ -->
+        <ConfirmModal
+            :show="showActionModal"
+            :title="pendingAction ? actionLabels[pendingAction] : 'Confirm Action'"
+            :message="pendingAction ? actionDescriptions[pendingAction] : 'Are you sure?'"
+            :confirm-text="pendingAction ? actionLabels[pendingAction] : 'Confirm'"
+            @confirm="executeAction"
+            @close="showActionModal = false; pendingAction = null"
+        />
+
+        <!-- ═══ Change Password Confirmation Modal ═══ -->
+        <ConfirmModal
+            :show="showPasswordModal"
+            title="Change Password"
+            message="This will reset the password for this service. The new password will be emailed to you."
+            confirm-text="Reset Password"
+            @confirm="doChangePassword"
+            @close="showPasswordModal = false"
+        />
+
+        <!-- ═══ Cancel Modal ═══ -->
         <ConfirmModal
             :show="showCancelModal"
             title="Request Cancellation"
