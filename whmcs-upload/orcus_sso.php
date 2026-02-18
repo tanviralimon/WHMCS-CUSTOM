@@ -1150,11 +1150,18 @@ function handleVirtualizorAction($server, $service, $hostname, $vpsAction)
         'poweroff'      => 'poweroff',
     ];
 
-    // ── Password Reset: Use Virtualizor Manage VPS API (act=managevps) ──
-    // The correct API for changing root password is act=managevps with POST rootpass=NEWPASS
-    // IMPORTANT: For KVM VPS, the password is only injected into the guest OS during
-    // a COLD BOOT (stop → start). A reboot won't apply it. So after setting the password,
-    // we must stop and then start the VPS.
+    // ── Password Reset: Use Virtualizor Enduser "Change Password" API ──
+    // The correct API for KVM password change is the ENDUSER API act=changepassword
+    // on port 4083. This queues a virt-customize task that writes the password
+    // into the guest OS disk (/etc/shadow) on next boot.
+    //
+    // NOTE: The Admin API act=managevps with rootpass ONLY stores the password
+    // in the Virtualizor database — it does NOT inject it into the guest OS.
+    // The enduser changepassword API is what the Virtualizor panel uses internally
+    // and properly triggers the virt-customize pipeline.
+    //
+    // Flow: 1) Call changepassword API  →  2) Stop VPS  →  3) Start VPS
+    //       (password gets applied via virt-customize during boot)
     if ($vpsAction === 'resetpassword') {
         // Generate a secure random password (16 chars, letters + digits + special)
         $chars = 'abcdefghijkmnopqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789!@#$%&*';
@@ -1165,54 +1172,100 @@ function handleVirtualizorAction($server, $service, $hostname, $vpsAction)
 
         $adminUrl = 'https://' . $hostname . ':4085/index.php';
 
-        // Step 1: Set the new root password via Manage VPS API
-        $queryParams = [
-            'act'          => 'managevps',
-            'vpsid'        => $vpsId,
-            'api'          => 'json',
-            'adminapikey'  => $apiKey,
-            'adminapipass' => $apiPass,
+        // Step 1: Queue the password change via Enduser Change Password API (port 4083)
+        // Docs: POST https://hostname:4083/index.php?act=changepassword&svs=VPSID&api=json&apikey=KEY&apipass=PASS&do=1
+        // POST body: changepass=1&newpass=NEWPASS&conf=NEWPASS
+        // This uses virt-customize to inject the password on next boot.
+        // We try enduser port 4083 first, then fall back to admin port 4085 if auth fails.
+        $changePassPostData = [
+            'changepass' => 1,
+            'newpass'    => $newPassword,
+            'conf'       => $newPassword,
         ];
-        $manageUrl = $adminUrl . '?' . http_build_query($queryParams);
 
-        $postResult = virtualizorApiPost($manageUrl, [
-            'vpsid'    => $vpsId,
-            'rootpass' => $newPassword,
-        ]);
+        // Try 1: Enduser API on port 4083 with apikey/apipass
+        $enduserUrl = 'https://' . $hostname . ':4083/index.php';
+        $changePassParams = [
+            'act'     => 'changepassword',
+            'svs'     => $vpsId,
+            'api'     => 'json',
+            'apikey'  => $apiKey,
+            'apipass' => $apiPass,
+            'do'      => 1,
+        ];
+        $changePassUrl = $enduserUrl . '?' . http_build_query($changePassParams);
+        $postResult = virtualizorApiPost($changePassUrl, $changePassPostData);
+
+        // If enduser port fails (auth redirect or connection error), try admin port 4085
+        if (!$postResult['ok']) {
+            $adminChangePassParams = [
+                'act'          => 'changepassword',
+                'svs'          => $vpsId,
+                'api'          => 'json',
+                'adminapikey'  => $apiKey,
+                'adminapipass' => $apiPass,
+                'do'           => 1,
+            ];
+            $adminChangePassUrl = $adminUrl . '?' . http_build_query($adminChangePassParams);
+            $postResult = virtualizorApiPost($adminChangePassUrl, $changePassPostData);
+        }
 
         if (!$postResult['ok']) {
             return [
                 'result'  => 'error',
-                'message' => 'Failed to connect to Virtualizor API: ' . ($postResult['error'] ?? 'Unknown error'),
+                'message' => 'Failed to connect to Virtualizor Change Password API: ' . ($postResult['error'] ?? 'Unknown error'),
             ];
         }
 
         $data = $postResult['data'];
 
-        // Check for errors
-        if (!empty($data['error']) && (is_string($data['error']) || (is_array($data['error']) && count($data['error']) > 0))) {
+        // Check for errors in the response
+        if (!empty($data['error'])) {
             $errors = $data['error'];
-            if (is_array($errors)) {
+            if (is_array($errors) && count($errors) > 0) {
                 $errorMsg = implode(', ', array_values($errors));
+            } elseif (is_string($errors)) {
+                $errorMsg = $errors;
             } else {
-                $errorMsg = (string) $errors;
+                $errorMsg = '';
             }
             if (!empty(trim($errorMsg))) {
                 return ['result' => 'error', 'message' => 'Virtualizor: ' . $errorMsg];
             }
         }
 
-        // Verify password was stored (done key or vs_info in response)
-        $passwordSet = isset($data['done']) || isset($data['vs_info']) || isset($data['title']);
-        if (!$passwordSet && !(($postResult['http_code'] ?? 0) >= 200 && ($postResult['http_code'] ?? 0) < 300)) {
+        // Verify the password was queued (look for "done" or "onboot" keys)
+        $passwordQueued = isset($data['done']) || isset($data['onboot']);
+        if (!$passwordQueued) {
+            // Fallback: also accept HTTP 200 with title "Change Password" as success
+            $passwordQueued = (($postResult['http_code'] ?? 0) >= 200 && ($postResult['http_code'] ?? 0) < 300)
+                              && isset($data['title']);
+        }
+
+        if (!$passwordQueued) {
             return [
                 'result'  => 'error',
-                'message' => 'Failed to set new password. Virtualizor API response unclear.',
+                'message' => 'Failed to queue password change. Virtualizor API response unclear.',
                 'debug'   => array_keys($data ?? []),
             ];
         }
 
-        // Step 2: Stop the VPS (required for KVM password injection)
+        // Step 2: Also store password in DB via managevps (so Virtualizor panel shows it)
+        $manageParams = [
+            'act'          => 'managevps',
+            'vpsid'        => $vpsId,
+            'api'          => 'json',
+            'adminapikey'  => $apiKey,
+            'adminapipass' => $apiPass,
+        ];
+        $manageUrl = $adminUrl . '?' . http_build_query($manageParams);
+        // Fire and forget — this just updates the DB record
+        virtualizorApiPost($manageUrl, [
+            'vpsid'    => $vpsId,
+            'rootpass' => $newPassword,
+        ]);
+
+        // Step 3: Stop the VPS so virt-customize can inject the password on next boot
         $stopParams = [
             'act'          => 'vs',
             'action'       => 'stop',
@@ -1235,10 +1288,10 @@ function handleVirtualizorAction($server, $service, $hostname, $vpsAction)
         curl_exec($ch);
         curl_close($ch);
 
-        // Step 3: Wait for VPS to fully stop
-        sleep(5);
+        // Step 4: Wait for VPS to fully stop (give it enough time for graceful shutdown)
+        sleep(8);
 
-        // Step 4: Start the VPS (password gets injected during cold boot)
+        // Step 5: Start the VPS — virt-customize injects password during boot
         $startParams = [
             'act'          => 'vs',
             'action'       => 'start',
