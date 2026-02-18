@@ -797,7 +797,8 @@ function handleVirtualizorAction($server, $service, $hostname, $vpsAction)
     }
 
     // Map our action names to Virtualizor Admin API actions
-    // Virtualizor Admin API: https://hostname:4085/index.php?act=vs&action=ACTION&vpsid=ID&api=json
+    // Virtualizor Admin API: GET https://hostname:4085/index.php?act=vs&action=ACTION&vpsid=ID&api=json
+    // ALL parameters must be in query string (GET), NOT POST body
     $actionMap = [
         'boot'          => 'start',
         'start'         => 'start',
@@ -805,6 +806,7 @@ function handleVirtualizorAction($server, $service, $hostname, $vpsAction)
         'restart'       => 'restart',
         'shutdown'      => 'stop',
         'stop'          => 'stop',
+        'poweroff'      => 'poweroff',
         'resetpassword' => 'resetpassword',
     ];
 
@@ -843,30 +845,26 @@ function handleVirtualizorAction($server, $service, $hostname, $vpsAction)
         return ['result' => 'error', 'message' => 'Unsupported action: ' . $vpsAction];
     }
 
-    // Call Virtualizor Admin API via POST
-    // Docs: https://www.virtualizor.com/admin-api/
+    // Call Virtualizor Admin API — ALL params as GET query string
+    // Docs: https://www.virtualizor.com/docs/admin-api/start-vps/
+    // Format: GET https://hostname:4085/index.php?act=vs&action=start&vpsid=VPSID&api=json&apikey=KEY&apipass=PASS
     $adminUrl = 'https://' . $hostname . ':4085/index.php';
 
-    // Build query string for the act and API auth
+    // ALL parameters go in query string — Virtualizor ignores POST body for these actions
     $queryParams = [
         'act'     => 'vs',
+        'action'  => $apiAction,
+        'vpsid'   => $vpsId,
         'api'     => 'json',
         'apikey'  => $apiKey,
         'apipass' => $apiPass,
-    ];
-
-    // POST body contains the action and VPS ID
-    $postData = [
-        'action' => $apiAction,
-        'vpsid'  => $vpsId,
     ];
 
     $url = $adminUrl . '?' . http_build_query($queryParams);
 
     $ch = curl_init();
     curl_setopt($ch, CURLOPT_URL, $url);
-    curl_setopt($ch, CURLOPT_POST, true);
-    curl_setopt($ch, CURLOPT_POSTFIELDS, http_build_query($postData));
+    curl_setopt($ch, CURLOPT_HTTPGET, true);
     curl_setopt($ch, CURLOPT_RETURNTRANSFER, 1);
     curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
     curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, false);
@@ -914,6 +912,7 @@ function handleVirtualizorAction($server, $service, $hostname, $vpsAction)
         'start'         => 'VPS booted successfully',
         'restart'       => 'VPS rebooted successfully',
         'stop'          => 'VPS shutdown successfully',
+        'poweroff'      => 'VPS powered off successfully',
         'resetpassword' => 'Password reset successfully — check your email',
     ];
 
