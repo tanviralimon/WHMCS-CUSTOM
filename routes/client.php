@@ -42,6 +42,10 @@ Route::prefix('services')->name('services.')->group(function () {
         ->middleware(['whmcs.own:service,id', 'throttle:10,1']);
     Route::post('/{id}/action', [ServiceController::class, 'moduleAction'])->name('action')
         ->middleware(['whmcs.own:service,id', 'throttle:10,1']);
+    Route::get('/{id}/os-templates', [ServiceController::class, 'getOsTemplates'])->name('osTemplates')
+        ->middleware(['whmcs.own:service,id', 'throttle:10,1']);
+    Route::post('/{id}/rebuild', [ServiceController::class, 'rebuildVps'])->name('rebuild')
+        ->middleware(['whmcs.own:service,id', 'throttle:3,1']);
 });
 
 // ─── Domains ────────────────────────────────────────────────

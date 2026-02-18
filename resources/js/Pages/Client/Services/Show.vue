@@ -275,6 +275,101 @@ onMounted(() => {
 onUnmounted(() => {
     if (refreshInterval) clearInterval(refreshInterval);
 });
+
+// ── OS Reinstall / Rebuild ──────────────────────────────────
+const showReinstallModal = ref(false);
+const reinstallLoading = ref(false);
+const templatesLoading = ref(false);
+const osTemplates = ref([]);
+const selectedOsId = ref('');
+const reinstallPassword = ref('');
+const reinstallPasswordConfirm = ref('');
+const reinstallError = ref('');
+const reinstallConfirmText = ref('');
+
+const groupedTemplates = computed(() => {
+    const groups = {};
+    for (const tpl of osTemplates.value) {
+        const group = tpl.group || 'Other';
+        if (!groups[group]) groups[group] = [];
+        groups[group].push(tpl);
+    }
+    // Sort groups: Linux first, then alphabetical
+    const sorted = {};
+    const keys = Object.keys(groups).sort((a, b) => {
+        if (a === 'Linux') return -1;
+        if (b === 'Linux') return 1;
+        return a.localeCompare(b);
+    });
+    for (const k of keys) {
+        sorted[k] = groups[k].sort((a, b) => a.name.localeCompare(b.name));
+    }
+    return sorted;
+});
+
+async function openReinstallModal() {
+    showReinstallModal.value = true;
+    reinstallError.value = '';
+    selectedOsId.value = '';
+    reinstallPassword.value = '';
+    reinstallPasswordConfirm.value = '';
+    reinstallConfirmText.value = '';
+
+    if (osTemplates.value.length === 0) {
+        templatesLoading.value = true;
+        try {
+            const response = await fetch(route('client.services.osTemplates', s.id), {
+                headers: {
+                    'Accept': 'application/json',
+                    'X-Requested-With': 'XMLHttpRequest',
+                },
+            });
+            const data = await response.json();
+            if (data.templates && data.templates.length > 0) {
+                osTemplates.value = data.templates;
+            } else {
+                reinstallError.value = data.error || 'No OS templates available for this VPS.';
+            }
+        } catch (err) {
+            reinstallError.value = 'Failed to load OS templates.';
+        } finally {
+            templatesLoading.value = false;
+        }
+    }
+}
+
+const canSubmitReinstall = computed(() => {
+    return selectedOsId.value
+        && reinstallPassword.value.length >= 6
+        && reinstallPassword.value === reinstallPasswordConfirm.value
+        && reinstallConfirmText.value === 'REINSTALL'
+        && !reinstallLoading.value;
+});
+
+function executeReinstall() {
+    if (!canSubmitReinstall.value) return;
+    reinstallLoading.value = true;
+    reinstallError.value = '';
+
+    router.post(route('client.services.rebuild', s.id), {
+        osid: selectedOsId.value,
+        newpass: reinstallPassword.value,
+    }, {
+        preserveScroll: true,
+        onSuccess: () => {
+            showReinstallModal.value = false;
+            reinstallPassword.value = '';
+            reinstallPasswordConfirm.value = '';
+            reinstallConfirmText.value = '';
+        },
+        onError: (errors) => {
+            reinstallError.value = errors.whmcs || 'Rebuild failed.';
+        },
+        onFinish: () => {
+            reinstallLoading.value = false;
+        },
+    });
+}
 </script>
 
 <template>
@@ -632,6 +727,23 @@ onUnmounted(() => {
                         </div>
                     </Card>
 
+                    <!-- Reinstall OS -->
+                    <Card title="Reinstall OS" description="Reinstall your VPS with a different operating system. This will erase all data.">
+                        <div class="flex items-start gap-4 p-4 rounded-xl border border-orange-200 bg-orange-50/50">
+                            <div class="w-10 h-10 rounded-lg bg-orange-100 flex items-center justify-center flex-shrink-0">
+                                <svg class="w-5 h-5 text-orange-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
+                            </div>
+                            <div class="flex-1 min-w-0">
+                                <p class="text-[13px] font-semibold text-gray-900">Rebuild / Reinstall OS</p>
+                                <p class="text-[12px] text-gray-500 mt-0.5">Choose a new OS template and set a root password. All existing data will be permanently erased.</p>
+                            </div>
+                            <button @click="openReinstallModal" :disabled="reinstallLoading" class="inline-flex items-center gap-2 px-4 py-2 bg-orange-600 hover:bg-orange-700 text-white text-[13px] font-semibold rounded-lg transition-colors shadow-sm flex-shrink-0 disabled:opacity-50">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" /></svg>
+                                Reinstall
+                            </button>
+                        </div>
+                    </Card>
+
                     <!-- Panel Access -->
                     <Card title="Panel Access" description="Access your VPS control panel.">
                         <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -833,6 +945,69 @@ onUnmounted(() => {
                     <label class="block text-[13px] font-medium text-gray-700 mb-1">Reason (optional)</label>
                     <textarea v-model="cancelReason" rows="3" class="w-full text-[13px] rounded-lg border-gray-300" placeholder="Why are you cancelling?" />
                 </div>
+            </div>
+        </ConfirmModal>
+
+        <!-- Reinstall OS Modal -->
+        <ConfirmModal
+            :show="showReinstallModal"
+            title="Reinstall Operating System"
+            message=""
+            :confirm-text="reinstallLoading ? 'Rebuilding...' : 'Reinstall OS'"
+            :confirm-disabled="!canSubmitReinstall"
+            @confirm="executeReinstall"
+            @close="showReinstallModal = false"
+        >
+            <div class="space-y-4">
+                <!-- Warning -->
+                <div class="px-3 py-2.5 bg-red-50 border border-red-200 rounded-lg flex items-start gap-2">
+                    <svg class="w-5 h-5 text-red-500 flex-shrink-0 mt-0.5" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M8.485 2.495c.673-1.167 2.357-1.167 3.03 0l6.28 10.875c.673 1.167-.17 2.625-1.516 2.625H3.72c-1.347 0-2.189-1.458-1.515-2.625L8.485 2.495zM10 6a.75.75 0 01.75.75v3.5a.75.75 0 01-1.5 0v-3.5A.75.75 0 0110 6zm0 9a1 1 0 100-2 1 1 0 000 2z" clip-rule="evenodd" /></svg>
+                    <p class="text-[12px] text-red-700"><strong>Warning:</strong> This will completely erase all data on the VPS and install a fresh operating system. This action cannot be undone.</p>
+                </div>
+
+                <!-- Error -->
+                <div v-if="reinstallError" class="px-3 py-2 bg-red-50 border border-red-200 rounded-lg text-[12px] text-red-700">{{ reinstallError }}</div>
+
+                <!-- Loading templates -->
+                <div v-if="templatesLoading" class="flex items-center justify-center py-6 gap-2 text-[13px] text-gray-500">
+                    <svg class="w-5 h-5 animate-spin text-gray-400" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" /><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
+                    Loading OS templates...
+                </div>
+
+                <!-- OS Template Selection -->
+                <div v-if="!templatesLoading && osTemplates.length > 0">
+                    <label class="block text-[13px] font-medium text-gray-700 mb-1">Operating System</label>
+                    <select v-model="selectedOsId" class="w-full text-[13px] rounded-lg border-gray-300 focus:border-indigo-500 focus:ring-indigo-500">
+                        <option value="">Select an OS template...</option>
+                        <optgroup v-for="(templates, group) in groupedTemplates" :key="group" :label="group">
+                            <option v-for="tpl in templates" :key="tpl.osid" :value="tpl.osid">{{ tpl.name }}</option>
+                        </optgroup>
+                    </select>
+                </div>
+
+                <!-- New Root Password -->
+                <div v-if="!templatesLoading && osTemplates.length > 0">
+                    <label class="block text-[13px] font-medium text-gray-700 mb-1">New Root Password</label>
+                    <input v-model="reinstallPassword" type="password" class="w-full text-[13px] rounded-lg border-gray-300 focus:border-indigo-500 focus:ring-indigo-500" placeholder="Minimum 6 characters" autocomplete="new-password" />
+                </div>
+
+                <!-- Confirm Password -->
+                <div v-if="!templatesLoading && osTemplates.length > 0">
+                    <label class="block text-[13px] font-medium text-gray-700 mb-1">Confirm Password</label>
+                    <input v-model="reinstallPasswordConfirm" type="password" class="w-full text-[13px] rounded-lg border-gray-300 focus:border-indigo-500 focus:ring-indigo-500" placeholder="Re-enter password" autocomplete="new-password" />
+                    <p v-if="reinstallPasswordConfirm && reinstallPassword !== reinstallPasswordConfirm" class="text-[11px] text-red-500 mt-1">Passwords do not match</p>
+                </div>
+
+                <!-- Type REINSTALL to confirm -->
+                <div v-if="!templatesLoading && osTemplates.length > 0">
+                    <label class="block text-[13px] font-medium text-gray-700 mb-1">Type <strong class="text-red-600">REINSTALL</strong> to confirm</label>
+                    <input v-model="reinstallConfirmText" type="text" class="w-full text-[13px] rounded-lg border-gray-300 focus:border-indigo-500 focus:ring-indigo-500" placeholder="REINSTALL" />
+                </div>
+
+                <!-- Disabled submit info -->
+                <p v-if="!canSubmitReinstall && !templatesLoading && osTemplates.length > 0" class="text-[11px] text-gray-400 text-center">
+                    Select an OS, set a password (min 6 chars), and type REINSTALL to proceed.
+                </p>
             </div>
         </ConfirmModal>
     </ClientLayout>

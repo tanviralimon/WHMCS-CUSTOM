@@ -211,4 +211,60 @@ class ServiceController extends Controller
             return back()->withErrors(['whmcs' => 'Action failed: ' . $e->getMessage()]);
         }
     }
+
+    /**
+     * Get available OS templates for VPS rebuild.
+     */
+    public function getOsTemplates(Request $request, int $id)
+    {
+        $clientId = $request->user()->whmcs_client_id;
+
+        try {
+            $result = $this->whmcs->getOsTemplates($id, $clientId);
+
+            if (($result['result'] ?? '') !== 'success') {
+                return response()->json([
+                    'error' => $result['message'] ?? 'Failed to load OS templates',
+                ], 422);
+            }
+
+            return response()->json([
+                'templates' => $result['templates'] ?? [],
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'error' => 'Failed to load OS templates: ' . $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    /**
+     * Rebuild (reinstall OS) a VPS.
+     */
+    public function rebuildVps(Request $request, int $id)
+    {
+        $request->validate([
+            'osid'    => 'required|integer|min:1',
+            'newpass' => 'required|string|min:6|max:64',
+        ]);
+
+        $clientId = $request->user()->whmcs_client_id;
+
+        try {
+            $result = $this->whmcs->rebuildVps(
+                $id,
+                $clientId,
+                (int) $request->osid,
+                $request->newpass
+            );
+
+            if (($result['result'] ?? '') !== 'success') {
+                return back()->withErrors(['whmcs' => $result['message'] ?? 'Rebuild failed.']);
+            }
+
+            return back()->with('success', $result['message'] ?? 'VPS rebuild initiated successfully.');
+        } catch (\Exception $e) {
+            return back()->withErrors(['whmcs' => 'Rebuild failed: ' . $e->getMessage()]);
+        }
+    }
 }

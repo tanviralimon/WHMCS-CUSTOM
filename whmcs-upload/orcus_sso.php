@@ -284,6 +284,90 @@ if ($action === 'VpsAction') {
     exit;
 }
 
+// ── Get OS Templates for VPS Rebuild ───────────────────────
+if ($action === 'GetOsTemplates') {
+    if (!$serviceId) {
+        echo json_encode(['result' => 'error', 'message' => 'serviceid is required']);
+        exit;
+    }
+
+    $service = Capsule::table('tblhosting')->where('id', $serviceId)->first();
+    if (!$service) {
+        echo json_encode(['result' => 'error', 'message' => 'Service not found']);
+        exit;
+    }
+
+    if ($clientId && $service->userid != $clientId) {
+        echo json_encode(['result' => 'error', 'message' => 'Service does not belong to client']);
+        exit;
+    }
+
+    $server = Capsule::table('tblservers')->where('id', $service->server)->first();
+    if (!$server) {
+        echo json_encode(['result' => 'error', 'message' => 'Server not found']);
+        exit;
+    }
+
+    $module   = strtolower($server->type ?? '');
+    $hostname = $server->hostname ?: $server->ipaddress;
+
+    if ($module !== 'virtualizor') {
+        echo json_encode(['result' => 'error', 'message' => 'OS template listing only supported for Virtualizor']);
+        exit;
+    }
+
+    echo json_encode(handleGetOsTemplates($server, $service, $hostname));
+    exit;
+}
+
+// ── Rebuild VPS (Reinstall OS) ─────────────────────────────
+if ($action === 'RebuildVps') {
+    if (!$serviceId) {
+        echo json_encode(['result' => 'error', 'message' => 'serviceid is required']);
+        exit;
+    }
+
+    $osId    = (int) ($_POST['osid'] ?? 0);
+    $newPass = $_POST['newpass'] ?? '';
+
+    if (!$osId) {
+        echo json_encode(['result' => 'error', 'message' => 'OS template ID (osid) is required']);
+        exit;
+    }
+    if (empty($newPass) || strlen($newPass) < 6) {
+        echo json_encode(['result' => 'error', 'message' => 'New password is required (minimum 6 characters)']);
+        exit;
+    }
+
+    $service = Capsule::table('tblhosting')->where('id', $serviceId)->first();
+    if (!$service) {
+        echo json_encode(['result' => 'error', 'message' => 'Service not found']);
+        exit;
+    }
+
+    if ($clientId && $service->userid != $clientId) {
+        echo json_encode(['result' => 'error', 'message' => 'Service does not belong to client']);
+        exit;
+    }
+
+    $server = Capsule::table('tblservers')->where('id', $service->server)->first();
+    if (!$server) {
+        echo json_encode(['result' => 'error', 'message' => 'Server not found']);
+        exit;
+    }
+
+    $module   = strtolower($server->type ?? '');
+    $hostname = $server->hostname ?: $server->ipaddress;
+
+    if ($module !== 'virtualizor') {
+        echo json_encode(['result' => 'error', 'message' => 'Rebuild only supported for Virtualizor']);
+        exit;
+    }
+
+    echo json_encode(handleRebuildVps($server, $service, $hostname, $osId, $newPass));
+    exit;
+}
+
 // ── Debug: Test Virtualizor API connection ─────────────────
 if ($action === 'TestVirtApi') {
     // Supports three lookup modes:
@@ -902,14 +986,16 @@ function handleVirtualizorSso($server, $service, $hostname)
         ];
     }
 
-    $data = json_decode($response, true);
+    // Virtualizor SSO API output is a raw URL string (not JSON), e.g.:
+    // https://hostname:4085/sessXXXX/?as=TOKEN
+    // When api=json is passed, it MAY return JSON wrapping the URL.
+    // Handle both cases:
 
-    // Virtualizor SSO API returns: { "done": "URL_TOKEN", ... }
-    // The SSO URL is: https://hostname:4083/?sso=TOKEN
-    if (!empty($data['done'])) {
-        $ssoToken = $data['done'];
-        $ssoUrl   = 'https://' . $hostname . ':4083/?sso=' . urlencode($ssoToken);
-
+    // Case 1: Response is a raw URL string (most common from SSO API)
+    $trimmed = trim($response);
+    if (preg_match('#^https?://.+/sess[^/]+/\?as=.+#', $trimmed)) {
+        // Direct SSO URL — rewrite port 4085 (admin) to 4083 (enduser)
+        $ssoUrl = str_replace(':4085/', ':4083/', $trimmed);
         return [
             'result'       => 'success',
             'redirect_url' => $ssoUrl,
@@ -918,15 +1004,55 @@ function handleVirtualizorSso($server, $service, $hostname)
         ];
     }
 
-    // Check if the response has an error
-    if (!empty($data['error'])) {
-        $errorMsg = is_array($data['error']) ? json_encode($data['error']) : $data['error'];
+    // Case 2: JSON response
+    $data = json_decode($response, true);
+
+    if (is_array($data)) {
+        // Check if 'done' contains the SSO URL or token
+        if (!empty($data['done'])) {
+            $done = $data['done'];
+            // If 'done' is a full URL
+            if (is_string($done) && str_starts_with($done, 'http')) {
+                $ssoUrl = str_replace(':4085/', ':4083/', $done);
+                return [
+                    'result'       => 'success',
+                    'redirect_url' => $ssoUrl,
+                    'module'       => 'virtualizor',
+                    'sso_type'     => 'virtualizor_sso',
+                ];
+            }
+            // If 'done' is a token string
+            if (is_string($done) && strlen($done) > 5) {
+                $ssoUrl = 'https://' . $hostname . ':4083/?sso=' . urlencode($done);
+                return [
+                    'result'       => 'success',
+                    'redirect_url' => $ssoUrl,
+                    'module'       => 'virtualizor',
+                    'sso_type'     => 'virtualizor_sso',
+                ];
+            }
+        }
+
+        // Check for error
+        if (!empty($data['error'])) {
+            $errorMsg = is_array($data['error']) ? json_encode($data['error']) : $data['error'];
+            return [
+                'result'       => 'success',
+                'redirect_url' => 'https://' . $hostname . ':4083',
+                'module'       => 'virtualizor',
+                'sso_type'     => 'direct_url',
+                'message'      => 'Virtualizor SSO error: ' . $errorMsg,
+            ];
+        }
+    }
+
+    // Case 3: Response might be any URL (non-standard SSO response)
+    if (filter_var($trimmed, FILTER_VALIDATE_URL)) {
         return [
             'result'       => 'success',
-            'redirect_url' => 'https://' . $hostname . ':4083',
+            'redirect_url' => $trimmed,
             'module'       => 'virtualizor',
-            'sso_type'     => 'direct_url',
-            'message'      => 'Virtualizor SSO error: ' . $errorMsg,
+            'sso_type'     => 'virtualizor_sso',
         ];
     }
 
@@ -936,7 +1062,8 @@ function handleVirtualizorSso($server, $service, $hostname)
         'redirect_url' => 'https://' . $hostname . ':4083',
         'module'       => 'virtualizor',
         'sso_type'     => 'direct_url',
-        'message'      => 'Unexpected Virtualizor API response',
+        'message'      => 'Unexpected Virtualizor SSO response',
+        'debug'        => substr($response, 0, 300),
     ];
 }
 
@@ -1024,33 +1151,76 @@ function handleVirtualizorAction($server, $service, $hostname, $vpsAction)
         'resetpassword' => 'resetpassword',
     ];
 
-    // VNC / Console: return the VNC URL instead of executing an action
+    // VNC / Console: Get VNC info directly via Virtualizor VNC Info API
+    // then try SSO for the URL; if SSO fails, build noVNC URL from VNC info
     if ($vpsAction === 'vnc' || $vpsAction === 'console') {
-        // Virtualizor VNC is accessed via the enduser panel
-        // Use SSO to get auto-login, then redirect to VNC page
+        // Step 1: Get VNC connection info via Admin API
+        // Docs: POST act=vnc, novnc=VPSID → {info: {port, ip, password}}
+        $adminUrl = 'https://' . $hostname . ':4085/index.php';
+        $vncQueryParams = [
+            'act'          => 'vnc',
+            'api'          => 'json',
+            'adminapikey'  => $apiKey,
+            'adminapipass' => $apiPass,
+        ];
+        $vncUrl = $adminUrl . '?' . http_build_query($vncQueryParams);
+        $vncResult = virtualizorApiPost($vncUrl, ['novnc' => $vpsId]);
+
+        $vncInfo = null;
+        if ($vncResult['ok'] && !empty($vncResult['data']['info'])) {
+            $vncInfo = $vncResult['data']['info'];
+        }
+
+        // Step 2: Try SSO to build authenticated VNC URL
         $ssoResult = handleVirtualizorSso($server, $service, $hostname);
-        if (!empty($ssoResult['redirect_url'])) {
-            // Append VNC path to SSO URL
-            $vncUrl = $ssoResult['redirect_url'];
-            // If it's an SSO URL, we add the act parameter
-            if (str_contains($vncUrl, '?sso=')) {
-                $vncUrl .= '&act=vnc&vpsid=' . $vpsId;
+        $ssoType = $ssoResult['sso_type'] ?? 'direct_url';
+
+        if ($ssoType === 'virtualizor_sso' && !empty($ssoResult['redirect_url'])) {
+            // SSO worked — build VNC URL with SSO session
+            $vncRedirectUrl = $ssoResult['redirect_url'];
+            // Append VNC act to the SSO URL
+            if (str_contains($vncRedirectUrl, '?')) {
+                $vncRedirectUrl .= '&act=vnc&novnc=' . $vpsId;
+            } else {
+                $vncRedirectUrl .= '?act=vnc&novnc=' . $vpsId;
             }
             return [
                 'result'       => 'success',
-                'redirect_url' => $vncUrl,
+                'redirect_url' => $vncRedirectUrl,
                 'message'      => 'VNC console ready',
                 'action'       => 'vnc',
                 'module'       => 'virtualizor',
+                'sso_type'     => 'virtualizor_sso',
+                'vnc_info'     => $vncInfo,
             ];
         }
-        // Fallback: direct VNC URL
+
+        // Step 3: SSO failed — use noVNC via Virtualizor's built-in noVNC proxy
+        // Virtualizor has a built-in noVNC at: https://hostname:4083/index.php?act=vnc&novnc=VPSID
+        // But it requires login. With VNC info, we can offer direct connection details.
+        if ($vncInfo) {
+            // Build a direct noVNC URL using Virtualizor's enduser panel
+            // Even without SSO, the VNC page at port 4083 shows a login page,
+            // but noVNC on the enduser panel works at: https://hostname:4083/?act=vnc&novnc=VPSID
+            return [
+                'result'       => 'success',
+                'redirect_url' => 'https://' . $hostname . ':4083/index.php?act=vnc&novnc=' . $vpsId,
+                'message'      => 'VNC console (login required)',
+                'action'       => 'vnc',
+                'module'       => 'virtualizor',
+                'sso_type'     => 'direct_url',
+                'vnc_info'     => $vncInfo,
+            ];
+        }
+
+        // Fallback: direct panel URL
         return [
             'result'       => 'success',
-            'redirect_url' => 'https://' . $hostname . ':4083/index.php?act=vnc&vpsid=' . $vpsId,
+            'redirect_url' => 'https://' . $hostname . ':4083/index.php?act=vnc&novnc=' . $vpsId,
             'message'      => 'VNC console (login required)',
             'action'       => 'vnc',
             'module'       => 'virtualizor',
+            'sso_type'     => 'direct_url',
         ];
     }
 
@@ -1540,6 +1710,238 @@ function getVirtualizorCredentials($server)
         'method'  => $method,
     ];
 }
+
+
+// ═══════════════════════════════════════════════════════════
+// Get OS Templates for VPS Rebuild
+// Uses the Template Browser API to list available OS templates
+// ═══════════════════════════════════════════════════════════
+function handleGetOsTemplates($server, $service, $hostname)
+{
+    $creds = getVirtualizorCredentials($server);
+    $apiKey  = $creds['apiKey'];
+    $apiPass = $creds['apiPass'];
+
+    if (empty($apiKey) || empty($apiPass)) {
+        return ['result' => 'error', 'message' => 'Virtualizor API credentials not configured'];
+    }
+
+    // Find VPS ID (reuse same logic)
+    $vpsId = findVirtualizorVpsId($service);
+    if (!$vpsId) {
+        return ['result' => 'error', 'message' => 'VPS ID not found for this service'];
+    }
+
+    // Call Virtualizor Admin API to list OS templates
+    // The rebuild page endpoint returns available OS templates in the "oslist" key
+    // GET act=rebuild&vpsid=VPSID → returns {oslist: {kvm: {group: [{osid, distro, ...}]}}}
+    $adminUrl = 'https://' . $hostname . ':4085/index.php';
+    $params = [
+        'act'          => 'rebuild',
+        'api'          => 'json',
+        'adminapikey'  => $apiKey,
+        'adminapipass' => $apiPass,
+        'vpsid'        => $vpsId,
+    ];
+
+    $url = $adminUrl . '?' . http_build_query($params);
+    $result = virtualizorApiGet($url);
+
+    if (!$result['ok']) {
+        return ['result' => 'error', 'message' => 'Failed to fetch OS templates: ' . $result['error']];
+    }
+
+    $data = $result['data'];
+
+    // The API returns OS templates organized by virtualization type
+    // Structure: { oslist: { kvm: { "Linux": [{osid, distro, ...}], "Windows": [...] } } }
+    // Also may return: { ostemplates: {...} } or { oses: {...} }
+    $templates = [];
+
+    // Method 1: Parse oslist (most common from rebuild page)
+    if (!empty($data['oslist'])) {
+        foreach ($data['oslist'] as $virtType => $groups) {
+            if (!is_array($groups)) continue;
+            foreach ($groups as $groupName => $osList) {
+                if (!is_array($osList)) continue;
+                foreach ($osList as $os) {
+                    if (!is_array($os)) continue;
+                    $templates[] = [
+                        'osid'    => $os['osid'] ?? $os['id'] ?? 0,
+                        'name'    => $os['name'] ?? $os['distro'] ?? 'Unknown',
+                        'distro'  => $os['distro'] ?? '',
+                        'group'   => $groupName,
+                        'virt'    => $virtType,
+                    ];
+                }
+            }
+        }
+    }
+
+    // Method 2: Parse ostemplates
+    if (empty($templates) && !empty($data['ostemplates'])) {
+        foreach ($data['ostemplates'] as $osId => $os) {
+            if (!is_array($os)) continue;
+            $templates[] = [
+                'osid'    => $os['osid'] ?? $osId,
+                'name'    => $os['name'] ?? $os['distro'] ?? 'Unknown',
+                'distro'  => $os['distro'] ?? '',
+                'group'   => $os['type'] ?? 'Linux',
+                'virt'    => $os['virt'] ?? 'kvm',
+            ];
+        }
+    }
+
+    // Method 3: Parse oses
+    if (empty($templates) && !empty($data['oses'])) {
+        foreach ($data['oses'] as $osId => $os) {
+            if (!is_array($os)) continue;
+            $templates[] = [
+                'osid'    => $os['osid'] ?? $osId,
+                'name'    => $os['name'] ?? $os['distro'] ?? 'Unknown',
+                'distro'  => $os['distro'] ?? '',
+                'group'   => $os['type'] ?? 'Linux',
+                'virt'    => $os['virt'] ?? 'kvm',
+            ];
+        }
+    }
+
+    // Filter out templates with no valid osid
+    $templates = array_values(array_filter($templates, fn($t) => !empty($t['osid'])));
+
+    return [
+        'result'    => 'success',
+        'templates' => $templates,
+        'vpsid'     => $vpsId,
+        'debug_keys' => array_keys($data),
+    ];
+}
+
+
+// ═══════════════════════════════════════════════════════════
+// Rebuild VPS — Reinstall OS with new template
+// Admin API: POST act=rebuild, vpsid, osid, reos=1, newpass, conf
+// ═══════════════════════════════════════════════════════════
+function handleRebuildVps($server, $service, $hostname, $osId, $newPass)
+{
+    $creds = getVirtualizorCredentials($server);
+    $apiKey  = $creds['apiKey'];
+    $apiPass = $creds['apiPass'];
+
+    if (empty($apiKey) || empty($apiPass)) {
+        return ['result' => 'error', 'message' => 'Virtualizor API credentials not configured'];
+    }
+
+    // Find VPS ID
+    $vpsId = findVirtualizorVpsId($service);
+    if (!$vpsId) {
+        return ['result' => 'error', 'message' => 'VPS ID not found for this service'];
+    }
+
+    // Call Virtualizor Admin API to rebuild VPS
+    // Docs: GET query has act=rebuild, auth params; POST body has vpsid, osid, reos, newpass, conf
+    $adminUrl = 'https://' . $hostname . ':4085/index.php';
+    $queryParams = [
+        'act'          => 'rebuild',
+        'api'          => 'json',
+        'adminapikey'  => $apiKey,
+        'adminapipass' => $apiPass,
+    ];
+
+    $url = $adminUrl . '?' . http_build_query($queryParams);
+
+    $postData = [
+        'vpsid'   => $vpsId,
+        'osid'    => $osId,
+        'reos'    => 1,
+        'newpass' => $newPass,
+        'conf'    => $newPass,
+    ];
+
+    $result = virtualizorApiPost($url, $postData);
+
+    if (!$result['ok']) {
+        return ['result' => 'error', 'message' => 'Rebuild API failed: ' . $result['error']];
+    }
+
+    $data = $result['data'];
+
+    // Check for errors
+    if (!empty($data['error'])) {
+        $errorMsg = is_array($data['error']) ? implode(', ', array_values($data['error'])) : $data['error'];
+        return ['result' => 'error', 'message' => 'Rebuild failed: ' . $errorMsg];
+    }
+
+    // Check for success
+    if (!empty($data['done'])) {
+        $osName = '';
+        if (!empty($data['vps']['os_name'])) {
+            $osName = $data['vps']['os_name'];
+        } elseif (!empty($data['vpses'][$vpsId]['os_name'])) {
+            $osName = $data['vpses'][$vpsId]['os_name'];
+        }
+
+        return [
+            'result'  => 'success',
+            'message' => 'VPS is being rebuilt' . ($osName ? ' with ' . $osName : '') . '. This may take a few minutes.',
+            'os_name' => $osName,
+        ];
+    }
+
+    return [
+        'result'  => 'error',
+        'message' => 'Rebuild response unclear. Please check Virtualizor panel for status.',
+        'debug'   => array_keys($data),
+    ];
+}
+
+
+// ═══════════════════════════════════════════════════════════
+// Helper: Find Virtualizor VPS ID from WHMCS service
+// (Extracted from repeated code in handlers)
+// ═══════════════════════════════════════════════════════════
+function findVirtualizorVpsId($service)
+{
+    $vpsId = 0;
+
+    $customFields = Capsule::table('tblcustomfields')
+        ->where('relid', $service->packageid)
+        ->where('type', 'product')
+        ->get();
+
+    foreach ($customFields as $cf) {
+        $fieldName = strtolower($cf->fieldname);
+        if (in_array($fieldName, ['vpsid', 'vps id', 'vserverid', 'vps_id'])) {
+            $cfVal = Capsule::table('tblcustomfieldsvalues')
+                ->where('fieldid', $cf->id)
+                ->where('relid', $service->id)
+                ->value('value');
+            if (!empty($cfVal)) {
+                return (int) $cfVal;
+            }
+        }
+    }
+
+    if (!empty($service->domain) && is_numeric($service->domain)) {
+        return (int) $service->domain;
+    }
+
+    foreach ($customFields as $cf) {
+        $fieldName = strtolower($cf->fieldname);
+        if (str_contains($fieldName, 'server') || str_contains($fieldName, 'vps')) {
+            $cfVal = Capsule::table('tblcustomfieldsvalues')
+                ->where('fieldid', $cf->id)
+                ->where('relid', $service->id)
+                ->value('value');
+            if (!empty($cfVal) && is_numeric($cfVal)) {
+                return (int) $cfVal;
+            }
+        }
+    }
+
+    return 0;
+}
+
 
 // Helper: GET request to Virtualizor API
 // Returns ['ok' => true, 'data' => [...]] on success

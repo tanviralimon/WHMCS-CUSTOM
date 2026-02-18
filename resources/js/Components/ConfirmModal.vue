@@ -8,6 +8,7 @@ const props = defineProps({
     confirmText: { type: String, default: 'Confirm' },
     cancelText: { type: String, default: 'Cancel' },
     variant: { type: String, default: 'danger' }, // 'danger' | 'primary'
+    confirmDisabled: { type: Boolean, default: false },
 });
 
 const emit = defineEmits(['confirm', 'cancel', 'close']);
@@ -58,11 +59,12 @@ const emit = defineEmits(['confirm', 'cancel', 'close']);
                             <button @click="emit('cancel'); emit('close')" class="px-4 py-2 text-[13px] font-medium text-gray-700 bg-white rounded-lg border border-gray-300 hover:bg-gray-50 transition-colors">
                                 {{ cancelText }}
                             </button>
-                            <button @click="emit('confirm')" :class="[
+                            <button @click="!confirmDisabled && emit('confirm')" :disabled="confirmDisabled" :class="[
                                 'px-4 py-2 text-[13px] font-medium text-white rounded-lg transition-colors shadow-sm',
                                 variant === 'danger'
                                     ? 'bg-red-600 hover:bg-red-700'
-                                    : 'bg-indigo-600 hover:bg-indigo-700'
+                                    : 'bg-indigo-600 hover:bg-indigo-700',
+                                confirmDisabled ? 'opacity-50 cursor-not-allowed' : ''
                             ]">
                                 {{ confirmText }}
                             </button>

@@ -188,6 +188,30 @@ class WhmcsService
     }
 
     /**
+     * Get available OS templates for VPS rebuild.
+     */
+    public function getOsTemplates(int $serviceId, int $clientId): array
+    {
+        return $this->client->callSsoProxySafe('GetOsTemplates', [
+            'serviceid' => $serviceId,
+            'clientid'  => $clientId,
+        ]);
+    }
+
+    /**
+     * Rebuild (reinstall OS) a VPS with a new OS template and root password.
+     */
+    public function rebuildVps(int $serviceId, int $clientId, int $osId, string $newPass): array
+    {
+        return $this->client->callSsoProxy('RebuildVps', [
+            'serviceid' => $serviceId,
+            'clientid'  => $clientId,
+            'osid'      => $osId,
+            'newpass'    => $newPass,
+        ]);
+    }
+
+    /**
      * Get service info from SSO proxy (module type, panel URLs, etc.)
      */
     public function getServiceInfo(int $serviceId, int $clientId = 0): array
