@@ -353,42 +353,21 @@ if ($action === 'TestVirtApi') {
         'apikey'  => $creds['apiKey'],
         'apipass' => $creds['apiPass'],
     ]);
+
+    // Virtualizor admin panel runs on port 4085 over HTTPS
+    // Try hostname first, then IP
     $testUrl = 'https://' . $hostname . ':4085/index.php?' . $queryStr;
     $testResult = virtualizorApiGet($testUrl);
-
-    // If HTTPS failed with 302 or connection error, try HTTP
     $usedProtocol = 'https';
-    if (!$testResult['ok']) {
-        $httpUrl = 'http://' . $hostname . ':4085/index.php?' . $queryStr;
-        $httpResult = virtualizorApiGet($httpUrl);
-        if ($httpResult['ok'] || ($httpResult['http_code'] ?? 0) !== 0) {
-            $testResult = $httpResult;
-            $usedProtocol = 'http';
-        }
-    }
 
-    // If still failing, try with server IP instead of hostname
+    // If hostname failed, try with server IP
     if (!$testResult['ok'] && !empty($server->ipaddress) && $server->ipaddress !== $hostname) {
-        $ipQueryStr = http_build_query([
-            'act'     => 'vs',
-            'api'     => 'json',
-            'apikey'  => $creds['apiKey'],
-            'apipass' => $creds['apiPass'],
-        ]);
-        $ipUrl = 'https://' . $server->ipaddress . ':4085/index.php?' . $ipQueryStr;
+        $ipUrl = 'https://' . $server->ipaddress . ':4085/index.php?' . $queryStr;
         $ipResult = virtualizorApiGet($ipUrl);
         if ($ipResult['ok']) {
             $testResult = $ipResult;
             $hostname = $server->ipaddress;
             $usedProtocol = 'https_ip';
-        } else {
-            $ipUrl2 = 'http://' . $server->ipaddress . ':4085/index.php?' . $ipQueryStr;
-            $ipResult2 = virtualizorApiGet($ipUrl2);
-            if ($ipResult2['ok']) {
-                $testResult = $ipResult2;
-                $hostname = $server->ipaddress;
-                $usedProtocol = 'http_ip';
-            }
         }
     }
 
