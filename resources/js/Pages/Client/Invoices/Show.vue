@@ -177,6 +177,7 @@ function applyCredit() {
     router.post(route('client.payment.applyCredit', inv.invoiceid), {
         amount: parseFloat(creditAmount.value),
     }, {
+        preserveScroll: true,
         onFinish: () => { applyingCredit.value = false; },
     });
 }
@@ -185,6 +186,7 @@ function removeCredit(transactionId) {
     if (!confirm('Remove this credit payment? Your credit balance will be restored.')) return;
     removingCreditId.value = transactionId;
     router.post(route('client.payment.removeCredit', { id: inv.invoiceid, transactionId }), {}, {
+        preserveScroll: true,
         onFinish: () => { removingCreditId.value = null; },
     });
 }
