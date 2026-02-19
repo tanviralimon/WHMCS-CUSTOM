@@ -108,6 +108,14 @@ function isActive(href) {
     }
 }
 
+function isChildActive(href) {
+    try {
+        return route().current(href);
+    } catch {
+        return false;
+    }
+}
+
 function isGroupActive(item) {
     if (isActive(item.href)) return true;
     if (item.children) {
@@ -218,7 +226,7 @@ onUnmounted(() => document.removeEventListener('click', handleClickOutside));
                                         :href="route(child.href)"
                                         :class="[
                                             'block px-3 py-1.5 rounded-md text-[13px] transition-colors duration-150',
-                                            isActive(child.href)
+                                            isChildActive(child.href)
                                                 ? 'text-indigo-700 font-medium bg-indigo-50/50'
                                                 : 'text-gray-500 hover:text-gray-900 hover:bg-gray-50'
                                         ]"
