@@ -36,7 +36,8 @@ class PaymentController extends Controller
         try {
             $result = $this->whmcs->applyCredit($id, $amount);
             if (($result['result'] ?? '') === 'success') {
-                return back()->with('success', 'Credit applied successfully.');
+                return redirect()->route('client.invoices.show', $id)
+                    ->with('success', 'Credit applied successfully.');
             }
             return back()->withErrors(['payment' => $result['message'] ?? 'Failed to apply credit.']);
         } catch (\Exception $e) {

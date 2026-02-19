@@ -167,7 +167,6 @@ function applyCredit() {
     router.post(route('client.payment.applyCredit', inv.invoiceid), {
         amount: parseFloat(creditAmount.value),
     }, {
-        preserveScroll: true,
         onFinish: () => { applyingCredit.value = false; },
     });
 }
