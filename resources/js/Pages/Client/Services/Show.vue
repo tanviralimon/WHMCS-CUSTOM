@@ -674,6 +674,156 @@ function executeReinstall() {
         },
     });
 }
+
+// ── Change Hostname ─────────────────────────────────────────
+const hostnameLoading  = ref(false);
+const hostnameInput    = ref('');
+const hostnameError    = ref('');
+
+function doChangeHostname() {
+    hostnameError.value = '';
+    if (!hostnameInput.value.trim()) { hostnameError.value = 'Please enter a hostname.'; return; }
+    hostnameLoading.value = true;
+    router.post(route('client.services.changeHostname', s.id), { hostname: hostnameInput.value.trim() }, {
+        preserveScroll: true,
+        onSuccess: () => { hostnameInput.value = ''; },
+        onError: (errors) => { hostnameError.value = errors.whmcs || 'Failed to change hostname.'; },
+        onFinish: () => { hostnameLoading.value = false; },
+    });
+}
+
+// ── IP Addresses ────────────────────────────────────────────
+const ipsLoaded   = ref(false);
+const ipsLoading  = ref(false);
+const ipsData     = ref({ ips: [], ips6: [], mac: '', netmask: '', gateway: '' });
+const ipCopied    = ref('');
+
+async function loadIPs() {
+    if (ipsLoading.value) return;
+    ipsLoading.value = true;
+    try {
+        const resp = await fetch(route('client.services.ips', s.id), { headers: { 'X-Requested-With': 'XMLHttpRequest' } });
+        const data = await resp.json();
+        if (data.error) { ipsData.value = { ips: [], ips6: [], mac: '', netmask: '', gateway: '' }; }
+        else { ipsData.value = { ips: data.ips ?? [], ips6: data.ips6 ?? [], mac: data.mac ?? '', netmask: data.netmask ?? '', gateway: data.gateway ?? '' }; }
+    } catch (e) { /* silent */ }
+    finally { ipsLoaded.value = true; ipsLoading.value = false; }
+}
+
+function copyIP(ip) {
+    navigator.clipboard.writeText(ip).then(() => {
+        ipCopied.value = ip;
+        setTimeout(() => { ipCopied.value = ''; }, 2000);
+    });
+}
+
+// ── SSH Access ──────────────────────────────────────────────
+const sshLoaded   = ref(false);
+const sshLoading  = ref(false);
+const sshData     = ref({ host: '', port: 22, user: 'root', command: '' });
+const sshCopied   = ref(false);
+
+async function loadSSH() {
+    if (sshLoading.value) return;
+    sshLoading.value = true;
+    try {
+        const resp = await fetch(route('client.services.ssh', s.id), { headers: { 'X-Requested-With': 'XMLHttpRequest' } });
+        const data = await resp.json();
+        if (!data.error) sshData.value = data;
+    } catch (e) { /* silent */ }
+    finally { sshLoaded.value = true; sshLoading.value = false; }
+}
+
+function copySSH() {
+    navigator.clipboard.writeText(sshData.value.command).then(() => {
+        sshCopied.value = true;
+        setTimeout(() => { sshCopied.value = false; }, 2000);
+    });
+}
+
+// ── SSH Keys ────────────────────────────────────────────────
+const sshKeysLoaded   = ref(false);
+const sshKeysLoading  = ref(false);
+const sshKeys         = ref([]);
+const showAddKeyForm  = ref(false);
+const newKeyName      = ref('');
+const newKeyContent   = ref('');
+const sshKeyError     = ref('');
+const sshKeyLoading   = ref(false);
+
+async function loadSshKeys() {
+    if (sshKeysLoading.value) return;
+    sshKeysLoading.value = true;
+    try {
+        const resp = await fetch(route('client.services.sshKeys', s.id), { headers: { 'X-Requested-With': 'XMLHttpRequest' } });
+        const data = await resp.json();
+        sshKeys.value = data.keys ?? [];
+    } catch (e) { /* silent */ }
+    finally { sshKeysLoaded.value = true; sshKeysLoading.value = false; }
+}
+
+function doAddSshKey() {
+    sshKeyError.value = '';
+    if (!newKeyContent.value.trim()) { sshKeyError.value = 'Please paste your public key.'; return; }
+    sshKeyLoading.value = true;
+    router.post(route('client.services.sshKeys.add', s.id), {
+        key_name: newKeyName.value.trim(),
+        key_content: newKeyContent.value.trim(),
+    }, {
+        preserveScroll: true,
+        onSuccess: () => { newKeyName.value = ''; newKeyContent.value = ''; showAddKeyForm.value = false; loadSshKeys(); },
+        onError: (errors) => { sshKeyError.value = errors.whmcs || 'Failed to add key.'; },
+        onFinish: () => { sshKeyLoading.value = false; },
+    });
+}
+
+function doRemoveSshKey(keyId) {
+    if (!confirm('Remove this SSH key?')) return;
+    router.delete(route('client.services.sshKeys.remove', { id: s.id, keyId }), {
+        preserveScroll: true,
+        onSuccess: () => loadSshKeys(),
+    });
+}
+
+// ── VNC ─────────────────────────────────────────────────────
+const vncLoaded       = ref(false);
+const vncLoading      = ref(false);
+const vncData         = ref({ host: '', port: '', password: '' });
+const vncPassInput    = ref('');
+const vncPassError    = ref('');
+const vncPassLoading  = ref(false);
+const vncPassCopied   = ref(false);
+const vncShowPassword = ref(false);
+
+async function loadVNC() {
+    if (vncLoading.value) return;
+    vncLoading.value = true;
+    try {
+        const resp = await fetch(route('client.services.vnc', s.id), { headers: { 'X-Requested-With': 'XMLHttpRequest' } });
+        const data = await resp.json();
+        if (!data.error) vncData.value = data;
+    } catch (e) { /* silent */ }
+    finally { vncLoaded.value = true; vncLoading.value = false; }
+}
+
+function doChangeVncPassword() {
+    vncPassError.value = '';
+    if (vncPassInput.value.length < 6) { vncPassError.value = 'Password must be at least 6 characters.'; return; }
+    vncPassLoading.value = true;
+    router.post(route('client.services.vncPassword', s.id), { password: vncPassInput.value }, {
+        preserveScroll: true,
+        onSuccess: () => { vncPassInput.value = ''; loadVNC(); },
+        onError: (errors) => { vncPassError.value = errors.whmcs || 'Failed to change VNC password.'; },
+        onFinish: () => { vncPassLoading.value = false; },
+    });
+}
+
+function copyVncPassword() {
+    navigator.clipboard.writeText(vncData.value.password).then(() => {
+        vncPassCopied.value = true;
+        setTimeout(() => { vncPassCopied.value = false; }, 2000);
+    });
+}
 </script>
 
 <template>
@@ -1037,6 +1187,246 @@ function executeReinstall() {
                             <button @click="openReinstallModal" :disabled="reinstallLoading" class="inline-flex items-center gap-2 px-4 py-2 bg-orange-600 hover:bg-orange-700 text-white text-[13px] font-semibold rounded-lg transition-colors shadow-sm flex-shrink-0 disabled:opacity-50">
                                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" /></svg>
                                 Reinstall
+                            </button>
+                        </div>
+                    </Card>
+
+                    <!-- Change Hostname -->
+                    <Card title="Change Hostname">
+                        <div class="space-y-4">
+                            <div class="flex items-center gap-3 px-3 py-2 bg-gray-50 rounded-lg border border-gray-200">
+                                <svg class="w-4 h-4 text-gray-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 12h14M12 5l7 7-7 7" /></svg>
+                                <span class="text-[12px] text-gray-500 font-medium">Current Hostname:</span>
+                                <span class="text-[13px] text-gray-900 font-semibold">{{ vpsStats?.hostname || s.domain || '—' }}</span>
+                            </div>
+                            <div class="space-y-2">
+                                <label class="block text-[12px] font-medium text-gray-700">New Hostname</label>
+                                <div class="flex gap-2">
+                                    <input
+                                        v-model="hostnameInput"
+                                        type="text"
+                                        placeholder="e.g. srv4.server.com"
+                                        class="flex-1 px-3 py-2 text-[13px] border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                                        @keyup.enter="doChangeHostname"
+                                    />
+                                    <button
+                                        @click="doChangeHostname"
+                                        :disabled="hostnameLoading || !hostnameInput.trim()"
+                                        class="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-[13px] font-semibold rounded-lg transition-colors disabled:opacity-50 flex items-center gap-2 flex-shrink-0"
+                                    >
+                                        <svg v-if="hostnameLoading" class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
+                                        {{ hostnameLoading ? 'Saving…' : 'Save' }}
+                                    </button>
+                                </div>
+                                <p v-if="hostnameError" class="text-[12px] text-red-600">{{ hostnameError }}</p>
+                            </div>
+                        </div>
+                    </Card>
+
+                    <!-- Change Password -->
+                    <Card title="Change Root Password">
+                        <div class="flex items-start gap-4 p-4 rounded-xl border border-gray-200 bg-gray-50/50">
+                            <div class="w-10 h-10 rounded-lg bg-gray-100 flex items-center justify-center flex-shrink-0">
+                                <svg class="w-5 h-5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" /></svg>
+                            </div>
+                            <div class="flex-1 min-w-0">
+                                <p class="text-[13px] font-semibold text-gray-900">Reset Root Password</p>
+                                <p class="text-[12px] text-gray-500 mt-0.5">A new secure password will be generated and shown to you once.</p>
+                            </div>
+                            <button @click="showPasswordModal = true" :disabled="passwordLoading" class="inline-flex items-center gap-2 px-4 py-2 bg-gray-800 hover:bg-gray-900 text-white text-[13px] font-semibold rounded-lg transition-colors shadow-sm flex-shrink-0 disabled:opacity-50">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
+                                Reset
+                            </button>
+                        </div>
+                    </Card>
+
+                    <!-- IP Addresses -->
+                    <Card title="IP Addresses">
+                        <div v-if="!ipsLoaded" class="flex items-center justify-between">
+                            <p class="text-[13px] text-gray-500">Load your VPS IP information.</p>
+                            <button @click="loadIPs" :disabled="ipsLoading" class="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-[13px] font-semibold rounded-lg transition-colors disabled:opacity-50 flex items-center gap-2">
+                                <svg v-if="ipsLoading" class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
+                                <svg v-else class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
+                                {{ ipsLoading ? 'Loading…' : 'Load IPs' }}
+                            </button>
+                        </div>
+                        <div v-else class="space-y-3">
+                            <div v-if="ipsData.ips.length === 0 && ipsData.ips6.length === 0" class="text-[13px] text-gray-500">No IP addresses found.</div>
+                            <div v-else class="space-y-2">
+                                <div v-for="ip in ipsData.ips" :key="ip" class="flex items-center justify-between px-3 py-2 bg-gray-50 rounded-lg border border-gray-200">
+                                    <div class="flex items-center gap-2">
+                                        <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-blue-100 text-blue-700">IPv4</span>
+                                        <span class="text-[13px] font-mono text-gray-900">{{ ip }}</span>
+                                    </div>
+                                    <button @click="copyIP(ip)" class="text-[11px] text-gray-400 hover:text-gray-700 transition-colors flex items-center gap-1">
+                                        <svg v-if="ipCopied !== ip" class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg>
+                                        <svg v-else class="w-3.5 h-3.5 text-emerald-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" /></svg>
+                                        {{ ipCopied === ip ? 'Copied!' : 'Copy' }}
+                                    </button>
+                                </div>
+                                <div v-for="ip in ipsData.ips6" :key="ip" class="flex items-center justify-between px-3 py-2 bg-gray-50 rounded-lg border border-gray-200">
+                                    <div class="flex items-center gap-2">
+                                        <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-purple-100 text-purple-700">IPv6</span>
+                                        <span class="text-[13px] font-mono text-gray-900 break-all">{{ ip }}</span>
+                                    </div>
+                                    <button @click="copyIP(ip)" class="text-[11px] text-gray-400 hover:text-gray-700 transition-colors flex items-center gap-1 flex-shrink-0 ml-2">
+                                        <svg v-if="ipCopied !== ip" class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg>
+                                        <svg v-else class="w-3.5 h-3.5 text-emerald-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" /></svg>
+                                        {{ ipCopied === ip ? 'Copied!' : 'Copy' }}
+                                    </button>
+                                </div>
+                            </div>
+                            <div v-if="ipsData.gateway || ipsData.netmask" class="grid grid-cols-2 gap-2 pt-1 border-t border-gray-100 mt-2">
+                                <div v-if="ipsData.netmask" class="text-[12px]"><span class="text-gray-500">Netmask:</span> <span class="font-mono text-gray-800">{{ ipsData.netmask }}</span></div>
+                                <div v-if="ipsData.gateway" class="text-[12px]"><span class="text-gray-500">Gateway:</span> <span class="font-mono text-gray-800">{{ ipsData.gateway }}</span></div>
+                            </div>
+                            <button @click="loadIPs" class="text-[12px] text-indigo-600 hover:text-indigo-800 flex items-center gap-1">
+                                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
+                                Refresh
+                            </button>
+                        </div>
+                    </Card>
+
+                    <!-- SSH Access -->
+                    <Card title="SSH Access">
+                        <div v-if="!sshLoaded" class="flex items-center justify-between">
+                            <p class="text-[13px] text-gray-500">Load SSH connection details.</p>
+                            <button @click="loadSSH" :disabled="sshLoading" class="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-[13px] font-semibold rounded-lg transition-colors disabled:opacity-50 flex items-center gap-2">
+                                <svg v-if="sshLoading" class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
+                                {{ sshLoading ? 'Loading…' : 'Load' }}
+                            </button>
+                        </div>
+                        <div v-else class="space-y-3">
+                            <div class="grid grid-cols-3 gap-3">
+                                <div class="bg-gray-50 rounded-lg border border-gray-200 px-3 py-2">
+                                    <p class="text-[11px] text-gray-500 font-medium mb-0.5">Host</p>
+                                    <p class="text-[13px] font-mono text-gray-900 truncate">{{ sshData.host || '—' }}</p>
+                                </div>
+                                <div class="bg-gray-50 rounded-lg border border-gray-200 px-3 py-2">
+                                    <p class="text-[11px] text-gray-500 font-medium mb-0.5">Port</p>
+                                    <p class="text-[13px] font-mono text-gray-900">{{ sshData.port }}</p>
+                                </div>
+                                <div class="bg-gray-50 rounded-lg border border-gray-200 px-3 py-2">
+                                    <p class="text-[11px] text-gray-500 font-medium mb-0.5">User</p>
+                                    <p class="text-[13px] font-mono text-gray-900">{{ sshData.user }}</p>
+                                </div>
+                            </div>
+                            <div class="flex items-center gap-2 px-3 py-2.5 bg-gray-900 rounded-lg">
+                                <span class="text-[13px] font-mono text-emerald-400 flex-1 truncate">{{ sshData.command }}</span>
+                                <button @click="copySSH" class="text-[11px] text-gray-400 hover:text-white transition-colors flex items-center gap-1 flex-shrink-0">
+                                    <svg v-if="!sshCopied" class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg>
+                                    <svg v-else class="w-3.5 h-3.5 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" /></svg>
+                                    {{ sshCopied ? 'Copied!' : 'Copy' }}
+                                </button>
+                            </div>
+                        </div>
+                    </Card>
+
+                    <!-- SSH Keys -->
+                    <Card title="SSH Keys">
+                        <div v-if="!sshKeysLoaded" class="flex items-center justify-between">
+                            <p class="text-[13px] text-gray-500">Manage SSH public keys for this VPS.</p>
+                            <button @click="loadSshKeys" :disabled="sshKeysLoading" class="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-[13px] font-semibold rounded-lg transition-colors disabled:opacity-50 flex items-center gap-2">
+                                <svg v-if="sshKeysLoading" class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
+                                {{ sshKeysLoading ? 'Loading…' : 'Load Keys' }}
+                            </button>
+                        </div>
+                        <div v-else class="space-y-3">
+                            <div v-if="sshKeys.length === 0" class="text-[13px] text-gray-500">No SSH keys added yet.</div>
+                            <div v-else class="space-y-2">
+                                <div v-for="key in sshKeys" :key="key.id ?? key.key_id ?? key.name" class="flex items-center justify-between px-3 py-2.5 bg-gray-50 rounded-lg border border-gray-200">
+                                    <div class="min-w-0 flex-1 mr-3">
+                                        <p class="text-[13px] font-medium text-gray-900 truncate">{{ key.name || key.key_name || 'SSH Key' }}</p>
+                                        <p class="text-[11px] font-mono text-gray-400 truncate mt-0.5">{{ (key.key || key.key_content || '').substring(0, 48) }}…</p>
+                                    </div>
+                                    <button @click="doRemoveSshKey(key.id ?? key.key_id)" class="flex-shrink-0 p-1.5 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors">
+                                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                                    </button>
+                                </div>
+                            </div>
+
+                            <!-- Add Key Form Toggle -->
+                            <div v-if="!showAddKeyForm">
+                                <button @click="showAddKeyForm = true" class="inline-flex items-center gap-2 px-3 py-2 text-[13px] font-medium text-indigo-700 bg-indigo-50 hover:bg-indigo-100 rounded-lg transition-colors">
+                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" /></svg>
+                                    Add SSH Key
+                                </button>
+                            </div>
+                            <div v-else class="space-y-3 pt-2 border-t border-gray-100">
+                                <h4 class="text-[13px] font-semibold text-gray-900">Add New SSH Key</h4>
+                                <input v-model="newKeyName" type="text" placeholder="Key name (optional)" class="w-full px-3 py-2 text-[13px] border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+                                <textarea v-model="newKeyContent" placeholder="Paste your public key here (ssh-rsa AAAA…)" rows="4" class="w-full px-3 py-2 text-[13px] font-mono border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 resize-none"></textarea>
+                                <p v-if="sshKeyError" class="text-[12px] text-red-600">{{ sshKeyError }}</p>
+                                <div class="flex gap-2">
+                                    <button @click="doAddSshKey" :disabled="sshKeyLoading" class="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-[13px] font-semibold rounded-lg transition-colors disabled:opacity-50 flex items-center gap-2">
+                                        <svg v-if="sshKeyLoading" class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
+                                        {{ sshKeyLoading ? 'Adding…' : 'Add Key' }}
+                                    </button>
+                                    <button @click="showAddKeyForm = false; sshKeyError = ''" class="px-4 py-2 text-[13px] font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors">Cancel</button>
+                                </div>
+                            </div>
+
+                            <button @click="loadSshKeys" class="text-[12px] text-indigo-600 hover:text-indigo-800 flex items-center gap-1">
+                                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
+                                Refresh
+                            </button>
+                        </div>
+                    </Card>
+
+                    <!-- VNC -->
+                    <Card title="VNC Console">
+                        <div v-if="!vncLoaded" class="flex items-center justify-between">
+                            <p class="text-[13px] text-gray-500">Load VNC connection details.</p>
+                            <button @click="loadVNC" :disabled="vncLoading" class="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-[13px] font-semibold rounded-lg transition-colors disabled:opacity-50 flex items-center gap-2">
+                                <svg v-if="vncLoading" class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
+                                {{ vncLoading ? 'Loading…' : 'Load VNC' }}
+                            </button>
+                        </div>
+                        <div v-else class="space-y-4">
+                            <!-- Connection Info -->
+                            <div class="grid grid-cols-2 gap-3">
+                                <div class="bg-gray-50 rounded-lg border border-gray-200 px-3 py-2">
+                                    <p class="text-[11px] text-gray-500 font-medium mb-0.5">VNC Host</p>
+                                    <p class="text-[13px] font-mono text-gray-900 truncate">{{ vncData.host || '—' }}</p>
+                                </div>
+                                <div class="bg-gray-50 rounded-lg border border-gray-200 px-3 py-2">
+                                    <p class="text-[11px] text-gray-500 font-medium mb-0.5">VNC Port</p>
+                                    <p class="text-[13px] font-mono text-gray-900">{{ vncData.port || '—' }}</p>
+                                </div>
+                            </div>
+                            <!-- VNC Password Display -->
+                            <div class="bg-gray-50 rounded-lg border border-gray-200 px-3 py-2.5">
+                                <p class="text-[11px] text-gray-500 font-medium mb-1">VNC Password</p>
+                                <div class="flex items-center gap-2">
+                                    <span class="text-[13px] font-mono text-gray-900 flex-1">{{ vncShowPassword ? (vncData.password || '—') : '••••••••' }}</span>
+                                    <button @click="vncShowPassword = !vncShowPassword" class="text-[11px] text-gray-400 hover:text-gray-700 transition-colors">
+                                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path v-if="!vncShowPassword" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                                            <path v-else stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21" />
+                                        </svg>
+                                    </button>
+                                    <button v-if="vncData.password" @click="copyVncPassword" class="text-[11px] text-gray-400 hover:text-gray-700 transition-colors flex items-center gap-1">
+                                        <svg v-if="!vncPassCopied" class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg>
+                                        <svg v-else class="w-3.5 h-3.5 text-emerald-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" /></svg>
+                                        {{ vncPassCopied ? 'Copied!' : 'Copy' }}
+                                    </button>
+                                </div>
+                            </div>
+                            <!-- Change VNC Password -->
+                            <div class="pt-2 border-t border-gray-100 space-y-2">
+                                <p class="text-[13px] font-semibold text-gray-900">Change VNC Password</p>
+                                <div class="flex gap-2">
+                                    <input v-model="vncPassInput" type="password" placeholder="New VNC password (min 6 chars)" class="flex-1 px-3 py-2 text-[13px] border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500" @keyup.enter="doChangeVncPassword" />
+                                    <button @click="doChangeVncPassword" :disabled="vncPassLoading || vncPassInput.length < 6" class="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-[13px] font-semibold rounded-lg transition-colors disabled:opacity-50 flex items-center gap-2 flex-shrink-0">
+                                        <svg v-if="vncPassLoading" class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
+                                        {{ vncPassLoading ? 'Saving…' : 'Save' }}
+                                    </button>
+                                </div>
+                                <p v-if="vncPassError" class="text-[12px] text-red-600">{{ vncPassError }}</p>
+                            </div>
+                            <button @click="loadVNC" class="text-[12px] text-indigo-600 hover:text-indigo-800 flex items-center gap-1">
+                                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
+                                Refresh
                             </button>
                         </div>
                     </Card>

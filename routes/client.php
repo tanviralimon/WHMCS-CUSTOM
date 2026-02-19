@@ -46,6 +46,22 @@ Route::prefix('services')->name('services.')->group(function () {
         ->middleware(['whmcs.own:service,id', 'throttle:10,1']);
     Route::post('/{id}/rebuild', [ServiceController::class, 'rebuildVps'])->name('rebuild')
         ->middleware(['whmcs.own:service,id', 'throttle:3,1']);
+    Route::post('/{id}/change-hostname', [ServiceController::class, 'changeHostname'])->name('changeHostname')
+        ->middleware(['whmcs.own:service,id', 'throttle:5,1']);
+    Route::get('/{id}/ips', [ServiceController::class, 'getIPs'])->name('ips')
+        ->middleware(['whmcs.own:service,id', 'throttle:10,1']);
+    Route::get('/{id}/ssh', [ServiceController::class, 'getSsh'])->name('ssh')
+        ->middleware(['whmcs.own:service,id', 'throttle:10,1']);
+    Route::get('/{id}/ssh-keys', [ServiceController::class, 'getSshKeys'])->name('sshKeys')
+        ->middleware(['whmcs.own:service,id', 'throttle:10,1']);
+    Route::post('/{id}/ssh-keys', [ServiceController::class, 'addSshKey'])->name('sshKeys.add')
+        ->middleware(['whmcs.own:service,id', 'throttle:10,1']);
+    Route::delete('/{id}/ssh-keys/{keyId}', [ServiceController::class, 'removeSshKey'])->name('sshKeys.remove')
+        ->middleware(['whmcs.own:service,id', 'throttle:10,1']);
+    Route::get('/{id}/vnc', [ServiceController::class, 'getVnc'])->name('vnc')
+        ->middleware(['whmcs.own:service,id', 'throttle:10,1']);
+    Route::post('/{id}/vnc-password', [ServiceController::class, 'changeVncPassword'])->name('vncPassword')
+        ->middleware(['whmcs.own:service,id', 'throttle:5,1']);
     Route::get('/{id}/upgrade-options', [ServiceController::class, 'upgradeOptions'])->name('upgradeOptions')
         ->middleware(['whmcs.own:service,id', 'throttle:10,1']);
     Route::post('/{id}/upgrade-calculate', [ServiceController::class, 'calculateUpgrade'])->name('upgradeCalculate')

@@ -583,7 +583,392 @@ if ($action === 'GetVpsStats') {
     exit;
 }
 
-if ($action === 'GetGatewayConfig') {
+// ── VPS: Change Hostname ───────────────────────────────────
+if ($action === 'ChangeHostname') {
+    if (!$serviceId) { echo json_encode(['result' => 'error', 'message' => 'serviceid is required']); exit; }
+    $newHostname = trim($_POST['hostname'] ?? '');
+    if (empty($newHostname)) { echo json_encode(['result' => 'error', 'message' => 'hostname is required']); exit; }
+
+    $service = Capsule::table('tblhosting')->where('id', $serviceId)->first();
+    if (!$service) { echo json_encode(['result' => 'error', 'message' => 'Service not found']); exit; }
+    if ($clientId && $service->userid != $clientId) { echo json_encode(['result' => 'error', 'message' => 'Access denied']); exit; }
+
+    $server = Capsule::table('tblservers')->where('id', $service->server)->first();
+    if (!$server) { echo json_encode(['result' => 'error', 'message' => 'Server not found']); exit; }
+
+    $module   = strtolower($server->type ?? '');
+    $hostname = $server->hostname ?: $server->ipaddress;
+
+    if ($module !== 'virtualizor') { echo json_encode(['result' => 'error', 'message' => 'Only supported for Virtualizor']); exit; }
+
+    $vpsId = resolveVpsId($service);
+    if (!$vpsId) { echo json_encode(['result' => 'error', 'message' => 'VPS ID not found']); exit; }
+
+    $creds   = getVirtualizorCredentials($server);
+    $apiKey  = $creds['apiKey'];
+    $apiPass = $creds['apiPass'];
+    if (empty($apiKey) || empty($apiPass)) { echo json_encode(['result' => 'error', 'message' => 'Virtualizor API credentials missing']); exit; }
+
+    // Step 1: GET current VPS config
+    $adminUrl = 'https://' . $hostname . ':4085/index.php';
+    $getResult = virtualizorApiGet($adminUrl . '?' . http_build_query([
+        'act' => 'editvs', 'vpsid' => $vpsId, 'api' => 'json',
+        'adminapikey' => $apiKey, 'adminapipass' => $apiPass,
+    ]));
+    if (!$getResult['ok']) { echo json_encode(['result' => 'error', 'message' => 'Failed to fetch VPS config: ' . ($getResult['error'] ?? 'unknown')]); exit; }
+
+    $vpsData = $getResult['data']['vpsid'][$vpsId] ?? $getResult['data']['vs'] ?? $getResult['data'];
+
+    // Step 2: POST with new hostname
+    $postParams = ['act' => 'editvs', 'vpsid' => $vpsId, 'api' => 'json',
+        'adminapikey' => $apiKey, 'adminapipass' => $apiPass];
+    $postBody = ['hostname' => $newHostname, 'editvps' => 1, 'vpsid' => $vpsId];
+    // Carry forward essential fields if available
+    foreach (['osid', 'space', 'ram', 'bandwidth', 'cores'] as $f) {
+        if (!empty($vpsData[$f])) $postBody[$f] = $vpsData[$f];
+    }
+
+    $postResult = virtualizorApiPost($adminUrl . '?' . http_build_query($postParams), $postBody);
+
+    if (!$postResult['ok']) { echo json_encode(['result' => 'error', 'message' => 'Failed to change hostname: ' . ($postResult['error'] ?? 'unknown')]); exit; }
+
+    $data = $postResult['data'];
+    if (!empty($data['error'])) {
+        $errMsg = is_array($data['error']) ? implode(', ', array_values($data['error'])) : (string)$data['error'];
+        echo json_encode(['result' => 'error', 'message' => 'Virtualizor: ' . $errMsg]); exit;
+    }
+
+    // Also update hostname in WHMCS tblhosting
+    Capsule::table('tblhosting')->where('id', $serviceId)->update(['domain' => $newHostname]);
+
+    echo json_encode(['result' => 'success', 'message' => 'Hostname changed to ' . $newHostname]);
+    exit;
+}
+
+// ── VPS: Get IPs ───────────────────────────────────────────
+if ($action === 'GetIPs') {
+    if (!$serviceId) { echo json_encode(['result' => 'error', 'message' => 'serviceid is required']); exit; }
+
+    $service = Capsule::table('tblhosting')->where('id', $serviceId)->first();
+    if (!$service) { echo json_encode(['result' => 'error', 'message' => 'Service not found']); exit; }
+    if ($clientId && $service->userid != $clientId) { echo json_encode(['result' => 'error', 'message' => 'Access denied']); exit; }
+
+    $server = Capsule::table('tblservers')->where('id', $service->server)->first();
+    if (!$server) { echo json_encode(['result' => 'error', 'message' => 'Server not found']); exit; }
+
+    $module   = strtolower($server->type ?? '');
+    $hostname = $server->hostname ?: $server->ipaddress;
+
+    if ($module !== 'virtualizor') { echo json_encode(['result' => 'error', 'message' => 'Only supported for Virtualizor']); exit; }
+
+    $vpsId = resolveVpsId($service);
+    if (!$vpsId) { echo json_encode(['result' => 'error', 'message' => 'VPS ID not found']); exit; }
+
+    $creds   = getVirtualizorCredentials($server);
+    $apiKey  = $creds['apiKey'];
+    $apiPass = $creds['apiPass'];
+    if (empty($apiKey) || empty($apiPass)) { echo json_encode(['result' => 'error', 'message' => 'Virtualizor API credentials missing']); exit; }
+
+    $adminUrl  = 'https://' . $hostname . ':4085/index.php';
+    $result = virtualizorApiGet($adminUrl . '?' . http_build_query([
+        'act' => 'vps_network', 'vpsid' => $vpsId, 'api' => 'json',
+        'adminapikey' => $apiKey, 'adminapipass' => $apiPass,
+    ]));
+
+    if (!$result['ok']) { echo json_encode(['result' => 'error', 'message' => $result['error'] ?? 'Failed to get IPs']); exit; }
+
+    $data = $result['data'];
+    if (!empty($data['error'])) {
+        $errMsg = is_array($data['error']) ? implode(', ', array_values($data['error'])) : (string)$data['error'];
+        echo json_encode(['result' => 'error', 'message' => 'Virtualizor: ' . $errMsg]); exit;
+    }
+
+    // Extract IPs from the stats if network endpoint isn't available, fall back to GetVpsStats data
+    $ips   = $data['ips']   ?? $data['vpsid'][$vpsId]['ips']   ?? [];
+    $ips6  = $data['ips6']  ?? $data['vpsid'][$vpsId]['ips6']  ?? [];
+    $mac   = $data['mac']   ?? $data['vpsid'][$vpsId]['mac']   ?? '';
+    $netmask = $data['netmask'] ?? $data['vpsid'][$vpsId]['netmask'] ?? '';
+    $gateway = $data['gateway'] ?? $data['vpsid'][$vpsId]['gateway'] ?? '';
+
+    // Also pull from stats as fallback
+    if (empty($ips)) {
+        $statsResult = handleVirtualizorStats($server, $service, $hostname);
+        if (($statsResult['result'] ?? '') === 'success') {
+            $ips  = $statsResult['ips']  ?? [];
+            $ips6 = $statsResult['ips6'] ?? [];
+        }
+    }
+
+    echo json_encode([
+        'result'  => 'success',
+        'ips'     => is_array($ips)  ? array_values($ips)  : (empty($ips)  ? [] : [$ips]),
+        'ips6'    => is_array($ips6) ? array_values($ips6) : (empty($ips6) ? [] : [$ips6]),
+        'mac'     => $mac,
+        'netmask' => $netmask,
+        'gateway' => $gateway,
+    ]);
+    exit;
+}
+
+// ── VPS: Get SSH Access Info ───────────────────────────────
+if ($action === 'GetSSH') {
+    if (!$serviceId) { echo json_encode(['result' => 'error', 'message' => 'serviceid is required']); exit; }
+
+    $service = Capsule::table('tblhosting')->where('id', $serviceId)->first();
+    if (!$service) { echo json_encode(['result' => 'error', 'message' => 'Service not found']); exit; }
+    if ($clientId && $service->userid != $clientId) { echo json_encode(['result' => 'error', 'message' => 'Access denied']); exit; }
+
+    $server   = Capsule::table('tblservers')->where('id', $service->server)->first();
+    $module   = strtolower($server->type ?? '');
+    $hostname = $server->hostname ?: ($server->ipaddress ?? '');
+
+    // Get IP from VPS stats
+    $vpsId = resolveVpsId($service);
+    $ip    = $service->dedicatedip ?: '';
+
+    if ($module === 'virtualizor' && $vpsId) {
+        $creds   = getVirtualizorCredentials($server);
+        $statsResult = handleVirtualizorStats($server, $service, $hostname);
+        if (($statsResult['result'] ?? '') === 'success' && !empty($statsResult['ips'])) {
+            $ip = $statsResult['ips'][0];
+        }
+    }
+
+    echo json_encode([
+        'result'   => 'success',
+        'host'     => $ip ?: $service->domain,
+        'port'     => 22,
+        'user'     => 'root',
+        'command'  => 'ssh root@' . ($ip ?: $service->domain),
+    ]);
+    exit;
+}
+
+// ── VPS: Get SSH Keys ──────────────────────────────────────
+if ($action === 'GetSshKeys') {
+    if (!$serviceId) { echo json_encode(['result' => 'error', 'message' => 'serviceid is required']); exit; }
+
+    $service = Capsule::table('tblhosting')->where('id', $serviceId)->first();
+    if (!$service) { echo json_encode(['result' => 'error', 'message' => 'Service not found']); exit; }
+    if ($clientId && $service->userid != $clientId) { echo json_encode(['result' => 'error', 'message' => 'Access denied']); exit; }
+
+    $server   = Capsule::table('tblservers')->where('id', $service->server)->first();
+    $module   = strtolower($server->type ?? '');
+    $hostname = $server->hostname ?: ($server->ipaddress ?? '');
+
+    if ($module !== 'virtualizor') { echo json_encode(['result' => 'error', 'message' => 'Only supported for Virtualizor']); exit; }
+
+    $vpsId = resolveVpsId($service);
+    if (!$vpsId) { echo json_encode(['result' => 'error', 'message' => 'VPS ID not found']); exit; }
+
+    $creds   = getVirtualizorCredentials($server);
+    $apiKey  = $creds['apiKey'];
+    $apiPass = $creds['apiPass'];
+    if (empty($apiKey) || empty($apiPass)) { echo json_encode(['result' => 'error', 'message' => 'Virtualizor API credentials missing']); exit; }
+
+    $adminUrl = 'https://' . $hostname . ':4085/index.php';
+    $result   = virtualizorApiGet($adminUrl . '?' . http_build_query([
+        'act' => 'sshkeys', 'vpsid' => $vpsId, 'api' => 'json',
+        'adminapikey' => $apiKey, 'adminapipass' => $apiPass,
+    ]));
+
+    if (!$result['ok']) { echo json_encode(['result' => 'error', 'message' => $result['error'] ?? 'Failed']); exit; }
+
+    $data = $result['data'];
+    if (!empty($data['error'])) {
+        $errMsg = is_array($data['error']) ? implode(', ', array_values($data['error'])) : (string)$data['error'];
+        echo json_encode(['result' => 'error', 'message' => $errMsg]); exit;
+    }
+
+    $keys = $data['sshkeys'] ?? $data['keys'] ?? [];
+    echo json_encode(['result' => 'success', 'keys' => array_values((array)$keys)]);
+    exit;
+}
+
+// ── VPS: Add SSH Key ───────────────────────────────────────
+if ($action === 'AddSshKey') {
+    if (!$serviceId) { echo json_encode(['result' => 'error', 'message' => 'serviceid is required']); exit; }
+
+    $keyName    = trim($_POST['key_name'] ?? '');
+    $keyContent = trim($_POST['key_content'] ?? '');
+    if (empty($keyContent)) { echo json_encode(['result' => 'error', 'message' => 'key_content is required']); exit; }
+
+    $service = Capsule::table('tblhosting')->where('id', $serviceId)->first();
+    if (!$service) { echo json_encode(['result' => 'error', 'message' => 'Service not found']); exit; }
+    if ($clientId && $service->userid != $clientId) { echo json_encode(['result' => 'error', 'message' => 'Access denied']); exit; }
+
+    $server   = Capsule::table('tblservers')->where('id', $service->server)->first();
+    $module   = strtolower($server->type ?? '');
+    $hostname = $server->hostname ?: ($server->ipaddress ?? '');
+
+    if ($module !== 'virtualizor') { echo json_encode(['result' => 'error', 'message' => 'Only supported for Virtualizor']); exit; }
+
+    $vpsId = resolveVpsId($service);
+    if (!$vpsId) { echo json_encode(['result' => 'error', 'message' => 'VPS ID not found']); exit; }
+
+    $creds   = getVirtualizorCredentials($server);
+    $apiKey  = $creds['apiKey'];
+    $apiPass = $creds['apiPass'];
+    if (empty($apiKey) || empty($apiPass)) { echo json_encode(['result' => 'error', 'message' => 'Virtualizor API credentials missing']); exit; }
+
+    $adminUrl  = 'https://' . $hostname . ':4085/index.php';
+    $postResult = virtualizorApiPost($adminUrl . '?' . http_build_query([
+        'act' => 'sshkeys', 'api' => 'json',
+        'adminapikey' => $apiKey, 'adminapipass' => $apiPass,
+    ]), [
+        'vpsid'       => $vpsId,
+        'key_name'    => $keyName ?: 'key_' . time(),
+        'key_content' => $keyContent,
+        'addkey'      => 1,
+    ]);
+
+    if (!$postResult['ok']) { echo json_encode(['result' => 'error', 'message' => $postResult['error'] ?? 'Failed']); exit; }
+
+    $data = $postResult['data'];
+    if (!empty($data['error'])) {
+        $errMsg = is_array($data['error']) ? implode(', ', array_values($data['error'])) : (string)$data['error'];
+        echo json_encode(['result' => 'error', 'message' => $errMsg]); exit;
+    }
+
+    echo json_encode(['result' => 'success', 'message' => 'SSH key added successfully']);
+    exit;
+}
+
+// ── VPS: Remove SSH Key ────────────────────────────────────
+if ($action === 'RemoveSshKey') {
+    if (!$serviceId) { echo json_encode(['result' => 'error', 'message' => 'serviceid is required']); exit; }
+
+    $keyId = (int) ($_POST['key_id'] ?? 0);
+    if (!$keyId) { echo json_encode(['result' => 'error', 'message' => 'key_id is required']); exit; }
+
+    $service = Capsule::table('tblhosting')->where('id', $serviceId)->first();
+    if (!$service) { echo json_encode(['result' => 'error', 'message' => 'Service not found']); exit; }
+    if ($clientId && $service->userid != $clientId) { echo json_encode(['result' => 'error', 'message' => 'Access denied']); exit; }
+
+    $server   = Capsule::table('tblservers')->where('id', $service->server)->first();
+    $module   = strtolower($server->type ?? '');
+    $hostname = $server->hostname ?: ($server->ipaddress ?? '');
+
+    if ($module !== 'virtualizor') { echo json_encode(['result' => 'error', 'message' => 'Only supported for Virtualizor']); exit; }
+
+    $vpsId = resolveVpsId($service);
+    if (!$vpsId) { echo json_encode(['result' => 'error', 'message' => 'VPS ID not found']); exit; }
+
+    $creds   = getVirtualizorCredentials($server);
+    $apiKey  = $creds['apiKey'];
+    $apiPass = $creds['apiPass'];
+    if (empty($apiKey) || empty($apiPass)) { echo json_encode(['result' => 'error', 'message' => 'Virtualizor API credentials missing']); exit; }
+
+    $adminUrl  = 'https://' . $hostname . ':4085/index.php';
+    $result    = virtualizorApiGet($adminUrl . '?' . http_build_query([
+        'act' => 'delsshkey', 'keyid' => $keyId, 'vpsid' => $vpsId, 'api' => 'json',
+        'adminapikey' => $apiKey, 'adminapipass' => $apiPass,
+    ]));
+
+    if (!$result['ok']) { echo json_encode(['result' => 'error', 'message' => $result['error'] ?? 'Failed']); exit; }
+
+    $data = $result['data'];
+    if (!empty($data['error'])) {
+        $errMsg = is_array($data['error']) ? implode(', ', array_values($data['error'])) : (string)$data['error'];
+        echo json_encode(['result' => 'error', 'message' => $errMsg]); exit;
+    }
+
+    echo json_encode(['result' => 'success', 'message' => 'SSH key removed']);
+    exit;
+}
+
+// ── VPS: Get VNC Info ──────────────────────────────────────
+if ($action === 'GetVnc') {
+    if (!$serviceId) { echo json_encode(['result' => 'error', 'message' => 'serviceid is required']); exit; }
+
+    $service = Capsule::table('tblhosting')->where('id', $serviceId)->first();
+    if (!$service) { echo json_encode(['result' => 'error', 'message' => 'Service not found']); exit; }
+    if ($clientId && $service->userid != $clientId) { echo json_encode(['result' => 'error', 'message' => 'Access denied']); exit; }
+
+    $server   = Capsule::table('tblservers')->where('id', $service->server)->first();
+    $module   = strtolower($server->type ?? '');
+    $hostname = $server->hostname ?: ($server->ipaddress ?? '');
+
+    if ($module !== 'virtualizor') { echo json_encode(['result' => 'error', 'message' => 'Only supported for Virtualizor']); exit; }
+
+    $vpsId = resolveVpsId($service);
+    if (!$vpsId) { echo json_encode(['result' => 'error', 'message' => 'VPS ID not found']); exit; }
+
+    $creds   = getVirtualizorCredentials($server);
+    $apiKey  = $creds['apiKey'];
+    $apiPass = $creds['apiPass'];
+    if (empty($apiKey) || empty($apiPass)) { echo json_encode(['result' => 'error', 'message' => 'Virtualizor API credentials missing']); exit; }
+
+    $adminUrl = 'https://' . $hostname . ':4085/index.php';
+    $result   = virtualizorApiGet($adminUrl . '?' . http_build_query([
+        'act' => 'vncpasswd', 'vpsid' => $vpsId, 'api' => 'json',
+        'adminapikey' => $apiKey, 'adminapipass' => $apiPass,
+    ]));
+
+    if (!$result['ok']) { echo json_encode(['result' => 'error', 'message' => $result['error'] ?? 'Failed']); exit; }
+
+    $data    = $result['data'];
+    $vpsInfo = $data['vpsid'][$vpsId] ?? $data['vs'] ?? [];
+    $vncPort = $vpsInfo['vnc_port'] ?? $data['vnc_port'] ?? '';
+    $vncPass = $vpsInfo['vncpass']  ?? $data['vncpass']  ?? $vpsInfo['vnc_passwd'] ?? '';
+
+    echo json_encode([
+        'result'   => 'success',
+        'host'     => $hostname,
+        'port'     => $vncPort,
+        'password' => $vncPass,
+    ]);
+    exit;
+}
+
+// ── VPS: Change VNC Password ───────────────────────────────
+if ($action === 'ChangeVncPassword') {
+    if (!$serviceId) { echo json_encode(['result' => 'error', 'message' => 'serviceid is required']); exit; }
+
+    $newPass = trim($_POST['password'] ?? '');
+    if (strlen($newPass) < 6) { echo json_encode(['result' => 'error', 'message' => 'Password must be at least 6 characters']); exit; }
+
+    $service = Capsule::table('tblhosting')->where('id', $serviceId)->first();
+    if (!$service) { echo json_encode(['result' => 'error', 'message' => 'Service not found']); exit; }
+    if ($clientId && $service->userid != $clientId) { echo json_encode(['result' => 'error', 'message' => 'Access denied']); exit; }
+
+    $server   = Capsule::table('tblservers')->where('id', $service->server)->first();
+    $module   = strtolower($server->type ?? '');
+    $hostname = $server->hostname ?: ($server->ipaddress ?? '');
+
+    if ($module !== 'virtualizor') { echo json_encode(['result' => 'error', 'message' => 'Only supported for Virtualizor']); exit; }
+
+    $vpsId = resolveVpsId($service);
+    if (!$vpsId) { echo json_encode(['result' => 'error', 'message' => 'VPS ID not found']); exit; }
+
+    $creds   = getVirtualizorCredentials($server);
+    $apiKey  = $creds['apiKey'];
+    $apiPass = $creds['apiPass'];
+    if (empty($apiKey) || empty($apiPass)) { echo json_encode(['result' => 'error', 'message' => 'Virtualizor API credentials missing']); exit; }
+
+    $adminUrl  = 'https://' . $hostname . ':4085/index.php';
+    $postResult = virtualizorApiPost($adminUrl . '?' . http_build_query([
+        'act' => 'vncpasswd', 'vpsid' => $vpsId, 'api' => 'json',
+        'adminapikey' => $apiKey, 'adminapipass' => $apiPass,
+    ]), [
+        'vpsid'       => $vpsId,
+        'vncpasswd'   => $newPass,
+        'changevncpwd' => 1,
+    ]);
+
+    if (!$postResult['ok']) { echo json_encode(['result' => 'error', 'message' => $postResult['error'] ?? 'Failed']); exit; }
+
+    $data = $postResult['data'];
+    if (!empty($data['error'])) {
+        $errMsg = is_array($data['error']) ? implode(', ', array_values($data['error'])) : (string)$data['error'];
+        echo json_encode(['result' => 'error', 'message' => $errMsg]); exit;
+    }
+
+    echo json_encode(['result' => 'success', 'message' => 'VNC password changed successfully']);
+    exit;
+}
+
+
     // Return payment gateway module configuration.
     // Uses WHMCS's built-in getGatewayVariables() which handles decryption
     // of password-type fields (API keys, secrets, etc.) automatically.
@@ -2120,6 +2505,58 @@ function handleVirtualizorStats($server, $service, $hostname)
             'net_out'        => floatval($liveStats['net_out'] ?? 0),
         ],
     ];
+}
+
+// ═══════════════════════════════════════════════════════════
+// Shared helper: Resolve Virtualizor VPS ID from a tblhosting service record
+// ═══════════════════════════════════════════════════════════
+function resolveVpsId($service): int
+{
+    $vpsId = 0;
+
+    // Method 1: Custom fields named vpsid / vps id / vserverid / vps_id
+    $customFields = Capsule::table('tblcustomfields')
+        ->where('relid', $service->packageid)
+        ->where('type', 'product')
+        ->get();
+
+    foreach ($customFields as $cf) {
+        $fieldName = strtolower($cf->fieldname);
+        if (in_array($fieldName, ['vpsid', 'vps id', 'vserverid', 'vps_id'])) {
+            $cfVal = Capsule::table('tblcustomfieldsvalues')
+                ->where('fieldid', $cf->id)
+                ->where('relid', $service->id)
+                ->value('value');
+            if (!empty($cfVal)) {
+                $vpsId = (int) $cfVal;
+                break;
+            }
+        }
+    }
+
+    // Method 2: domain field is numeric
+    if (!$vpsId && !empty($service->domain) && is_numeric($service->domain)) {
+        $vpsId = (int) $service->domain;
+    }
+
+    // Method 3: Any custom field containing "server" or "vps" with a numeric value
+    if (!$vpsId) {
+        foreach ($customFields as $cf) {
+            $fieldName = strtolower($cf->fieldname);
+            if (str_contains($fieldName, 'server') || str_contains($fieldName, 'vps')) {
+                $cfVal = Capsule::table('tblcustomfieldsvalues')
+                    ->where('fieldid', $cf->id)
+                    ->where('relid', $service->id)
+                    ->value('value');
+                if (!empty($cfVal) && is_numeric($cfVal)) {
+                    $vpsId = (int) $cfVal;
+                    break;
+                }
+            }
+        }
+    }
+
+    return $vpsId;
 }
 
 // ═══════════════════════════════════════════════════════════

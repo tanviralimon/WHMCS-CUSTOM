@@ -242,6 +242,75 @@ class WhmcsService
         ]);
     }
 
+    public function vpsChangeHostname(int $serviceId, int $clientId, string $hostname): array
+    {
+        return $this->client->callSsoProxy('ChangeHostname', [
+            'serviceid' => $serviceId,
+            'clientid'  => $clientId,
+            'hostname'  => $hostname,
+        ]);
+    }
+
+    public function vpsGetIPs(int $serviceId, int $clientId): array
+    {
+        return $this->client->callSsoProxy('GetIPs', [
+            'serviceid' => $serviceId,
+            'clientid'  => $clientId,
+        ]);
+    }
+
+    public function vpsGetSsh(int $serviceId, int $clientId): array
+    {
+        return $this->client->callSsoProxy('GetSSH', [
+            'serviceid' => $serviceId,
+            'clientid'  => $clientId,
+        ]);
+    }
+
+    public function vpsGetSshKeys(int $serviceId, int $clientId): array
+    {
+        return $this->client->callSsoProxy('GetSshKeys', [
+            'serviceid' => $serviceId,
+            'clientid'  => $clientId,
+        ]);
+    }
+
+    public function vpsAddSshKey(int $serviceId, int $clientId, string $keyName, string $keyContent): array
+    {
+        return $this->client->callSsoProxy('AddSshKey', [
+            'serviceid'   => $serviceId,
+            'clientid'    => $clientId,
+            'key_name'    => $keyName,
+            'key_content' => $keyContent,
+        ]);
+    }
+
+    public function vpsRemoveSshKey(int $serviceId, int $clientId, int $keyId): array
+    {
+        return $this->client->callSsoProxy('RemoveSshKey', [
+            'serviceid' => $serviceId,
+            'clientid'  => $clientId,
+            'key_id'    => $keyId,
+        ]);
+    }
+
+    public function vpsGetVnc(int $serviceId, int $clientId): array
+    {
+        return $this->client->callSsoProxy('GetVnc', [
+            'serviceid' => $serviceId,
+            'clientid'  => $clientId,
+        ]);
+    }
+
+    public function vpsChangeVncPassword(int $serviceId, int $clientId, string $password): array
+    {
+        return $this->client->callSsoProxy('ChangeVncPassword', [
+            'serviceid' => $serviceId,
+            'clientid'  => $clientId,
+            'password'  => $password,
+        ]);
+    }
+
     /**
      * Get service info from SSO proxy (module type, panel URLs, etc.)
      */

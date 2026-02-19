@@ -300,6 +300,163 @@ class ServiceController extends Controller
         }
     }
 
+    public function changeHostname(Request $request, int $id)
+    {
+        $request->validate(['hostname' => 'required|string|max:253']);
+        $clientId = $request->user()->whmcs_client_id;
+
+        try {
+            $result = $this->whmcs->vpsChangeHostname($id, $clientId, $request->hostname);
+
+            if (($result['result'] ?? '') !== 'success') {
+                return back()->withErrors(['whmcs' => $result['message'] ?? 'Failed to change hostname.']);
+            }
+
+            return back()->with('success', $result['message'] ?? 'Hostname changed successfully.');
+        } catch (\Exception $e) {
+            return back()->withErrors(['whmcs' => 'Failed: ' . $e->getMessage()]);
+        }
+    }
+
+    public function getIPs(Request $request, int $id)
+    {
+        $clientId = $request->user()->whmcs_client_id;
+
+        try {
+            $result = $this->whmcs->vpsGetIPs($id, $clientId);
+
+            if (($result['result'] ?? '') !== 'success') {
+                return response()->json(['error' => $result['message'] ?? 'Failed to get IPs.'], 422);
+            }
+
+            return response()->json([
+                'ips'     => $result['ips']     ?? [],
+                'ips6'    => $result['ips6']    ?? [],
+                'mac'     => $result['mac']     ?? '',
+                'netmask' => $result['netmask'] ?? '',
+                'gateway' => $result['gateway'] ?? '',
+            ]);
+        } catch (\Exception $e) {
+            return response()->json(['error' => $e->getMessage()], 500);
+        }
+    }
+
+    public function getSsh(Request $request, int $id)
+    {
+        $clientId = $request->user()->whmcs_client_id;
+
+        try {
+            $result = $this->whmcs->vpsGetSsh($id, $clientId);
+
+            if (($result['result'] ?? '') !== 'success') {
+                return response()->json(['error' => $result['message'] ?? 'Failed.'], 422);
+            }
+
+            return response()->json([
+                'host'    => $result['host']    ?? '',
+                'port'    => $result['port']    ?? 22,
+                'user'    => $result['user']    ?? 'root',
+                'command' => $result['command'] ?? '',
+            ]);
+        } catch (\Exception $e) {
+            return response()->json(['error' => $e->getMessage()], 500);
+        }
+    }
+
+    public function getSshKeys(Request $request, int $id)
+    {
+        $clientId = $request->user()->whmcs_client_id;
+
+        try {
+            $result = $this->whmcs->vpsGetSshKeys($id, $clientId);
+
+            if (($result['result'] ?? '') !== 'success') {
+                return response()->json(['error' => $result['message'] ?? 'Failed.'], 422);
+            }
+
+            return response()->json(['keys' => $result['keys'] ?? []]);
+        } catch (\Exception $e) {
+            return response()->json(['error' => $e->getMessage()], 500);
+        }
+    }
+
+    public function addSshKey(Request $request, int $id)
+    {
+        $request->validate([
+            'key_name'    => 'nullable|string|max:128',
+            'key_content' => 'required|string',
+        ]);
+        $clientId = $request->user()->whmcs_client_id;
+
+        try {
+            $result = $this->whmcs->vpsAddSshKey($id, $clientId, $request->key_name ?? '', $request->key_content);
+
+            if (($result['result'] ?? '') !== 'success') {
+                return back()->withErrors(['whmcs' => $result['message'] ?? 'Failed to add SSH key.']);
+            }
+
+            return back()->with('success', 'SSH key added successfully.');
+        } catch (\Exception $e) {
+            return back()->withErrors(['whmcs' => 'Failed: ' . $e->getMessage()]);
+        }
+    }
+
+    public function removeSshKey(Request $request, int $id, int $keyId)
+    {
+        $clientId = $request->user()->whmcs_client_id;
+
+        try {
+            $result = $this->whmcs->vpsRemoveSshKey($id, $clientId, $keyId);
+
+            if (($result['result'] ?? '') !== 'success') {
+                return back()->withErrors(['whmcs' => $result['message'] ?? 'Failed to remove SSH key.']);
+            }
+
+            return back()->with('success', 'SSH key removed.');
+        } catch (\Exception $e) {
+            return back()->withErrors(['whmcs' => 'Failed: ' . $e->getMessage()]);
+        }
+    }
+
+    public function getVnc(Request $request, int $id)
+    {
+        $clientId = $request->user()->whmcs_client_id;
+
+        try {
+            $result = $this->whmcs->vpsGetVnc($id, $clientId);
+
+            if (($result['result'] ?? '') !== 'success') {
+                return response()->json(['error' => $result['message'] ?? 'Failed.'], 422);
+            }
+
+            return response()->json([
+                'host'     => $result['host']     ?? '',
+                'port'     => $result['port']      ?? '',
+                'password' => $result['password']  ?? '',
+            ]);
+        } catch (\Exception $e) {
+            return response()->json(['error' => $e->getMessage()], 500);
+        }
+    }
+
+    public function changeVncPassword(Request $request, int $id)
+    {
+        $request->validate(['password' => 'required|string|min:6|max:64']);
+        $clientId = $request->user()->whmcs_client_id;
+
+        try {
+            $result = $this->whmcs->vpsChangeVncPassword($id, $clientId, $request->password);
+
+            if (($result['result'] ?? '') !== 'success') {
+                return back()->withErrors(['whmcs' => $result['message'] ?? 'Failed to change VNC password.']);
+            }
+
+            return back()->with('success', 'VNC password changed successfully.');
+        } catch (\Exception $e) {
+            return back()->withErrors(['whmcs' => 'Failed: ' . $e->getMessage()]);
+        }
+    }
+
     /**
      * Get available upgrade/downgrade options for a service.
      * Returns JSON with products, pricing, and payment methods.
