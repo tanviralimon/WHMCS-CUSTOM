@@ -47,6 +47,46 @@ class PaymentController extends Controller
     }
 
     /**
+     * Remove a credit transaction from an invoice (restores credit balance).
+     */
+    public function removeCredit(Request $request, int $id, int $transactionId)
+    {
+        // Verify the invoice exists and is unpaid
+        $invoice = $this->whmcs->getInvoice($id);
+        if (($invoice['result'] ?? '') !== 'success') {
+            return back()->withErrors(['payment' => 'Invoice not found.']);
+        }
+        if ($invoice['status'] !== 'Unpaid') {
+            return back()->withErrors(['payment' => 'Cannot modify a paid invoice.']);
+        }
+
+        // Verify the transaction belongs to this invoice and is a credit payment
+        $transactions = $invoice['transactions']['transaction'] ?? [];
+        // Ensure it's an array of transactions (WHMCS returns single item as object)
+        if (isset($transactions['id'])) $transactions = [$transactions];
+
+        $txn = collect($transactions)->firstWhere('id', (string) $transactionId);
+        if (!$txn) {
+            return back()->withErrors(['payment' => 'Transaction not found on this invoice.']);
+        }
+        if (strtolower($txn['gateway'] ?? '') !== 'credit') {
+            return back()->withErrors(['payment' => 'Only credit transactions can be removed.']);
+        }
+
+        try {
+            $result = $this->whmcs->deleteTransaction($transactionId);
+            if (($result['result'] ?? '') === 'success') {
+                return redirect()->route('client.invoices.show', $id)
+                    ->with('success', 'Credit removed. Your credit balance has been restored.');
+            }
+            return back()->withErrors(['payment' => $result['message'] ?? 'Failed to remove credit.']);
+        } catch (\Exception $e) {
+            Log::error('Remove credit failed', ['invoice' => $id, 'transaction' => $transactionId, 'error' => $e->getMessage()]);
+            return back()->withErrors(['payment' => 'Failed to remove credit. Please try again.']);
+        }
+    }
+
+    /**
      * Upload payment proof for bank transfer — creates a WHMCS support ticket with attachment.
      */
     public function uploadPaymentProof(Request $request, int $id)

@@ -110,6 +110,7 @@ function payWithGateway() {
 // ── Credit payment ──
 const creditAmount = ref(Math.min(creditBalance.value, balance.value).toFixed(2));
 const applyingCredit = ref(false);
+const removingCreditId = ref(null);
 
 // ── Bank transfer ──
 const isBankTransfer = computed(() => {
@@ -168,6 +169,14 @@ function applyCredit() {
         amount: parseFloat(creditAmount.value),
     }, {
         onFinish: () => { applyingCredit.value = false; },
+    });
+}
+
+function removeCredit(transactionId) {
+    if (!confirm('Remove this credit payment? Your credit balance will be restored.')) return;
+    removingCreditId.value = transactionId;
+    router.post(route('client.payment.removeCredit', { id: inv.invoiceid, transactionId }), {}, {
+        onFinish: () => { removingCreditId.value = null; },
     });
 }
 
@@ -278,7 +287,17 @@ function friendlyGatewayName() {
                                 <p class="text-[13px] font-medium text-gray-900">{{ t.gateway }}</p>
                                 <p class="text-[12px] text-gray-500">{{ t.date }} · {{ t.transid }}</p>
                             </div>
-                            <p class="text-[13px] font-semibold text-emerald-600">{{ formatCurrency(t.amountin || t.amount) }}</p>
+                            <div class="flex items-center gap-2">
+                                <p class="text-[13px] font-semibold text-emerald-600">{{ formatCurrency(t.amountin || t.amount) }}</p>
+                                <!-- Remove credit button — only for credit transactions on unpaid invoices -->
+                                <button v-if="isUnpaid && (t.gateway || '').toLowerCase() === 'credit'"
+                                    @click="removeCredit(t.id)"
+                                    :disabled="removingCreditId === t.id"
+                                    class="text-[11px] px-2 py-1 rounded-md bg-red-50 text-red-600 hover:bg-red-100 transition-colors disabled:opacity-50"
+                                    title="Remove credit and restore balance">
+                                    {{ removingCreditId === t.id ? '...' : 'Remove' }}
+                                </button>
+                            </div>
                         </div>
                     </div>
                 </Card>

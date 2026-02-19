@@ -112,6 +112,8 @@ Route::prefix('invoices')->name('invoices.')->group(function () {
 Route::prefix('payment')->name('payment.')->group(function () {
     Route::post('/{id}/apply-credit', [PaymentController::class, 'applyCredit'])->name('applyCredit')
         ->middleware(['whmcs.own:invoice,id', 'throttle:10,1']);
+    Route::post('/{id}/remove-credit/{transactionId}', [PaymentController::class, 'removeCredit'])->name('removeCredit')
+        ->middleware(['whmcs.own:invoice,id', 'throttle:10,1']);
     Route::post('/{id}/pay', [PaymentController::class, 'pay'])->name('pay')
         ->middleware(['whmcs.own:invoice,id', 'throttle:10,1']);
     Route::post('/{id}/upload-proof', [PaymentController::class, 'uploadPaymentProof'])->name('uploadProof')

@@ -445,6 +445,13 @@ class WhmcsService
         ]);
     }
 
+    public function deleteTransaction(int $transactionId): array
+    {
+        return $this->client->call('DeleteTransaction', [
+            'transactionid' => $transactionId,
+        ]);
+    }
+
     // ─── Quotes ────────────────────────────────────────────
 
     public function getQuotes(int $clientId, int $offset = 0, int $limit = 25): array
