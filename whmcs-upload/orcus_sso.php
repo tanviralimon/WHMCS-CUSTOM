@@ -1006,7 +1006,7 @@ if ($action === 'ChangeVncPassword') {
     exit;
 }
 
-
+if ($action === 'GetGatewayConfig') {
     // Return payment gateway module configuration.
     // Uses WHMCS's built-in getGatewayVariables() which handles decryption
     // of password-type fields (API keys, secrets, etc.) automatically.
