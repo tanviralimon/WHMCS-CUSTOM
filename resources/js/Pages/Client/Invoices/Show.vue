@@ -31,7 +31,8 @@ const items = computed(() => inv.items?.item || []);
 const transactions = computed(() => inv.transactions?.transaction || []);
 const isUnpaid = computed(() => inv.status === 'Unpaid');
 const balance = computed(() => parseFloat(inv.balance || 0));
-const hasCredit = computed(() => (props.creditBalance || 0) > 0 && !isAddFundsInvoice.value);
+const creditBalance = computed(() => props.creditBalance || 0);
+const hasCredit = computed(() => !isAddFundsInvoice.value); // always show for non-add-funds invoices
 const hasGateways = computed(() => props.paymentMethods && props.paymentMethods.length > 0);
 
 // Detect "Add Funds" / "Add Credit" invoices — can't pay with credit balance (circular)
@@ -59,8 +60,8 @@ if (paymentSuccessFromUrl || paymentErrorFromUrl) {
     window.history.replaceState({}, '', cleanUrl);
 }
 
-// Payment tab
-const activeTab = ref(hasGateways.value ? 'gateway' : (hasCredit.value ? 'credit' : 'gateway'));
+// Payment tab — default to gateway if available, else credit
+const activeTab = ref(hasGateways.value ? 'gateway' : 'credit');
 
 // ── Gateway payment ──
 const selectedGateway = ref(inv.paymentmethod || (props.paymentMethods?.[0]?.module ?? ''));
@@ -107,7 +108,7 @@ function payWithGateway() {
 }
 
 // ── Credit payment ──
-const creditAmount = ref(Math.min(props.creditBalance || 0, balance.value).toFixed(2));
+const creditAmount = ref(Math.min(creditBalance.value, balance.value).toFixed(2));
 const applyingCredit = ref(false);
 
 // ── Bank transfer ──
@@ -447,30 +448,46 @@ function friendlyGatewayName() {
                         </div>
 
                         <!-- ── Credit Balance ── -->
-                        <div v-if="activeTab === 'credit' && hasCredit" class="space-y-3">
-                            <div class="bg-emerald-50 rounded-lg p-3">
-                                <div class="flex justify-between items-center">
-                                    <span class="text-[12px] text-emerald-700">Your Credit Balance</span>
-                                    <span class="text-[14px] font-bold text-emerald-700">{{ formatCurrency(creditBalance) }}</span>
+                        <div v-if="activeTab === 'credit'" class="space-y-3">
+                            <!-- No credit balance → prompt to add funds -->
+                            <div v-if="creditBalance <= 0" class="text-center py-4 space-y-3">
+                                <div class="w-12 h-12 rounded-full bg-gray-100 flex items-center justify-center mx-auto">
+                                    <svg class="w-6 h-6 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M2.25 18.75a60.07 60.07 0 0115.797 2.101c.727.198 1.453-.342 1.453-1.096V18.75M3.75 4.5v.75A.75.75 0 013 6h-.75m0 0v-.375c0-.621.504-1.125 1.125-1.125H20.25M2.25 6v9m18-10.5v.75c0 .414.336.75.75.75h.75m-1.5-1.5h.375c.621 0 1.125.504 1.125 1.125v9.75c0 .621-.504 1.125-1.125 1.125h-.375m1.5-1.5H21a.75.75 0 00-.75.75v.75m0 0H3.75m0 0h-.375a1.125 1.125 0 01-1.125-1.125V15m1.5 1.5v-.75A.75.75 0 003 15h-.75M15 10.5a3 3 0 11-6 0 3 3 0 016 0zm3 0h.008v.008H18V10.5zm-12 0h.008v.008H6V10.5z" /></svg>
                                 </div>
+                                <p class="text-[13px] text-gray-600 font-medium">No credit balance available</p>
+                                <p class="text-[12px] text-gray-400">Add funds to your account to pay with credit.</p>
+                                <a :href="route('client.billing.credit')" class="inline-flex items-center gap-1.5 px-4 py-2 text-[12px] font-semibold text-indigo-600 bg-indigo-50 rounded-lg hover:bg-indigo-100 transition-colors">
+                                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4.5v15m7.5-7.5h-15" /></svg>
+                                    Add Funds
+                                </a>
                             </div>
 
-                            <div>
-                                <label class="block text-[12px] font-medium text-gray-600 mb-1">Amount to Apply</label>
-                                <input v-model="creditAmount" type="number" :min="0.01" :max="Math.min(creditBalance, balance)" step="0.01"
-                                    class="w-full px-3 py-2 text-[14px] font-medium rounded-lg border-gray-300 focus:border-indigo-500 focus:ring-indigo-500" />
-                            </div>
+                            <!-- Has credit balance → show apply form -->
+                            <template v-else>
+                                <div class="bg-emerald-50 rounded-lg p-3">
+                                    <div class="flex justify-between items-center">
+                                        <span class="text-[12px] text-emerald-700">Your Credit Balance</span>
+                                        <span class="text-[14px] font-bold text-emerald-700">{{ formatCurrency(creditBalance) }}</span>
+                                    </div>
+                                </div>
 
-                            <button @click="applyCredit" :disabled="applyingCredit || !creditAmount"
-                                class="w-full inline-flex items-center justify-center gap-2 px-4 py-3 text-[13px] font-semibold text-white bg-emerald-600 rounded-lg hover:bg-emerald-700 transition-colors shadow-sm disabled:opacity-50">
-                                <svg v-if="!applyingCredit" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4.5v15m7.5-7.5h-15" /></svg>
-                                <svg v-else class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" /><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
-                                {{ applyingCredit ? 'Applying...' : `Apply ${formatCurrency(creditAmount)} Credit` }}
-                            </button>
+                                <div>
+                                    <label class="block text-[12px] font-medium text-gray-600 mb-1">Amount to Apply</label>
+                                    <input v-model="creditAmount" type="number" :min="0.01" :max="Math.min(creditBalance, balance)" step="0.01"
+                                        class="w-full px-3 py-2 text-[14px] font-medium rounded-lg border-gray-300 focus:border-indigo-500 focus:ring-indigo-500" />
+                                </div>
 
-                            <p v-if="parseFloat(creditAmount) < balance" class="text-[11px] text-amber-600 text-center">
-                                Remaining {{ formatCurrency(balance - parseFloat(creditAmount || 0)) }} can be paid via online payment.
-                            </p>
+                                <button @click="applyCredit" :disabled="applyingCredit || !parseFloat(creditAmount)"
+                                    class="w-full inline-flex items-center justify-center gap-2 px-4 py-3 text-[13px] font-semibold text-white bg-emerald-600 rounded-lg hover:bg-emerald-700 transition-colors shadow-sm disabled:opacity-50">
+                                    <svg v-if="!applyingCredit" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4.5v15m7.5-7.5h-15" /></svg>
+                                    <svg v-else class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" /><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
+                                    {{ applyingCredit ? 'Applying...' : `Apply ${formatCurrency(creditAmount)} Credit` }}
+                                </button>
+
+                                <p v-if="parseFloat(creditAmount) < balance" class="text-[11px] text-amber-600 text-center">
+                                    Remaining {{ formatCurrency(balance - parseFloat(creditAmount || 0)) }} can be paid via online payment.
+                                </p>
+                            </template>
                         </div>
 
                         <!-- No payment methods fallback -->
