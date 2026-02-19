@@ -413,17 +413,16 @@ class ServiceController extends Controller
             }
 
             $invoiceId = $result['invoiceid'] ?? null;
-            $price     = $result['price'] ?? null;
             $newName   = $result['newproductname'] ?? 'new plan';
 
             // If there's an invoice to pay, redirect to it
             if ($invoiceId) {
                 return redirect()->route('client.invoices.show', $invoiceId)
-                    ->with('success', "Upgrade to {$newName} ordered. Please pay the invoice ({$price}) to complete the upgrade.");
+                    ->with('success', "Upgrade to {$newName} ordered. Please pay the invoice to complete the upgrade.");
             }
 
             // No invoice = downgrade or credit applied
-            return back()->with('success', "Your plan has been changed to {$newName}. The change will take effect at the next billing cycle. {$price}");
+            return back()->with('success', "Your plan has been changed to {$newName}. The change will take effect at the next billing cycle.");
         } catch (\Exception $e) {
             return back()->withErrors(['whmcs' => 'Upgrade failed: ' . $e->getMessage()]);
         }
@@ -535,14 +534,13 @@ class ServiceController extends Controller
             }
 
             $invoiceId = $result['invoiceid'] ?? null;
-            $price     = $result['price'] ?? null;
 
             if ($invoiceId) {
                 return redirect()->route('client.invoices.show', $invoiceId)
-                    ->with('success', "Config option upgrade ordered. Please pay the invoice ({$price}) to complete the upgrade.");
+                    ->with('success', "Config option upgrade ordered. Please pay the invoice to complete the upgrade.");
             }
 
-            return back()->with('success', "Your configuration has been updated. {$price}");
+            return back()->with('success', 'Your configuration has been updated.');
         } catch (\Exception $e) {
             return back()->withErrors(['whmcs' => 'Config upgrade failed: ' . $e->getMessage()]);
         }
