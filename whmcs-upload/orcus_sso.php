@@ -853,8 +853,8 @@ if ($action === 'GetUpgradeProducts') {
 // ═══════════════════════════════════════════════════════════
 if ($action === 'GetServiceConfigOptions') {
     try {
-        $serviceId = (int) ($_GET['serviceid'] ?? 0);
-        $clientId  = (int) ($_GET['clientid'] ?? 0);
+        $serviceId = (int) ($_POST['serviceid'] ?? 0);
+        $clientId  = (int) ($_POST['clientid'] ?? 0);
         if (!$serviceId || !$clientId) {
             throw new \Exception('Missing serviceid or clientid');
         }
@@ -926,6 +926,25 @@ if ($action === 'GetServiceConfigOptions') {
         // 6) Build option data with sub-options and pricing
         $result = [];
         foreach ($options as $opt) {
+            // Parse "internal_name|Display Name" format
+            $nameParts    = explode('|', $opt->optionname, 2);
+            $internalName = trim($nameParts[0]);
+            $displayName  = isset($nameParts[1]) ? trim($nameParts[1]) : trim($nameParts[0]);
+
+            // Skip OS/template options — those are handled via the OS Reload feature
+            $internalLower = strtolower($internalName);
+            $displayLower  = strtolower($displayName);
+            if (
+                $internalLower === 'os'
+                || str_starts_with($internalLower, 'os_')
+                || str_contains($internalLower, 'template')
+                || str_contains($internalLower, 'operating')
+                || str_contains($displayLower, 'operating system')
+                || str_contains($displayLower, 'os template')
+            ) {
+                continue;
+            }
+
             // Get sub-options
             $subOptions = \Illuminate\Database\Capsule\Manager::table('tblproductconfigoptionssub')
                 ->where('configid', $opt->id)
@@ -942,9 +961,13 @@ if ($action === 'GetServiceConfigOptions') {
                     ->where('currency', $currencyId)
                     ->first();
 
+                // Parse "internal|Display Name" format — use display name only
+                $subParts = explode('|', $sub->optionname, 2);
+                $subDisplayName = isset($subParts[1]) ? trim($subParts[1]) : trim($subParts[0]);
+
                 $subData = [
                     'id'         => (int) $sub->id,
-                    'name'       => $sub->optionname,
+                    'name'       => $subDisplayName,
                     'sortorder'  => (int) $sub->sortorder,
                 ];
 
@@ -983,7 +1006,7 @@ if ($action === 'GetServiceConfigOptions') {
 
             $result[] = [
                 'id'           => (int) $opt->id,
-                'name'         => $opt->optionname,
+                'name'         => $displayName,
                 'type'         => (int) $opt->optiontype, // 1=dropdown, 2=yesno, 3=quantity, 4=radio
                 'qtyminimum'   => (int) ($opt->qtyminimum ?? 0),
                 'qtymaximum'   => (int) ($opt->qtymaximum ?? 0),
