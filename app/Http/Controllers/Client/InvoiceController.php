@@ -94,25 +94,20 @@ class InvoiceController extends Controller
         $proofSubmitted = $this->whmcs->hasPaymentProofTicket($clientId, $id);
 
         // Normalize transactions: WHMCS returns single object instead of array when only one transaction
-        $transactions = $result['transactions']['transaction'] ?? [];
-        if (!empty($transactions) && isset($transactions['id'])) {
-            $transactions = [$transactions];
+        $rawTxns = $result['transactions']['transaction'] ?? [];
+        if (!empty($rawTxns) && isset($rawTxns['id'])) {
+            $rawTxns = [$rawTxns];
         }
-        $result['transactions']['transaction'] = $transactions;
+        if (!isset($result['transactions'])) $result['transactions'] = [];
+        $result['transactions']['transaction'] = array_values((array) $rawTxns);
 
         // Normalize items: same single-object issue
-        $items = $result['items']['item'] ?? [];
-        if (!empty($items) && isset($items['id'])) {
-            $items = [$items];
+        $rawItems = $result['items']['item'] ?? [];
+        if (!empty($rawItems) && isset($rawItems['id'])) {
+            $rawItems = [$rawItems];
         }
-        $result['items']['item'] = $items;
-
-        \Illuminate\Support\Facades\Log::debug('Invoice transactions debug', [
-            'invoice_id'   => $id,
-            'status'       => $result['status'] ?? null,
-            'balance'      => $result['balance'] ?? null,
-            'transactions' => $transactions,
-        ]);
+        if (!isset($result['items'])) $result['items'] = [];
+        $result['items']['item'] = array_values((array) $rawItems);
 
         return Inertia::render('Client/Invoices/Show', [
             'invoice'            => $result,
