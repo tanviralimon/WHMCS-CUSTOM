@@ -11,35 +11,54 @@
  * Supported modules: spanel, cpanel, plesk, directadmin, virtualizor
  */
 
-// Suppress ALL PHP notices/warnings – this is a JSON API endpoint.
-// A single notice before the '{' makes the whole response invalid JSON.
+// Buffer ALL output from this point so nothing leaks before our JSON header.
+ob_start();
+
+// Suppress notices/warnings — a single one prepended before '{' breaks JSON.
 error_reporting(0);
 ini_set('display_errors', '0');
 ini_set('display_startup_errors', '0');
 
-// Catch any uncaught exception and return it as JSON instead of an HTML error.
+// Catch uncaught exceptions → clean JSON response.
 set_exception_handler(function (Throwable $e) {
-    // Discard any stray output accumulated so far
     while (ob_get_level() > 0) { ob_end_clean(); }
     if (!headers_sent()) { header('Content-Type: application/json'); }
     echo json_encode(['result' => 'error', 'message' => 'Server exception: ' . $e->getMessage()]);
     exit;
 });
 
+// Catch fatal errors (E_ERROR) that bypass set_exception_handler.
+register_shutdown_function(function () {
+    $err = error_get_last();
+    if ($err && in_array($err['type'], [E_ERROR, E_PARSE, E_CORE_ERROR, E_COMPILE_ERROR])) {
+        while (ob_get_level() > 0) { ob_end_clean(); }
+        if (!headers_sent()) { header('Content-Type: application/json'); }
+        echo json_encode(['result' => 'error', 'message' => 'PHP fatal: ' . $err['message']]);
+    }
+    // For the normal (non-fatal) path, flush the buffer so the JSON echo'd by
+    // the action handlers actually reaches the client.
+    if (ob_get_level() > 0) { ob_end_flush(); }
+});
+
 // ── Bootstrap WHMCS ────────────────────────────────────────
 $whmcsDir = __DIR__;
 if (!file_exists($whmcsDir . '/init.php')) {
+    ob_end_clean();
     header('Content-Type: application/json');
     echo json_encode(['result' => 'error', 'message' => 'WHMCS init.php not found.']);
     exit;
 }
 
-define('CLIENTAREA', true);
-ob_start();
+// Only define CLIENTAREA if it hasn't been set already (prevents fatal on double-define).
+if (!defined('CLIENTAREA')) {
+    define('CLIENTAREA', true);
+}
 require_once $whmcsDir . '/init.php';
-ob_end_clean();
 
-// Re-suppress: WHMCS init.php sometimes re-enables error display
+// Discard any HTML/text output init.php emitted (WHMCS header/footer, notices, etc.)
+ob_clean();
+
+// Re-suppress: WHMCS init.php re-enables error display.
 error_reporting(0);
 ini_set('display_errors', '0');
 
