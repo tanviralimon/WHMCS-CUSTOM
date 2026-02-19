@@ -93,21 +93,21 @@ class InvoiceController extends Controller
         // Check if payment proof already submitted for this invoice
         $proofSubmitted = $this->whmcs->hasPaymentProofTicket($clientId, $id);
 
-        // Normalize transactions: WHMCS returns single object instead of array when only one transaction
-        $rawTxns = $result['transactions']['transaction'] ?? [];
-        if (!empty($rawTxns) && isset($rawTxns['id'])) {
-            $rawTxns = [$rawTxns];
+        // Normalize transactions — WHMCS may return: array of objects, single object, empty array, or string "0"
+        $txnContainer = is_array($result['transactions'] ?? null) ? $result['transactions'] : [];
+        $rawTxns = $txnContainer['transaction'] ?? [];
+        if (is_array($rawTxns) && !empty($rawTxns) && array_key_exists('id', $rawTxns)) {
+            $rawTxns = [$rawTxns]; // single transaction — wrap in array
         }
-        if (!isset($result['transactions'])) $result['transactions'] = [];
-        $result['transactions']['transaction'] = array_values((array) $rawTxns);
+        $result['transactions'] = ['transaction' => is_array($rawTxns) ? array_values($rawTxns) : []];
 
-        // Normalize items: same single-object issue
-        $rawItems = $result['items']['item'] ?? [];
-        if (!empty($rawItems) && isset($rawItems['id'])) {
+        // Normalize items — same issue
+        $itemContainer = is_array($result['items'] ?? null) ? $result['items'] : [];
+        $rawItems = $itemContainer['item'] ?? [];
+        if (is_array($rawItems) && !empty($rawItems) && array_key_exists('id', $rawItems)) {
             $rawItems = [$rawItems];
         }
-        if (!isset($result['items'])) $result['items'] = [];
-        $result['items']['item'] = array_values((array) $rawItems);
+        $result['items'] = ['item' => is_array($rawItems) ? array_values($rawItems) : []];
 
         return Inertia::render('Client/Invoices/Show', [
             'invoice'            => $result,
