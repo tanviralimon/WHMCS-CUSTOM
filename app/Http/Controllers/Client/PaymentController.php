@@ -51,13 +51,10 @@ class PaymentController extends Controller
      */
     public function removeCredit(Request $request, int $id, int $transactionId)
     {
-        // Verify the invoice exists and is unpaid
+        // Verify the invoice exists
         $invoice = $this->whmcs->getInvoice($id);
         if (($invoice['result'] ?? '') !== 'success') {
             return back()->withErrors(['payment' => 'Invoice not found.']);
-        }
-        if ($invoice['status'] !== 'Unpaid') {
-            return back()->withErrors(['payment' => 'Cannot modify a paid invoice.']);
         }
 
         // Verify the transaction belongs to this invoice and is a credit payment

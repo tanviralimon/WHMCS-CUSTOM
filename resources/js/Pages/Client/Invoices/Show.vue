@@ -34,8 +34,9 @@ const items = computed(() => {
 });
 const transactions = computed(() => {
     const raw = inv.transactions?.transaction;
-    if (!raw) return [];
-    return Array.isArray(raw) ? raw : [raw];
+    if (!raw || raw === '0' || raw === 0) return [];
+    const arr = Array.isArray(raw) ? raw : [raw];
+    return arr.filter(t => t && typeof t === 'object');
 });
 const isUnpaid = computed(() => inv.status === 'Unpaid');
 const balance = computed(() => parseFloat(inv.balance || 0));
@@ -298,7 +299,7 @@ function friendlyGatewayName() {
                             <div class="flex items-center gap-2">
                                 <p class="text-[13px] font-semibold text-emerald-600">{{ formatCurrency(t.amountin || t.amount) }}</p>
                                 <!-- Remove credit button — only for credit transactions on unpaid invoices -->
-                                <button v-if="isUnpaid && (t.gateway || '').toLowerCase().includes('credit')"
+                                <button v-if="(t.gateway || '').toLowerCase().includes('credit')"
                                     @click="removeCredit(t.id)"
                                     :disabled="removingCreditId === t.id"
                                     class="text-[11px] px-2 py-1 rounded-md bg-red-50 text-red-600 hover:bg-red-100 transition-colors disabled:opacity-50"
