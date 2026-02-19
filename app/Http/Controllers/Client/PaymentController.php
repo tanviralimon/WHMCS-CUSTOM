@@ -69,7 +69,7 @@ class PaymentController extends Controller
         if (!$txn) {
             return back()->withErrors(['payment' => 'Transaction not found on this invoice.']);
         }
-        if (strtolower($txn['gateway'] ?? '') !== 'credit') {
+        if (!str_contains(strtolower($txn['gateway'] ?? ''), 'credit')) {
             return back()->withErrors(['payment' => 'Only credit transactions can be removed.']);
         }
 

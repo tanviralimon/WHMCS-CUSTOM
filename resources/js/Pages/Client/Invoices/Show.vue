@@ -27,8 +27,16 @@ const allowedExtensions = computed(() => {
 });
 
 const inv = props.invoice;
-const items = computed(() => inv.items?.item || []);
-const transactions = computed(() => inv.transactions?.transaction || []);
+const items = computed(() => {
+    const raw = inv.items?.item;
+    if (!raw) return [];
+    return Array.isArray(raw) ? raw : [raw];
+});
+const transactions = computed(() => {
+    const raw = inv.transactions?.transaction;
+    if (!raw) return [];
+    return Array.isArray(raw) ? raw : [raw];
+});
 const isUnpaid = computed(() => inv.status === 'Unpaid');
 const balance = computed(() => parseFloat(inv.balance || 0));
 const creditBalance = computed(() => props.creditBalance || 0);
@@ -290,7 +298,7 @@ function friendlyGatewayName() {
                             <div class="flex items-center gap-2">
                                 <p class="text-[13px] font-semibold text-emerald-600">{{ formatCurrency(t.amountin || t.amount) }}</p>
                                 <!-- Remove credit button — only for credit transactions on unpaid invoices -->
-                                <button v-if="isUnpaid && (t.gateway || '').toLowerCase() === 'credit'"
+                                <button v-if="isUnpaid && (t.gateway || '').toLowerCase().includes('credit')"
                                     @click="removeCredit(t.id)"
                                     :disabled="removingCreditId === t.id"
                                     class="text-[11px] px-2 py-1 rounded-md bg-red-50 text-red-600 hover:bg-red-100 transition-colors disabled:opacity-50"
