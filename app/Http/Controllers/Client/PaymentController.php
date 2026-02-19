@@ -61,9 +61,12 @@ class PaymentController extends Controller
         }
 
         // Verify the transaction belongs to this invoice and is a credit payment
-        $transactions = $invoice['transactions']['transaction'] ?? [];
-        // Ensure it's an array of transactions (WHMCS returns single item as object)
-        if (isset($transactions['id'])) $transactions = [$transactions];
+        $txnsRaw = $invoice['transactions']['transaction'] ?? [];
+        // WHMCS returns single transaction as object (not array)
+        if (is_array($txnsRaw) && isset($txnsRaw['id'])) {
+            $txnsRaw = [$txnsRaw];
+        }
+        $transactions = is_array($txnsRaw) ? $txnsRaw : [];
 
         $txn = collect($transactions)->firstWhere('id', (string) $transactionId);
         if (!$txn) {
@@ -73,9 +76,21 @@ class PaymentController extends Controller
             return back()->withErrors(['payment' => 'Only credit transactions can be removed.']);
         }
 
+        $clientId  = (int) $invoice['clientid'];
+        $txnAmount = (float) ($txn['amountin'] ?? $txn['amount'] ?? 0);
+
         try {
             $result = $this->whmcs->deleteTransaction($transactionId);
             if (($result['result'] ?? '') === 'success') {
+                // DeleteTransaction only removes the record — it does NOT restore the
+                // client's credit balance automatically, so we add it back manually.
+                if ($txnAmount > 0) {
+                    $this->whmcs->addClientCredit(
+                        $clientId,
+                        $txnAmount,
+                        'Credit restored — removed from Invoice #' . $id
+                    );
+                }
                 return redirect()->route('client.invoices.show', $id)
                     ->with('success', 'Credit removed. Your credit balance has been restored.');
             }

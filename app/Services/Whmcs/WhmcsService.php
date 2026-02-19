@@ -857,6 +857,18 @@ class WhmcsService
     }
 
     /**
+     * Directly add credit to a client's account balance (used when reversing an applied credit).
+     */
+    public function addClientCredit(int $clientId, float $amount, string $description = 'Credit restored'): array
+    {
+        return $this->client->call('AddCredit', [
+            'clientid'    => $clientId,
+            'description' => $description,
+            'amount'      => number_format($amount, 2, '.', ''),
+        ]);
+    }
+
+    /**
      * Apply existing credit balance to an invoice.
      */
     public function applyCredit(int $invoiceId, float $amount): array
