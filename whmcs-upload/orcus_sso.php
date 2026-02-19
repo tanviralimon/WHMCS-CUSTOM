@@ -11,6 +11,21 @@
  * Supported modules: spanel, cpanel, plesk, directadmin, virtualizor
  */
 
+// Suppress ALL PHP notices/warnings – this is a JSON API endpoint.
+// A single notice before the '{' makes the whole response invalid JSON.
+error_reporting(0);
+ini_set('display_errors', '0');
+ini_set('display_startup_errors', '0');
+
+// Catch any uncaught exception and return it as JSON instead of an HTML error.
+set_exception_handler(function (Throwable $e) {
+    // Discard any stray output accumulated so far
+    while (ob_get_level() > 0) { ob_end_clean(); }
+    if (!headers_sent()) { header('Content-Type: application/json'); }
+    echo json_encode(['result' => 'error', 'message' => 'Server exception: ' . $e->getMessage()]);
+    exit;
+});
+
 // ── Bootstrap WHMCS ────────────────────────────────────────
 $whmcsDir = __DIR__;
 if (!file_exists($whmcsDir . '/init.php')) {
@@ -23,6 +38,10 @@ define('CLIENTAREA', true);
 ob_start();
 require_once $whmcsDir . '/init.php';
 ob_end_clean();
+
+// Re-suppress: WHMCS init.php sometimes re-enables error display
+error_reporting(0);
+ini_set('display_errors', '0');
 
 use WHMCS\Database\Capsule;
 

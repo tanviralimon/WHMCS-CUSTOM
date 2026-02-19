@@ -173,6 +173,13 @@ class WhmcsClient
      * Call the SSO proxy on the WHMCS server.
      * Generates direct SSO login URLs for control panels (SPanel, cPanel, etc.)
      */
+    /** Actions that call the Virtualizor API (or other slow external APIs) internally. */
+    private const SSO_SLOW_ACTIONS = [
+        'GetVpsStats', 'VpsAction', 'RebuildVps', 'ChangeHostname',
+        'GetIPs', 'GetSSH', 'GetSshKeys', 'AddSshKey', 'RemoveSshKey',
+        'GetVnc', 'ChangeVncPassword', 'TestVirtApi',
+    ];
+
     public function callSsoProxy(string $action, array $params = []): array
     {
         $payload = array_merge([
@@ -181,8 +188,12 @@ class WhmcsClient
             'secret'     => $this->secret,
         ], $params);
 
+        // Virtualizor-backed actions make up to two outbound API calls;
+        // give them 45 s so they don't time out before orcus_sso.php replies.
+        $timeout = in_array($action, self::SSO_SLOW_ACTIONS) ? 45 : $this->timeout;
+
         try {
-            $response = Http::timeout($this->timeout)
+            $response = Http::timeout($timeout)
                 ->withOptions(['verify' => $this->verifySSL])
                 ->asForm()
                 ->post("{$this->baseUrl}/orcus_sso.php", $payload);
