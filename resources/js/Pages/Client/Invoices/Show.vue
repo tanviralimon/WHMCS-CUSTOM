@@ -26,20 +26,20 @@ const allowedExtensions = computed(() => {
     return ext.split(',').map(e => '.' + e.trim()).join(',');
 });
 
-const inv = props.invoice;
+const inv = computed(() => props.invoice);
 const items = computed(() => {
-    const raw = inv.items?.item;
+    const raw = inv.value.items?.item;
     if (!raw) return [];
     return Array.isArray(raw) ? raw : [raw];
 });
 const transactions = computed(() => {
-    const raw = inv.transactions?.transaction;
+    const raw = inv.value.transactions?.transaction;
     if (!raw || raw === '0' || raw === 0) return [];
     const arr = Array.isArray(raw) ? raw : [raw];
     return arr.filter(t => t && typeof t === 'object');
 });
-const isUnpaid = computed(() => inv.status === 'Unpaid');
-const balance = computed(() => parseFloat(inv.balance || 0));
+const isUnpaid = computed(() => inv.value.status === 'Unpaid');
+const balance = computed(() => parseFloat(inv.value.balance || 0));
 const creditBalance = computed(() => props.creditBalance || 0);
 const hasCredit = computed(() => !isAddFundsInvoice.value); // always show for non-add-funds invoices
 const hasGateways = computed(() => props.paymentMethods && props.paymentMethods.length > 0);
@@ -73,7 +73,7 @@ if (paymentSuccessFromUrl || paymentErrorFromUrl) {
 const activeTab = ref(hasGateways.value ? 'gateway' : 'credit');
 
 // ── Gateway payment ──
-const selectedGateway = ref(inv.paymentmethod || (props.paymentMethods?.[0]?.module ?? ''));
+const selectedGateway = ref(inv.value.paymentmethod || (props.paymentMethods?.[0]?.module ?? ''));
 const processingPay = ref(false);
 const payError = ref('');
 
@@ -84,7 +84,7 @@ function payWithGateway() {
 
     const csrfToken = document.querySelector('meta[name="csrf-token"]')?.content;
 
-    fetch(route('client.payment.pay', inv.invoiceid), {
+    fetch(route('client.payment.pay', inv.value.invoiceid), {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
@@ -153,7 +153,7 @@ function uploadProof() {
     proofError.value = '';
     proofSuccess.value = '';
 
-    router.post(route('client.payment.uploadProof', inv.invoiceid), {
+    router.post(route('client.payment.uploadProof', inv.value.invoiceid), {
         proof: proofFile.value,
         amount: balance.value,
     }, {
@@ -174,7 +174,7 @@ function uploadProof() {
 
 function applyCredit() {
     applyingCredit.value = true;
-    router.post(route('client.payment.applyCredit', inv.invoiceid), {
+    router.post(route('client.payment.applyCredit', inv.value.invoiceid), {
         amount: parseFloat(creditAmount.value),
     }, {
         preserveScroll: true,
@@ -185,7 +185,7 @@ function applyCredit() {
 function removeCredit(transactionId) {
     if (!confirm('Remove this credit payment? Your credit balance will be restored.')) return;
     removingCreditId.value = transactionId;
-    router.post(route('client.payment.removeCredit', { id: inv.invoiceid, transactionId }), {}, {
+    router.post(route('client.payment.removeCredit', { id: inv.value.invoiceid, transactionId }), {}, {
         preserveScroll: true,
         onFinish: () => { removingCreditId.value = null; },
     });
