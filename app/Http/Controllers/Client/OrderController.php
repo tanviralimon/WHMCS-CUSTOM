@@ -300,6 +300,7 @@ class OrderController extends Controller
             'price'         => (string) $request->price,
             'domain'        => $request->domain,
             'configoptions' => $request->get('configoptions', []),
+            'configlabels'  => $request->get('configlabels', []),
             'customfields'  => $request->get('customfields', []),
             'hostname'      => $request->hostname,
             'rootpw'        => $request->rootpw,
@@ -483,11 +484,13 @@ class OrderController extends Controller
     /**
      * Normalize WHMCS configurable options into a consistent structure for the frontend.
      *
-     * WHMCS API returns: name, type, options.option[].name, options.option[].pricing.{CURRENCY}.monthly
-     * We normalize to: optionname, optiontype, options.option[].optionname, options.option[].pricing (flat string)
+     * WHMCS API returns: name, type, options.option[].name, options.option[].pricing.{CURRENCY}.{cycle}
+     * We normalize to: optionname, optiontype, options.option[].optionname, options.option[].pricing (per-cycle)
      */
     private function normalizeConfigOptions(array $rawOptions, string $currencyCode): array
     {
+        $allCycles = ['monthly', 'quarterly', 'semiannually', 'annually', 'biennially', 'triennially'];
+
         $normalized = [];
         foreach ($rawOptions as $opt) {
             $item = [
@@ -506,28 +509,66 @@ class OrderController extends Controller
             }
 
             foreach ($subOptions as $sub) {
-                $flatPrice = null;
                 $pricingData = $sub['pricing'] ?? [];
-                // Extract the monthly price for the active currency
+                // Extract pricing for the active currency
                 $currencyPricing = $pricingData[$currencyCode]
                     ?? $pricingData[array_key_first($pricingData) ?: 'USD']
                     ?? [];
+
+                // Build per-cycle pricing map
+                $cyclePricing = [];
                 if (is_array($currencyPricing)) {
-                    $flatPrice = $currencyPricing['monthly'] ?? $currencyPricing['annually'] ?? null;
-                    if ($flatPrice !== null) {
-                        $flatPrice = $this->cleanPrice($flatPrice);
+                    foreach ($allCycles as $cycle) {
+                        $val = $currencyPricing[$cycle] ?? null;
+                        if ($val !== null) {
+                            $cleaned = $this->cleanPrice($val);
+                            if ($cleaned !== null) {
+                                $cyclePricing[$cycle] = $cleaned;
+                            }
+                        }
+                    }
+                    // Also grab setup fees if present
+                    foreach ($allCycles as $cycle) {
+                        $setupKey = $cycle === 'monthly' ? 'msetupfee' :
+                                   ($cycle === 'quarterly' ? 'qsetupfee' :
+                                   ($cycle === 'semiannually' ? 'ssetupfee' :
+                                   ($cycle === 'annually' ? 'asetupfee' :
+                                   ($cycle === 'biennially' ? 'bsetupfee' : 'tsetupfee'))));
+                        $setupVal = $currencyPricing[$setupKey] ?? null;
+                        if ($setupVal !== null) {
+                            $cleaned = $this->cleanPrice($setupVal);
+                            if ($cleaned !== null && $cleaned > 0) {
+                                $cyclePricing[$cycle . '_setup'] = $cleaned;
+                            }
+                        }
                     }
                 } elseif (is_string($currencyPricing) || is_numeric($currencyPricing)) {
-                    $flatPrice = $this->cleanPrice($currencyPricing);
+                    // Flat price for all cycles
+                    $cleaned = $this->cleanPrice($currencyPricing);
+                    if ($cleaned !== null) {
+                        foreach ($allCycles as $cycle) {
+                            $cyclePricing[$cycle] = $cleaned;
+                        }
+                    }
+                }
+
+                // Fallback flat price (first available cycle price)
+                $flatPrice = null;
+                foreach ($allCycles as $cycle) {
+                    if (isset($cyclePricing[$cycle])) {
+                        $flatPrice = $cyclePricing[$cycle];
+                        break;
+                    }
                 }
 
                 $item['options']['option'][] = [
-                    'id'         => $sub['id'] ?? 0,
-                    'optionname' => $sub['name'] ?? $sub['optionname'] ?? '',
-                    'rawName'    => $sub['rawName'] ?? null,
-                    'recurring'  => $sub['recurring'] ?? 0,
-                    'required'   => $sub['required'] ?? null,
-                    'pricing'    => $flatPrice,
+                    'id'           => $sub['id'] ?? 0,
+                    'optionname'   => $sub['name'] ?? $sub['optionname'] ?? '',
+                    'rawName'      => $sub['rawName'] ?? null,
+                    'recurring'    => $sub['recurring'] ?? 0,
+                    'required'     => $sub['required'] ?? null,
+                    'pricing'      => $flatPrice,
+                    'cyclePricing' => $cyclePricing,
                 ];
             }
 

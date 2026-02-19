@@ -78,19 +78,31 @@ function checkout() {
         <div v-else class="grid lg:grid-cols-3 gap-6">
             <div class="lg:col-span-2 space-y-4">
                 <Card v-for="(item, i) in items" :key="i" noPadding>
-                    <div class="flex items-center justify-between p-5">
-                        <div class="flex-1 min-w-0">
-                            <p class="text-[14px] font-semibold text-gray-900">{{ item.name }}</p>
-                            <div class="flex items-center gap-3 mt-1">
-                                <span class="inline-flex items-center px-2 py-0.5 text-[11px] font-medium bg-indigo-50 text-indigo-700 rounded-md capitalize">{{ item.billingcycle }}</span>
-                                <span v-if="item.domain" class="text-[12px] text-gray-500">{{ item.domain }}</span>
+                    <div class="p-5">
+                        <div class="flex items-center justify-between">
+                            <div class="flex-1 min-w-0">
+                                <p class="text-[14px] font-semibold text-gray-900">{{ item.name }}</p>
+                                <div class="flex items-center gap-3 mt-1">
+                                    <span class="inline-flex items-center px-2 py-0.5 text-[11px] font-medium bg-indigo-50 text-indigo-700 rounded-md capitalize">{{ item.billingcycle }}</span>
+                                    <span v-if="item.domain" class="text-[12px] text-gray-500">{{ item.domain }}</span>
+                                </div>
+                            </div>
+                            <div class="flex items-center gap-4 ml-4">
+                                <p class="text-[16px] font-bold text-gray-900">{{ formatCurrency(item.price) }}</p>
+                                <button @click="removeItem(i)" class="p-2 text-gray-400 hover:text-red-500 transition-colors rounded-lg hover:bg-red-50">
+                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                                </button>
                             </div>
                         </div>
-                        <div class="flex items-center gap-4 ml-4">
-                            <p class="text-[16px] font-bold text-gray-900">{{ formatCurrency(item.price) }}</p>
-                            <button @click="removeItem(i)" class="p-2 text-gray-400 hover:text-red-500 transition-colors rounded-lg hover:bg-red-50">
-                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
-                            </button>
+                        <!-- Config options details -->
+                        <div v-if="item.configlabels && Object.keys(item.configlabels).length > 0" class="mt-3 pt-3 border-t border-gray-100">
+                            <p class="text-[11px] font-medium text-gray-500 uppercase mb-1.5">Configuration</p>
+                            <div class="space-y-1">
+                                <div v-for="(lbl, optId) in item.configlabels" :key="optId" class="flex justify-between text-[12px]">
+                                    <span class="text-gray-600">{{ lbl.name }}: <span class="font-medium text-gray-800">{{ lbl.value }}</span></span>
+                                    <span v-if="lbl.price && parseFloat(lbl.price) > 0" class="text-gray-500 font-medium">+{{ formatCurrency(lbl.price) }}</span>
+                                </div>
+                            </div>
                         </div>
                     </div>
                 </Card>

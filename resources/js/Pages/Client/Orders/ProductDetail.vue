@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed } from 'vue';
+import { ref, computed, watch } from 'vue';
 import { router, Link } from '@inertiajs/vue3';
 import ClientLayout from '@/Layouts/ClientLayout.vue';
 import Card from '@/Components/Card.vue';
@@ -75,6 +75,87 @@ if (availableCycles.value.length && !getPrice(selectedCycle.value)) {
     selectedCycle.value = availableCycles.value[0].key;
 }
 
+// ─── Config option helpers ─────────────────────────────────
+function getOptionPrice(sub, cycle) {
+    if (!sub?.cyclePricing) return sub?.pricing ?? null;
+    return sub.cyclePricing[cycle] ?? sub.cyclePricing['monthly'] ?? sub.pricing ?? null;
+}
+
+function findSubOption(opt, subId) {
+    return (opt.options?.option || []).find(s => s.id == subId);
+}
+
+// Calculate additional cost from configurable options based on current selections
+const configOptionsTotal = computed(() => {
+    let total = 0;
+    for (const opt of props.configOptions) {
+        const sel = configSelections.value[opt.id];
+        if (sel === undefined || sel === '' || sel === null) continue;
+
+        const type = opt.optiontype;
+        // Dropdown (1) or Radio (4) — value is sub-option id
+        if (type === '1' || type === 'dropdown' || type === '4' || type === 'radio') {
+            const sub = findSubOption(opt, sel);
+            if (sub) {
+                const price = getOptionPrice(sub, selectedCycle.value);
+                if (price) total += parseFloat(price);
+            }
+        }
+        // Yes/No (2) — value is boolean/checkbox
+        else if (type === '2' || type === 'yesno') {
+            if (sel) {
+                const sub = (opt.options?.option || [])[0];
+                if (sub) {
+                    const price = getOptionPrice(sub, selectedCycle.value);
+                    if (price) total += parseFloat(price);
+                }
+            }
+        }
+        // Quantity (3) — value is qty number, price is per unit
+        else if (type === '3' || type === 'quantity') {
+            const qty = parseInt(sel) || 0;
+            if (qty > 0) {
+                const sub = (opt.options?.option || [])[0];
+                if (sub) {
+                    const price = getOptionPrice(sub, selectedCycle.value);
+                    if (price) total += parseFloat(price) * qty;
+                }
+            }
+        }
+    }
+    return total;
+});
+
+const basePrice = computed(() => getPrice(selectedCycle.value) ?? 0);
+const orderTotal = computed(() => parseFloat(basePrice.value) + configOptionsTotal.value);
+
+// Build config labels for cart display
+function buildConfigLabels() {
+    const labels = {};
+    for (const opt of props.configOptions) {
+        const sel = configSelections.value[opt.id];
+        if (sel === undefined || sel === '' || sel === null) continue;
+
+        const type = opt.optiontype;
+        if (type === '1' || type === 'dropdown' || type === '4' || type === 'radio') {
+            const sub = findSubOption(opt, sel);
+            if (sub) labels[opt.id] = { name: opt.optionname, value: sub.optionname, price: getOptionPrice(sub, selectedCycle.value) };
+        } else if (type === '2' || type === 'yesno') {
+            if (sel) {
+                const sub = (opt.options?.option || [])[0];
+                labels[opt.id] = { name: opt.optionname, value: 'Yes', price: sub ? getOptionPrice(sub, selectedCycle.value) : 0 };
+            }
+        } else if (type === '3' || type === 'quantity') {
+            const qty = parseInt(sel) || 0;
+            if (qty > 0) {
+                const sub = (opt.options?.option || [])[0];
+                labels[opt.id] = { name: opt.optionname, value: `${qty}`, price: sub ? (getOptionPrice(sub, selectedCycle.value) * qty) : 0 };
+            }
+        }
+    }
+    return labels;
+}
+
 // Domain validation
 const domainValid = computed(() => {
     if (!props.requiresDomain) return true;
@@ -135,9 +216,10 @@ function addToCart() {
         pid: p.pid,
         billingcycle: selectedCycle.value,
         name: p.name,
-        price: String(getPrice(selectedCycle.value) ?? '0.00'),
+        price: String(orderTotal.value.toFixed(2)),
         domain: effectiveDomain.value,
         configoptions: configSelections.value,
+        configlabels: buildConfigLabels(),
         customfields: customFieldValues.value,
         hostname: serverHostname.value.trim() || null,
         rootpw: serverRootPassword.value.trim() || null,
@@ -386,37 +468,85 @@ function addToCart() {
                 </Card>
 
                 <!-- Configurable Options -->
-                <Card v-if="configOptions.length" title="Configuration Options">
-                    <div class="space-y-4">
-                        <div v-for="opt in configOptions" :key="opt.id">
-                            <label class="block text-[13px] font-medium text-gray-700 mb-1.5">{{ opt.optionname }}</label>
-                            <!-- Dropdown type -->
-                            <select v-if="opt.optiontype === '1' || opt.optiontype === 'dropdown'"
-                                v-model="configSelections[opt.id]"
-                                class="w-full text-[13px] rounded-lg border-gray-300 focus:border-indigo-500 focus:ring-indigo-500">
-                                <option value="">Select...</option>
-                                <option v-for="sub in (opt.options?.option || [])" :key="sub.id" :value="sub.id">
-                                    {{ sub.optionname }} <template v-if="sub.pricing">— {{ fmtPrice(sub.pricing) }}</template>
-                                </option>
-                            </select>
-                            <!-- Quantity type -->
-                            <input v-else-if="opt.optiontype === '3' || opt.optiontype === 'quantity'"
-                                v-model="configSelections[opt.id]" type="number" min="0"
-                                class="w-32 text-[13px] rounded-lg border-gray-300 focus:border-indigo-500 focus:ring-indigo-500" />
-                            <!-- Yes/No type -->
-                            <label v-else-if="opt.optiontype === '2' || opt.optiontype === 'yesno'"
-                                class="flex items-center gap-2 cursor-pointer">
-                                <input v-model="configSelections[opt.id]" type="checkbox"
-                                    class="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500" />
-                                <span class="text-[13px] text-gray-600">Enable</span>
-                            </label>
-                            <!-- Radio type -->
-                            <div v-else-if="opt.optiontype === '4' || opt.optiontype === 'radio'" class="space-y-2">
+                <Card v-if="configOptions.length" title="Configure Your Plan">
+                    <p class="text-[12.5px] text-gray-500 mb-4">Customize your plan with additional resources and features.</p>
+                    <div class="space-y-5">
+                        <div v-for="opt in configOptions" :key="opt.id" class="p-4 rounded-xl bg-gray-50/70 border border-gray-200">
+                            <label class="block text-[13px] font-semibold text-gray-800 mb-2">{{ opt.optionname }}</label>
+
+                            <!-- Dropdown type (1) -->
+                            <div v-if="opt.optiontype === '1' || opt.optiontype === 'dropdown'">
+                                <div class="space-y-1.5">
+                                    <label v-for="sub in (opt.options?.option || [])" :key="sub.id"
+                                        class="flex items-center justify-between p-3 rounded-lg border cursor-pointer transition-all"
+                                        :class="configSelections[opt.id] == sub.id ? 'border-indigo-500 bg-indigo-50 ring-1 ring-indigo-500' : 'border-gray-200 hover:border-gray-300 bg-white'">
+                                        <div class="flex items-center gap-3">
+                                            <input type="radio" :name="'config_' + opt.id" :value="sub.id" v-model="configSelections[opt.id]" class="text-indigo-600 focus:ring-indigo-500" />
+                                            <span class="text-[13px] text-gray-800">{{ sub.optionname }}</span>
+                                        </div>
+                                        <span v-if="getOptionPrice(sub, selectedCycle)" class="text-[12px] font-semibold text-gray-600">
+                                            <template v-if="parseFloat(getOptionPrice(sub, selectedCycle)) > 0">+ {{ fmtPrice(getOptionPrice(sub, selectedCycle)) }}</template>
+                                            <template v-else>Included</template>
+                                        </span>
+                                    </label>
+                                </div>
+                            </div>
+
+                            <!-- Quantity type (3) — e.g. Additional Space -->
+                            <div v-else-if="opt.optiontype === '3' || opt.optiontype === 'quantity'">
+                                <div v-for="sub in (opt.options?.option || [])" :key="sub.id">
+                                    <div class="flex items-center gap-4">
+                                        <div class="flex items-center bg-white border border-gray-300 rounded-lg overflow-hidden">
+                                            <button type="button" @click="configSelections[opt.id] = Math.max((parseInt(opt.minqty) || 0), (parseInt(configSelections[opt.id]) || 0) - 1)"
+                                                class="px-3 py-2 text-gray-500 hover:bg-gray-100 transition-colors text-[14px] font-bold">−</button>
+                                            <input type="number" v-model="configSelections[opt.id]"
+                                                :min="opt.minqty || 0" :max="opt.maxqty || 9999"
+                                                class="w-16 text-center text-[13px] border-0 focus:ring-0 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" />
+                                            <button type="button" @click="configSelections[opt.id] = Math.min((parseInt(opt.maxqty) || 9999), (parseInt(configSelections[opt.id]) || 0) + 1)"
+                                                class="px-3 py-2 text-gray-500 hover:bg-gray-100 transition-colors text-[14px] font-bold">+</button>
+                                        </div>
+                                        <div class="text-[12px] text-gray-500">
+                                            <span v-if="getOptionPrice(sub, selectedCycle)" class="font-medium text-gray-700">{{ fmtPrice(getOptionPrice(sub, selectedCycle)) }}</span> per unit / {{ selectedCycle }}
+                                        </div>
+                                    </div>
+                                    <div v-if="(parseInt(configSelections[opt.id]) || 0) > 0" class="mt-2 text-[12px] text-indigo-600 font-medium">
+                                        {{ configSelections[opt.id] }} × {{ fmtPrice(getOptionPrice(sub, selectedCycle)) }} = {{ fmtPrice((parseInt(configSelections[opt.id]) || 0) * parseFloat(getOptionPrice(sub, selectedCycle) || 0)) }}
+                                    </div>
+                                    <div v-if="opt.minqty || opt.maxqty" class="mt-1 text-[11px] text-gray-400">
+                                        <template v-if="opt.minqty && opt.maxqty">Min: {{ opt.minqty }}, Max: {{ opt.maxqty }}</template>
+                                        <template v-else-if="opt.maxqty">Max: {{ opt.maxqty }}</template>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Yes/No type (2) -->
+                            <div v-else-if="opt.optiontype === '2' || opt.optiontype === 'yesno'">
                                 <label v-for="sub in (opt.options?.option || [])" :key="sub.id"
-                                    class="flex items-center gap-2 cursor-pointer">
-                                    <input v-model="configSelections[opt.id]" type="radio" :value="sub.id"
-                                        class="text-indigo-600 focus:ring-indigo-500" />
-                                    <span class="text-[13px] text-gray-700">{{ sub.optionname }} <template v-if="sub.pricing">— {{ fmtPrice(sub.pricing) }}</template></span>
+                                    class="flex items-center justify-between p-3 rounded-lg border cursor-pointer transition-all"
+                                    :class="configSelections[opt.id] ? 'border-indigo-500 bg-indigo-50 ring-1 ring-indigo-500' : 'border-gray-200 bg-white hover:border-gray-300'">
+                                    <div class="flex items-center gap-3">
+                                        <input v-model="configSelections[opt.id]" type="checkbox"
+                                            class="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500" />
+                                        <span class="text-[13px] text-gray-800">{{ sub.optionname || 'Enable' }}</span>
+                                    </div>
+                                    <span v-if="getOptionPrice(sub, selectedCycle) && parseFloat(getOptionPrice(sub, selectedCycle)) > 0" class="text-[12px] font-semibold text-gray-600">+ {{ fmtPrice(getOptionPrice(sub, selectedCycle)) }}</span>
+                                </label>
+                            </div>
+
+                            <!-- Radio type (4) -->
+                            <div v-else-if="opt.optiontype === '4' || opt.optiontype === 'radio'" class="space-y-1.5">
+                                <label v-for="sub in (opt.options?.option || [])" :key="sub.id"
+                                    class="flex items-center justify-between p-3 rounded-lg border cursor-pointer transition-all"
+                                    :class="configSelections[opt.id] == sub.id ? 'border-indigo-500 bg-indigo-50 ring-1 ring-indigo-500' : 'border-gray-200 hover:border-gray-300 bg-white'">
+                                    <div class="flex items-center gap-3">
+                                        <input v-model="configSelections[opt.id]" type="radio" :value="sub.id"
+                                            class="text-indigo-600 focus:ring-indigo-500" />
+                                        <span class="text-[13px] text-gray-800">{{ sub.optionname }}</span>
+                                    </div>
+                                    <span v-if="getOptionPrice(sub, selectedCycle)" class="text-[12px] font-semibold text-gray-600">
+                                        <template v-if="parseFloat(getOptionPrice(sub, selectedCycle)) > 0">+ {{ fmtPrice(getOptionPrice(sub, selectedCycle)) }}</template>
+                                        <template v-else>Included</template>
+                                    </span>
                                 </label>
                             </div>
                         </div>
@@ -427,7 +557,7 @@ function addToCart() {
             <!-- Right sidebar: Pricing + Actions -->
             <div class="space-y-4">
                 <!-- Pricing Card -->
-                <Card title="Pricing">
+                <Card title="Billing Cycle">
                     <div class="space-y-2">
                         <template v-for="c in cycles" :key="c.key">
                             <label v-if="getPrice(c.key) !== null" class="flex items-center gap-3 p-3 rounded-lg cursor-pointer transition-colors"
@@ -439,6 +569,31 @@ function addToCart() {
                         </template>
                         <p v-if="availableCycles.length === 0" class="text-[13px] text-gray-500 py-2">Contact us for pricing.</p>
                     </div>
+                </Card>
+
+                <!-- Order Summary with config options breakdown -->
+                <Card title="Order Summary">
+                    <dl class="space-y-2">
+                        <div class="flex justify-between">
+                            <dt class="text-[13px] text-gray-500">{{ p.name }}</dt>
+                            <dd class="text-[13px] font-medium text-gray-900">{{ fmtPrice(basePrice) }}</dd>
+                        </div>
+                        <!-- Config options line items -->
+                        <template v-for="opt in configOptions" :key="'summary_' + opt.id">
+                            <div v-if="configSelections[opt.id] && (() => { const l = buildConfigLabels()[opt.id]; return l && parseFloat(l.price) > 0; })()"
+                                class="flex justify-between">
+                                <dt class="text-[12px] text-gray-500 pl-2">
+                                    + {{ buildConfigLabels()[opt.id]?.name }}
+                                    <span class="text-gray-400">({{ buildConfigLabels()[opt.id]?.value }})</span>
+                                </dt>
+                                <dd class="text-[12px] font-medium text-gray-700">{{ fmtPrice(buildConfigLabels()[opt.id]?.price) }}</dd>
+                            </div>
+                        </template>
+                        <div class="border-t border-gray-200 pt-2 flex justify-between">
+                            <dt class="text-[14px] font-semibold text-gray-900">Total</dt>
+                            <dd class="text-[16px] font-bold text-gray-900">{{ fmtPrice(orderTotal) }}<span class="text-[11px] text-gray-500 font-normal"> / {{ selectedCycle }}</span></dd>
+                        </div>
+                    </dl>
                 </Card>
 
                 <!-- Payment Method -->
