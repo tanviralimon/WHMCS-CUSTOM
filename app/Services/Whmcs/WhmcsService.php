@@ -100,21 +100,37 @@ class WhmcsService
         ]);
     }
 
-    public function upgradeProduct(int $serviceId, string $type, int $newProductId, string $paymentMethod, string $newBillingCycle = '', bool $calcOnly = false): array
+    public function upgradeProduct(int $serviceId, string $type, int $newProductId, string $paymentMethod, string $newBillingCycle = '', bool $calcOnly = false, array $configOptions = []): array
     {
         $params = [
             'serviceid'       => $serviceId,
             'type'            => $type, // 'product' or 'configoptions'
-            'newproductid'    => $newProductId,
             'paymentmethod'   => $paymentMethod,
         ];
+        if ($type === 'product') {
+            $params['newproductid'] = $newProductId;
+        }
         if ($newBillingCycle) {
             $params['newproductbillingcycle'] = $newBillingCycle;
+        }
+        if (!empty($configOptions)) {
+            $params['configoptions'] = $configOptions;
         }
         if ($calcOnly) {
             $params['calconly'] = true;
         }
         return $this->client->call('UpgradeProduct', $params);
+    }
+
+    /**
+     * Get configurable options for an existing service (current values + available choices).
+     */
+    public function getServiceConfigOptions(int $serviceId, int $clientId): array
+    {
+        return $this->client->callSsoProxySafe('GetServiceConfigOptions', [
+            'serviceid' => $serviceId,
+            'clientid'  => $clientId,
+        ]);
     }
 
     /**

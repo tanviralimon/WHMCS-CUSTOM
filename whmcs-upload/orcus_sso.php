@@ -848,6 +848,170 @@ if ($action === 'GetUpgradeProducts') {
     exit;
 }
 
+// ═══════════════════════════════════════════════════════════
+// Get Service Config Options (current values + available choices with pricing)
+// ═══════════════════════════════════════════════════════════
+if ($action === 'GetServiceConfigOptions') {
+    try {
+        $serviceId = (int) ($_GET['serviceid'] ?? 0);
+        $clientId  = (int) ($_GET['clientid'] ?? 0);
+        if (!$serviceId || !$clientId) {
+            throw new \Exception('Missing serviceid or clientid');
+        }
+
+        // 1) Verify the service belongs to this client and get basic info
+        $service = \Illuminate\Database\Capsule\Manager::table('tblhosting')
+            ->where('id', $serviceId)
+            ->where('userid', $clientId)
+            ->first();
+
+        if (!$service) {
+            throw new \Exception('Service not found or does not belong to this client.');
+        }
+
+        $productId     = $service->packageid;
+        $billingCycle  = strtolower($service->billingcycle ?? 'monthly');
+
+        // Map WHMCS billing cycle names to pricing column names
+        $cycleMap = [
+            'monthly'       => 'monthly',
+            'quarterly'     => 'quarterly',
+            'semi-annually' => 'semiannually',
+            'semiannually'  => 'semiannually',
+            'annually'      => 'annually',
+            'biennially'    => 'biennially',
+            'triennially'   => 'triennially',
+        ];
+        $pricingCol = $cycleMap[$billingCycle] ?? 'monthly';
+
+        // 2) Get client's currency
+        $client = \Illuminate\Database\Capsule\Manager::table('tblclients')
+            ->where('id', $clientId)->first();
+        $currencyId = $client->currency ?? 1;
+        $currency   = \Illuminate\Database\Capsule\Manager::table('tblcurrencies')
+            ->where('id', $currencyId)->first();
+
+        // 3) Get config option groups linked to this product
+        $groupIds = \Illuminate\Database\Capsule\Manager::table('tblproductconfiglinks')
+            ->where('pid', $productId)
+            ->pluck('gid')
+            ->toArray();
+
+        if (empty($groupIds)) {
+            echo json_encode([
+                'result'  => 'success',
+                'options' => [],
+                'currency' => [
+                    'code'   => $currency->code ?? 'USD',
+                    'prefix' => $currency->prefix ?? '$',
+                    'suffix' => $currency->suffix ?? '',
+                ],
+            ]);
+            exit;
+        }
+
+        // 4) Get all config options for these groups
+        $options = \Illuminate\Database\Capsule\Manager::table('tblproductconfigoptions')
+            ->whereIn('gid', $groupIds)
+            ->where('hidden', 0)
+            ->orderBy('order')
+            ->get();
+
+        // 5) Get current service config option values
+        $currentValues = \Illuminate\Database\Capsule\Manager::table('tblhostingconfigoptions')
+            ->where('relid', $serviceId)
+            ->get()
+            ->keyBy('configid');
+
+        // 6) Build option data with sub-options and pricing
+        $result = [];
+        foreach ($options as $opt) {
+            // Get sub-options
+            $subOptions = \Illuminate\Database\Capsule\Manager::table('tblproductconfigoptionssub')
+                ->where('configid', $opt->id)
+                ->where('hidden', 0)
+                ->orderBy('sortorder')
+                ->get();
+
+            $subs = [];
+            foreach ($subOptions as $sub) {
+                // Get pricing for this sub-option
+                $pricing = \Illuminate\Database\Capsule\Manager::table('tblpricing')
+                    ->where('type', 'configoptions')
+                    ->where('relid', $sub->id)
+                    ->where('currency', $currencyId)
+                    ->first();
+
+                $subData = [
+                    'id'         => (int) $sub->id,
+                    'name'       => $sub->optionname,
+                    'sortorder'  => (int) $sub->sortorder,
+                ];
+
+                // Add cycle-based pricing
+                if ($pricing) {
+                    $subData['pricing'] = [
+                        'monthly'       => (float) ($pricing->monthly ?? 0),
+                        'quarterly'     => (float) ($pricing->quarterly ?? 0),
+                        'semiannually'  => (float) ($pricing->semiannually ?? 0),
+                        'annually'      => (float) ($pricing->annually ?? 0),
+                        'biennially'    => (float) ($pricing->biennially ?? 0),
+                        'triennially'   => (float) ($pricing->triennially ?? 0),
+                    ];
+                    $subData['currentCyclePrice'] = (float) ($pricing->{$pricingCol} ?? 0);
+                }
+
+                $subs[] = $subData;
+            }
+
+            // Current value for this option
+            $current    = $currentValues[$opt->id] ?? null;
+            $currentVal = null;
+            if ($current) {
+                // optiontype: 1=dropdown, 2=yesno, 3=quantity, 4=radio
+                if (in_array($opt->optiontype, [1, 4])) {
+                    // For dropdown/radio, optionid holds the sub-option id
+                    $currentVal = (int) $current->optionid;
+                } elseif ($opt->optiontype == 3) {
+                    // For quantity, qty holds the quantity
+                    $currentVal = (int) $current->qty;
+                } elseif ($opt->optiontype == 2) {
+                    // For yes/no, optionid holds the sub-option id (first = no, second = yes typically)
+                    $currentVal = (int) $current->optionid;
+                }
+            }
+
+            $result[] = [
+                'id'           => (int) $opt->id,
+                'name'         => $opt->optionname,
+                'type'         => (int) $opt->optiontype, // 1=dropdown, 2=yesno, 3=quantity, 4=radio
+                'qtyminimum'   => (int) ($opt->qtyminimum ?? 0),
+                'qtymaximum'   => (int) ($opt->qtymaximum ?? 0),
+                'currentValue' => $currentVal,
+                'subOptions'   => $subs,
+            ];
+        }
+
+        echo json_encode([
+            'result'       => 'success',
+            'options'      => $result,
+            'billingCycle' => $billingCycle,
+            'pricingCycle' => $pricingCol,
+            'currency'     => [
+                'code'   => $currency->code ?? 'USD',
+                'prefix' => $currency->prefix ?? '$',
+                'suffix' => $currency->suffix ?? '',
+            ],
+        ]);
+    } catch (\Exception $e) {
+        echo json_encode([
+            'result'  => 'error',
+            'message' => 'Failed to get service config options: ' . $e->getMessage(),
+        ]);
+    }
+    exit;
+}
+
 echo json_encode(['result' => 'error', 'message' => 'Invalid action. Use: GetServiceInfo, SsoLogin, GetGatewayConfig, GetProductGroups']);
 exit;
 

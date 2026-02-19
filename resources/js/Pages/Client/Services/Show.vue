@@ -445,6 +445,152 @@ function formatUpgradePrice(price) {
     return (p.prefix || '') + parseFloat(price).toFixed(2) + (p.suffix || '');
 }
 
+// ── Config Option Upgrade ───────────────────────────────────
+const showConfigUpgradeModal = ref(false);
+const configUpgradeLoading = ref(false);
+const configUpgradeOptionsLoading = ref(false);
+const configUpgradeOptions = ref([]);
+const configUpgradeCurrency = ref({ prefix: '$', suffix: '' });
+const configUpgradePaymentMethods = ref([]);
+const selectedConfigPayment = ref('');
+const configUpgradeError = ref('');
+const configUpgradeCalcResult = ref(null);
+const configUpgradeCalcLoading = ref(false);
+const configUpgradeStep = ref(1); // 1 = select, 2 = preview
+const configUpgradeBillingCycle = ref('');
+const configSelections = ref({});
+
+function formatConfigPrice(price) {
+    const c = configUpgradeCurrency.value;
+    return (c.prefix || '') + parseFloat(price).toFixed(2) + (c.suffix || '');
+}
+
+// Get display name for current value of a config option
+function currentValueLabel(opt) {
+    if (opt.type === 3) return opt.currentValue + ' units';
+    if (opt.type === 2) {
+        const sub = opt.subOptions.find(s => s.id === opt.currentValue);
+        return sub ? sub.name : (opt.currentValue ? 'Yes' : 'No');
+    }
+    const sub = opt.subOptions.find(s => s.id === opt.currentValue);
+    return sub ? sub.name : '—';
+}
+
+async function openConfigUpgradeModal() {
+    showConfigUpgradeModal.value = true;
+    configUpgradeStep.value = 1;
+    configUpgradeError.value = '';
+    configUpgradeCalcResult.value = null;
+    selectedConfigPayment.value = s.paymentmethod || '';
+
+    if (configUpgradeOptions.value.length === 0) {
+        configUpgradeOptionsLoading.value = true;
+        try {
+            const response = await fetch(route('client.services.configOptions', s.id), {
+                headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+            });
+            const data = await response.json();
+            if (data.error) {
+                configUpgradeError.value = data.error;
+            } else {
+                configUpgradeOptions.value = data.options || [];
+                configUpgradeBillingCycle.value = data.billingCycle || 'monthly';
+                configUpgradeCurrency.value = data.currency || { prefix: '$', suffix: '' };
+                configUpgradePaymentMethods.value = data.paymentMethods || [];
+                if (!selectedConfigPayment.value && configUpgradePaymentMethods.value.length > 0) {
+                    selectedConfigPayment.value = configUpgradePaymentMethods.value[0].module;
+                }
+                // Initialize selections with current values
+                const sels = {};
+                for (const opt of configUpgradeOptions.value) {
+                    sels[opt.id] = opt.currentValue ?? (opt.type === 3 ? 0 : '');
+                }
+                configSelections.value = sels;
+            }
+        } catch (err) {
+            configUpgradeError.value = 'Failed to load configuration options.';
+        } finally {
+            configUpgradeOptionsLoading.value = false;
+        }
+    }
+}
+
+// Check if any selection differs from current
+const hasConfigChanges = computed(() => {
+    for (const opt of configUpgradeOptions.value) {
+        const sel = configSelections.value[opt.id];
+        if (sel !== undefined && sel !== null && sel != opt.currentValue) return true;
+    }
+    return false;
+});
+
+async function calculateConfigUpgrade() {
+    if (!hasConfigChanges.value || !selectedConfigPayment.value) return;
+    configUpgradeCalcLoading.value = true;
+    configUpgradeError.value = '';
+    configUpgradeCalcResult.value = null;
+
+    // Build configoptions payload: { optionId: newValue }
+    const payload = {};
+    for (const opt of configUpgradeOptions.value) {
+        payload[opt.id] = configSelections.value[opt.id];
+    }
+
+    try {
+        const csrfToken = document.querySelector('meta[name="csrf-token"]')?.content;
+        const response = await fetch(route('client.services.configCalculate', s.id), {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Accept': 'application/json',
+                'X-Requested-With': 'XMLHttpRequest',
+                'X-CSRF-TOKEN': csrfToken,
+            },
+            body: JSON.stringify({
+                configoptions: payload,
+                paymentmethod: selectedConfigPayment.value,
+            }),
+        });
+        const data = await response.json();
+        if (data.error) {
+            configUpgradeError.value = data.error;
+        } else {
+            configUpgradeCalcResult.value = data;
+            configUpgradeStep.value = 2;
+        }
+    } catch (err) {
+        configUpgradeError.value = 'Failed to calculate config upgrade price.';
+    } finally {
+        configUpgradeCalcLoading.value = false;
+    }
+}
+
+function submitConfigUpgrade() {
+    configUpgradeLoading.value = true;
+    configUpgradeError.value = '';
+
+    const payload = {};
+    for (const opt of configUpgradeOptions.value) {
+        payload[opt.id] = configSelections.value[opt.id];
+    }
+
+    router.post(route('client.services.configUpgrade', s.id), {
+        configoptions: payload,
+        paymentmethod: selectedConfigPayment.value,
+    }, {
+        preserveScroll: true,
+        onSuccess: () => {
+            showConfigUpgradeModal.value = false;
+        },
+        onError: (errors) => {
+            configUpgradeError.value = errors.whmcs || 'Config upgrade failed.';
+        },
+        onFinish: () => {
+            configUpgradeLoading.value = false;
+        },
+    });
+}
+
 const groupedTemplates = computed(() => {
     const groups = {};
     for (const tpl of osTemplates.value) {
@@ -972,6 +1118,10 @@ function executeReinstall() {
                             <svg class="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M7 11l5-5m0 0l5 5m-5-5v12" /></svg>
                             Upgrade / Downgrade
                         </button>
+                        <button v-if="isActive && hasConfig" @click="openConfigUpgradeModal" class="w-full flex items-center gap-2.5 px-3 py-2.5 text-[13px] font-medium text-gray-700 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors">
+                            <svg class="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 4v16m8-8H4" /></svg>
+                            Upgrade Resources
+                        </button>
                         <hr class="my-1.5 border-gray-100" />
                         <button @click="showCancelModal = true" class="w-full flex items-center gap-2.5 px-3 py-2.5 text-[13px] font-medium text-red-600 bg-red-50 rounded-lg hover:bg-red-100 transition-colors">
                             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" /></svg>
@@ -1319,6 +1469,166 @@ function executeReinstall() {
                                     :class="isUpgrade ? 'bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-300' : 'bg-amber-600 hover:bg-amber-700 disabled:bg-amber-300'">
                                     <svg v-if="upgradeLoading" class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" /><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
                                     {{ upgradeLoading ? 'Processing...' : (isUpgrade ? 'Confirm Upgrade' : 'Confirm Downgrade') }}
+                                </button>
+                            </div>
+                        </div>
+                    </template>
+                </div>
+            </div>
+        </div>
+
+        <!-- Config Option Upgrade Modal -->
+        <div v-if="showConfigUpgradeModal" class="fixed inset-0 z-50 overflow-y-auto" aria-modal="true">
+            <div class="flex items-center justify-center min-h-screen px-4 pt-4 pb-20">
+                <div class="fixed inset-0 bg-gray-500/75 transition-opacity" @click="showConfigUpgradeModal = false"></div>
+                <div class="relative bg-white rounded-2xl shadow-xl max-w-lg w-full p-6 z-10">
+                    <!-- Header -->
+                    <div class="flex items-center justify-between mb-5">
+                        <div class="flex items-center gap-3">
+                            <div class="w-10 h-10 rounded-full flex items-center justify-center" :class="configUpgradeStep === 2 ? 'bg-indigo-100' : 'bg-gray-100'">
+                                <svg class="w-5 h-5" :class="configUpgradeStep === 2 ? 'text-indigo-600' : 'text-gray-600'" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" /></svg>
+                            </div>
+                            <div>
+                                <h3 class="text-lg font-semibold text-gray-900">{{ configUpgradeStep === 2 ? 'Confirm Changes' : 'Upgrade Resources' }}</h3>
+                                <p class="text-[12px] text-gray-500">{{ s.name || s.groupname }}</p>
+                            </div>
+                        </div>
+                        <button @click="showConfigUpgradeModal = false" class="p-1.5 rounded-lg hover:bg-gray-100 transition-colors">
+                            <svg class="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
+                        </button>
+                    </div>
+
+                    <!-- Error -->
+                    <div v-if="configUpgradeError" class="mb-4 px-3 py-2 bg-red-50 border border-red-200 rounded-lg text-[12px] text-red-700">{{ configUpgradeError }}</div>
+
+                    <!-- Loading -->
+                    <div v-if="configUpgradeOptionsLoading" class="flex items-center justify-center py-10 gap-2 text-[13px] text-gray-500">
+                        <svg class="w-5 h-5 animate-spin text-gray-400" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" /><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
+                        Loading configuration options...
+                    </div>
+
+                    <!-- No options -->
+                    <div v-if="!configUpgradeOptionsLoading && configUpgradeOptions.length === 0 && !configUpgradeError" class="text-center py-8">
+                        <svg class="w-12 h-12 mx-auto text-gray-300 mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4" /></svg>
+                        <p class="text-[13px] text-gray-500">No configurable options available for this service.</p>
+                    </div>
+
+                    <!-- Step 1: Select config options -->
+                    <template v-if="!configUpgradeOptionsLoading && configUpgradeOptions.length > 0 && configUpgradeStep === 1">
+                        <div class="space-y-4 max-h-[60vh] overflow-y-auto">
+                            <div v-for="opt in configUpgradeOptions" :key="opt.id" class="p-3 rounded-xl bg-gray-50 border border-gray-200">
+                                <div class="flex items-center justify-between mb-2">
+                                    <label class="text-[13px] font-semibold text-gray-800">{{ opt.name }}</label>
+                                    <span class="text-[11px] text-gray-400">Current: {{ currentValueLabel(opt) }}</span>
+                                </div>
+
+                                <!-- Dropdown (1) / Radio (4) -->
+                                <div v-if="opt.type === 1 || opt.type === 4">
+                                    <select v-model="configSelections[opt.id]" class="w-full text-[13px] rounded-lg border-gray-300 focus:border-indigo-500 focus:ring-indigo-500">
+                                        <option v-for="sub in opt.subOptions" :key="sub.id" :value="sub.id">
+                                            {{ sub.name }}
+                                            <template v-if="sub.currentCyclePrice"> — {{ formatConfigPrice(sub.currentCyclePrice) }}/{{ configUpgradeBillingCycle }}</template>
+                                        </option>
+                                    </select>
+                                </div>
+
+                                <!-- Quantity (3) -->
+                                <div v-else-if="opt.type === 3">
+                                    <div class="flex items-center gap-3">
+                                        <div class="flex items-center bg-white border border-gray-300 rounded-lg overflow-hidden">
+                                            <button type="button" @click="configSelections[opt.id] = Math.max(opt.qtyminimum || 0, (parseInt(configSelections[opt.id]) || 0) - 1)"
+                                                class="px-3 py-2 text-gray-500 hover:bg-gray-100 transition-colors text-[14px] font-bold">−</button>
+                                            <input type="number" v-model="configSelections[opt.id]"
+                                                :min="opt.qtyminimum || 0" :max="opt.qtymaximum || 9999"
+                                                class="w-16 text-center text-[13px] border-0 focus:ring-0 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" />
+                                            <button type="button" @click="configSelections[opt.id] = Math.min(opt.qtymaximum || 9999, (parseInt(configSelections[opt.id]) || 0) + 1)"
+                                                class="px-3 py-2 text-gray-500 hover:bg-gray-100 transition-colors text-[14px] font-bold">+</button>
+                                        </div>
+                                        <div v-if="opt.subOptions[0]?.currentCyclePrice" class="text-[12px] text-gray-500">
+                                            <span class="font-medium text-gray-700">{{ formatConfigPrice(opt.subOptions[0].currentCyclePrice) }}</span> per unit / {{ configUpgradeBillingCycle }}
+                                        </div>
+                                    </div>
+                                    <div v-if="opt.qtyminimum || opt.qtymaximum" class="mt-1 text-[11px] text-gray-400">
+                                        <template v-if="opt.qtyminimum && opt.qtymaximum">Min: {{ opt.qtyminimum }}, Max: {{ opt.qtymaximum }}</template>
+                                        <template v-else-if="opt.qtymaximum">Max: {{ opt.qtymaximum }}</template>
+                                    </div>
+                                </div>
+
+                                <!-- Yes/No (2) -->
+                                <div v-else-if="opt.type === 2">
+                                    <div class="flex items-center gap-3">
+                                        <select v-model="configSelections[opt.id]" class="w-full text-[13px] rounded-lg border-gray-300 focus:border-indigo-500 focus:ring-indigo-500">
+                                            <option v-for="sub in opt.subOptions" :key="sub.id" :value="sub.id">
+                                                {{ sub.name }}
+                                                <template v-if="sub.currentCyclePrice > 0"> — {{ formatConfigPrice(sub.currentCyclePrice) }}/{{ configUpgradeBillingCycle }}</template>
+                                            </option>
+                                        </select>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Payment Method -->
+                        <div v-if="configUpgradePaymentMethods.length > 1" class="mt-4">
+                            <label class="block text-[13px] font-medium text-gray-700 mb-1.5">Payment Method</label>
+                            <select v-model="selectedConfigPayment" class="w-full text-[13px] rounded-lg border-gray-300 focus:border-indigo-500 focus:ring-indigo-500">
+                                <option v-for="pm in configUpgradePaymentMethods" :key="pm.module" :value="pm.module">{{ pm.displayname }}</option>
+                            </select>
+                        </div>
+
+                        <!-- Calculate Button -->
+                        <button @click="calculateConfigUpgrade" :disabled="!hasConfigChanges || !selectedConfigPayment || configUpgradeCalcLoading"
+                            class="mt-5 w-full px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 disabled:bg-gray-300 disabled:cursor-not-allowed text-white text-[13px] font-semibold rounded-lg transition-colors flex items-center justify-center gap-2">
+                            <svg v-if="configUpgradeCalcLoading" class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" /><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
+                            {{ configUpgradeCalcLoading ? 'Calculating...' : 'Review Changes' }}
+                        </button>
+                        <p v-if="!hasConfigChanges" class="mt-2 text-[11px] text-gray-400 text-center">Change at least one option to proceed.</p>
+                    </template>
+
+                    <!-- Step 2: Confirm -->
+                    <template v-if="configUpgradeStep === 2 && configUpgradeCalcResult">
+                        <div class="space-y-4">
+                            <!-- Changes summary -->
+                            <div class="p-3 bg-gray-50 rounded-lg border border-gray-200 space-y-2">
+                                <p class="text-[11px] font-medium text-gray-500 uppercase mb-2">Configuration Changes</p>
+                                <div v-for="opt in configUpgradeOptions" :key="'summary_' + opt.id">
+                                    <div v-if="configSelections[opt.id] != opt.currentValue" class="flex justify-between text-[12px] py-1 border-b border-gray-100 last:border-b-0">
+                                        <span class="text-gray-700 font-medium">{{ opt.name }}</span>
+                                        <div class="text-right">
+                                            <span class="text-gray-400 line-through">{{ currentValueLabel(opt) }}</span>
+                                            <span class="text-gray-400 mx-1">→</span>
+                                            <span class="text-gray-900 font-medium">
+                                                <template v-if="opt.type === 3">{{ configSelections[opt.id] }} units</template>
+                                                <template v-else>{{ opt.subOptions.find(s => s.id == configSelections[opt.id])?.name || configSelections[opt.id] }}</template>
+                                            </span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Price -->
+                            <div class="p-3 bg-gray-50 rounded-lg border border-gray-200">
+                                <div class="flex justify-between text-[13px]">
+                                    <span class="text-gray-700 font-medium">Price Difference</span>
+                                    <span class="font-bold text-gray-900">{{ configUpgradeCalcResult.price }}</span>
+                                </div>
+                            </div>
+
+                            <!-- Info -->
+                            <div class="px-3 py-2 bg-blue-50 border border-blue-200 rounded-lg flex items-start gap-2">
+                                <svg class="w-4 h-4 text-blue-500 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                                <p class="text-[12px] text-blue-700">An invoice will be generated for the price difference. Changes will apply once the invoice is paid.</p>
+                            </div>
+
+                            <!-- Buttons -->
+                            <div class="flex gap-3">
+                                <button @click="configUpgradeStep = 1; configUpgradeCalcResult = null" class="flex-1 px-4 py-2.5 bg-gray-100 hover:bg-gray-200 text-gray-700 text-[13px] font-semibold rounded-lg transition-colors">
+                                    Back
+                                </button>
+                                <button @click="submitConfigUpgrade" :disabled="configUpgradeLoading"
+                                    class="flex-1 px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-300 text-white text-[13px] font-semibold rounded-lg transition-colors flex items-center justify-center gap-2">
+                                    <svg v-if="configUpgradeLoading" class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" /><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
+                                    {{ configUpgradeLoading ? 'Processing...' : 'Confirm Upgrade' }}
                                 </button>
                             </div>
                         </div>

@@ -428,4 +428,123 @@ class ServiceController extends Controller
             return back()->withErrors(['whmcs' => 'Upgrade failed: ' . $e->getMessage()]);
         }
     }
+
+    // ─── Config Option Upgrade ──────────────────────────────────
+
+    /**
+     * Get current config options and available choices for a service.
+     */
+    public function configOptions(Request $request, int $id)
+    {
+        $clientId = $request->user()->whmcs_client_id;
+
+        try {
+            $result = $this->whmcs->getServiceConfigOptions($id, $clientId);
+
+            if (($result['result'] ?? '') !== 'success') {
+                return response()->json([
+                    'error' => $result['message'] ?? 'Failed to load config options',
+                ], 422);
+            }
+
+            // Get payment methods
+            $paymentMethods = $this->whmcs->getPaymentMethods();
+            $methods = [];
+            foreach ($paymentMethods['paymentmethods']['paymentmethod'] ?? [] as $pm) {
+                $methods[] = [
+                    'module'      => $pm['module'] ?? '',
+                    'displayname' => $pm['displayname'] ?? $pm['module'] ?? '',
+                ];
+            }
+
+            return response()->json([
+                'options'        => $result['options'] ?? [],
+                'billingCycle'   => $result['billingCycle'] ?? 'monthly',
+                'pricingCycle'   => $result['pricingCycle'] ?? 'monthly',
+                'currency'       => $result['currency'] ?? [],
+                'paymentMethods' => $methods,
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'error' => 'Failed to load config options: ' . $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    /**
+     * Calculate config option upgrade price (calconly mode).
+     */
+    public function calculateConfigUpgrade(Request $request, int $id)
+    {
+        $request->validate([
+            'configoptions'   => 'required|array',
+            'paymentmethod'   => 'required|string',
+        ]);
+
+        try {
+            $result = $this->whmcs->upgradeProduct(
+                $id,
+                'configoptions',
+                0, // no new product id for config option upgrades
+                $request->paymentmethod,
+                '', // no billing cycle change
+                true, // calconly
+                $request->configoptions
+            );
+
+            if (($result['result'] ?? '') !== 'success') {
+                return response()->json([
+                    'error' => $result['message'] ?? 'Unable to calculate config upgrade.',
+                ], 422);
+            }
+
+            return response()->json([
+                'result' => 'success',
+                'price'  => $result['price'] ?? null,
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'error' => 'Calculation failed: ' . $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    /**
+     * Submit config option upgrade order.
+     */
+    public function submitConfigUpgrade(Request $request, int $id)
+    {
+        $request->validate([
+            'configoptions'   => 'required|array',
+            'paymentmethod'   => 'required|string',
+        ]);
+
+        try {
+            $result = $this->whmcs->upgradeProduct(
+                $id,
+                'configoptions',
+                0,
+                $request->paymentmethod,
+                '',
+                false, // actually execute
+                $request->configoptions
+            );
+
+            if (($result['result'] ?? '') !== 'success') {
+                return back()->withErrors(['whmcs' => $result['message'] ?? 'Config upgrade failed.']);
+            }
+
+            $invoiceId = $result['invoiceid'] ?? null;
+            $price     = $result['price'] ?? null;
+
+            if ($invoiceId) {
+                return redirect()->route('client.invoices.show', $invoiceId)
+                    ->with('success', "Config option upgrade ordered. Please pay the invoice ({$price}) to complete the upgrade.");
+            }
+
+            return back()->with('success', "Your configuration has been updated. {$price}");
+        } catch (\Exception $e) {
+            return back()->withErrors(['whmcs' => 'Config upgrade failed: ' . $e->getMessage()]);
+        }
+    }
 }

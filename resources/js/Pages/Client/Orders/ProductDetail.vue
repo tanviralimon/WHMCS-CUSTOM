@@ -208,6 +208,13 @@ const serverConfigValid = computed(() => {
     return serverHostname.value.trim().length >= 3 && serverRootPassword.value.trim().length >= 6;
 });
 
+// Detect OS-related config options (rendered as dropdown instead of radio cards for VPS)
+function isOsOption(opt) {
+    if (!props.requiresServerConfig) return false;
+    const name = (opt.optionname || '').toLowerCase();
+    return name.includes('operating system') || name.includes('os template') || name === 'os' || name.includes('choose os');
+}
+
 function addToCart() {
     if (props.requiresDomain && !domainValid.value) return;
     if (!serverConfigValid.value) return;
@@ -474,9 +481,20 @@ function addToCart() {
                         <div v-for="opt in configOptions" :key="opt.id" class="p-4 rounded-xl bg-gray-50/70 border border-gray-200">
                             <label class="block text-[13px] font-semibold text-gray-800 mb-2">{{ opt.optionname }}</label>
 
-                            <!-- Dropdown type (1) -->
+                            <!-- Dropdown type (1) — OS options as <select>, others as radio cards -->
                             <div v-if="opt.optiontype === '1' || opt.optiontype === 'dropdown'">
-                                <div class="space-y-1.5">
+                                <!-- Dropdown select for OS options on VPS -->
+                                <div v-if="isOsOption(opt)">
+                                    <select v-model="configSelections[opt.id]" class="w-full text-[13px] rounded-lg border-gray-300 focus:border-indigo-500 focus:ring-indigo-500">
+                                        <option value="" disabled>Select an option...</option>
+                                        <option v-for="sub in (opt.options?.option || [])" :key="sub.id" :value="sub.id">
+                                            {{ sub.optionname }}
+                                            <template v-if="getOptionPrice(sub, selectedCycle) && parseFloat(getOptionPrice(sub, selectedCycle)) > 0"> — + {{ fmtPrice(getOptionPrice(sub, selectedCycle)) }}</template>
+                                        </option>
+                                    </select>
+                                </div>
+                                <!-- Radio cards for other dropdown options -->
+                                <div v-else class="space-y-1.5">
                                     <label v-for="sub in (opt.options?.option || [])" :key="sub.id"
                                         class="flex items-center justify-between p-3 rounded-lg border cursor-pointer transition-all"
                                         :class="configSelections[opt.id] == sub.id ? 'border-indigo-500 bg-indigo-50 ring-1 ring-indigo-500' : 'border-gray-200 hover:border-gray-300 bg-white'">
