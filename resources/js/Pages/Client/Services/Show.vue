@@ -788,12 +788,17 @@ function doRemoveSshKey(keyId) {
 // ── VNC ─────────────────────────────────────────────────────
 const vncLoaded       = ref(false);
 const vncLoading      = ref(false);
-const vncData         = ref({ host: '', port: '', password: '' });
+const vncData         = ref({ host: '', port: '', password: '', vpsid: '' });
 const vncPassInput    = ref('');
 const vncPassError    = ref('');
 const vncPassLoading  = ref(false);
 const vncPassCopied   = ref(false);
 const vncShowPassword = ref(false);
+
+function openVncConsole() {
+    const url = route('client.services.vncConsole', s.id);
+    window.open(url, '_blank', 'width=1280,height=820,toolbar=0,menubar=0,scrollbars=0,resizable=1');
+}
 
 async function loadVNC() {
     if (vncLoading.value) return;
@@ -1375,45 +1380,66 @@ function copyVncPassword() {
 
                     <!-- VNC -->
                     <Card title="VNC Console">
-                        <div v-if="!vncLoaded" class="flex items-center justify-between">
-                            <p class="text-[13px] text-gray-500">Load VNC connection details.</p>
-                            <button @click="loadVNC" :disabled="vncLoading" class="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-[13px] font-semibold rounded-lg transition-colors disabled:opacity-50 flex items-center gap-2">
-                                <svg v-if="vncLoading" class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
-                                {{ vncLoading ? 'Loading…' : 'Load VNC' }}
+                        <!-- Primary action: open console in new window -->
+                        <div class="flex items-center justify-between mb-4">
+                            <div>
+                                <p class="text-[13px] font-semibold text-gray-900">Remote Console</p>
+                                <p class="text-[12px] text-gray-500 mt-0.5">Opens a browser-based VNC session in a new window.</p>
+                            </div>
+                            <button @click="openVncConsole" class="inline-flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-[13px] font-semibold rounded-lg transition-colors shadow-sm flex-shrink-0">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" /></svg>
+                                Open VNC Console
                             </button>
                         </div>
-                        <div v-else class="space-y-4">
-                            <!-- Connection Info -->
-                            <div class="grid grid-cols-2 gap-3">
-                                <div class="bg-gray-50 rounded-lg border border-gray-200 px-3 py-2">
-                                    <p class="text-[11px] text-gray-500 font-medium mb-0.5">VNC Host</p>
-                                    <p class="text-[13px] font-mono text-gray-900 truncate">{{ vncData.host || '—' }}</p>
-                                </div>
-                                <div class="bg-gray-50 rounded-lg border border-gray-200 px-3 py-2">
-                                    <p class="text-[11px] text-gray-500 font-medium mb-0.5">VNC Port</p>
-                                    <p class="text-[13px] font-mono text-gray-900">{{ vncData.port || '—' }}</p>
-                                </div>
+
+                        <div class="border-t border-gray-100 pt-4 space-y-4">
+                            <!-- Credentials (for external VNC clients) -->
+                            <div v-if="!vncLoaded" class="flex items-center justify-between">
+                                <p class="text-[12px] text-gray-500">Load credentials for external VNC clients.</p>
+                                <button @click="loadVNC" :disabled="vncLoading" class="px-3 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-700 text-[12px] font-medium rounded-lg transition-colors disabled:opacity-50 flex items-center gap-1.5">
+                                    <svg v-if="vncLoading" class="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
+                                    <svg v-else class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                                    {{ vncLoading ? 'Loading…' : 'Show Credentials' }}
+                                </button>
                             </div>
-                            <!-- VNC Password Display -->
-                            <div class="bg-gray-50 rounded-lg border border-gray-200 px-3 py-2.5">
-                                <p class="text-[11px] text-gray-500 font-medium mb-1">VNC Password</p>
-                                <div class="flex items-center gap-2">
-                                    <span class="text-[13px] font-mono text-gray-900 flex-1">{{ vncShowPassword ? (vncData.password || '—') : '••••••••' }}</span>
-                                    <button @click="vncShowPassword = !vncShowPassword" class="text-[11px] text-gray-400 hover:text-gray-700 transition-colors">
-                                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                            <path v-if="!vncShowPassword" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-                                            <path v-else stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21" />
-                                        </svg>
-                                    </button>
-                                    <button v-if="vncData.password" @click="copyVncPassword" class="text-[11px] text-gray-400 hover:text-gray-700 transition-colors flex items-center gap-1">
-                                        <svg v-if="!vncPassCopied" class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg>
-                                        <svg v-else class="w-3.5 h-3.5 text-emerald-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" /></svg>
-                                        {{ vncPassCopied ? 'Copied!' : 'Copy' }}
-                                    </button>
+                            <div v-else class="space-y-3">
+                                <!-- Connection Info -->
+                                <div class="grid grid-cols-2 gap-3">
+                                    <div class="bg-gray-50 rounded-lg border border-gray-200 px-3 py-2">
+                                        <p class="text-[11px] text-gray-500 font-medium mb-0.5">VNC Host</p>
+                                        <p class="text-[13px] font-mono text-gray-900 truncate">{{ vncData.host || '—' }}</p>
+                                    </div>
+                                    <div class="bg-gray-50 rounded-lg border border-gray-200 px-3 py-2">
+                                        <p class="text-[11px] text-gray-500 font-medium mb-0.5">VNC Port</p>
+                                        <p class="text-[13px] font-mono text-gray-900">{{ vncData.port || '—' }}</p>
+                                    </div>
                                 </div>
+                                <!-- VNC Password Display -->
+                                <div class="bg-gray-50 rounded-lg border border-gray-200 px-3 py-2.5">
+                                    <p class="text-[11px] text-gray-500 font-medium mb-1">VNC Password</p>
+                                    <div class="flex items-center gap-2">
+                                        <span class="text-[13px] font-mono text-gray-900 flex-1">{{ vncShowPassword ? (vncData.password || '—') : '••••••••' }}</span>
+                                        <button @click="vncShowPassword = !vncShowPassword" class="text-[11px] text-gray-400 hover:text-gray-700 transition-colors">
+                                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path v-if="!vncShowPassword" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                                                <path v-else stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21" />
+                                            </svg>
+                                        </button>
+                                        <button v-if="vncData.password" @click="copyVncPassword" class="text-[11px] text-gray-400 hover:text-gray-700 transition-colors flex items-center gap-1">
+                                            <svg v-if="!vncPassCopied" class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg>
+                                            <svg v-else class="w-3.5 h-3.5 text-emerald-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" /></svg>
+                                            {{ vncPassCopied ? 'Copied!' : 'Copy' }}
+                                        </button>
+                                    </div>
+                                </div>
+                                <button @click="loadVNC" class="text-[12px] text-indigo-600 hover:text-indigo-800 flex items-center gap-1">
+                                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
+                                    Refresh
+                                </button>
                             </div>
+
                             <!-- Change VNC Password -->
-                            <div class="pt-2 border-t border-gray-100 space-y-2">
+                            <div class="pt-3 border-t border-gray-100 space-y-2">
                                 <p class="text-[13px] font-semibold text-gray-900">Change VNC Password</p>
                                 <div class="flex gap-2">
                                     <input v-model="vncPassInput" type="password" placeholder="New VNC password (min 6 chars)" class="flex-1 px-3 py-2 text-[13px] border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500" @keyup.enter="doChangeVncPassword" />
@@ -1424,10 +1450,6 @@ function copyVncPassword() {
                                 </div>
                                 <p v-if="vncPassError" class="text-[12px] text-red-600">{{ vncPassError }}</p>
                             </div>
-                            <button @click="loadVNC" class="text-[12px] text-indigo-600 hover:text-indigo-800 flex items-center gap-1">
-                                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
-                                Refresh
-                            </button>
                         </div>
                     </Card>
 

@@ -955,6 +955,7 @@ if ($action === 'GetVnc') {
         'host'     => $hostname,
         'port'     => $vncPort,
         'password' => $vncPass,
+        'vpsid'    => $vpsId,
     ]);
     exit;
 }

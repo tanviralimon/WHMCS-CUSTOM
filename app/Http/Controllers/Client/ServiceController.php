@@ -431,11 +431,35 @@ class ServiceController extends Controller
 
             return response()->json([
                 'host'     => $result['host']     ?? '',
-                'port'     => $result['port']      ?? '',
-                'password' => $result['password']  ?? '',
+                'port'     => $result['port']     ?? '',
+                'password' => $result['password'] ?? '',
+                'vpsid'    => $result['vpsid']    ?? '',
             ]);
         } catch (\Exception $e) {
             return response()->json(['error' => $e->getMessage()], 500);
+        }
+    }
+
+    public function vncConsole(Request $request, int $id)
+    {
+        $clientId = $request->user()->whmcs_client_id;
+
+        try {
+            $result = $this->whmcs->vpsGetVnc($id, $clientId);
+
+            if (($result['result'] ?? '') !== 'success') {
+                abort(422, $result['message'] ?? 'Failed to get VNC info.');
+            }
+
+            return view('client.vnc_console', [
+                'host'      => $result['host']     ?? '',
+                'port'      => (int) ($result['port']     ?: 4083),
+                'password'  => $result['password'] ?? '',
+                'vpsid'     => (string) ($result['vpsid'] ?? ''),
+                'serviceId' => $id,
+            ]);
+        } catch (\Exception $e) {
+            abort(500, $e->getMessage());
         }
     }
 

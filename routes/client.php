@@ -60,6 +60,8 @@ Route::prefix('services')->name('services.')->group(function () {
         ->middleware(['whmcs.own:service,id', 'throttle:10,1']);
     Route::get('/{id}/vnc', [ServiceController::class, 'getVnc'])->name('vnc')
         ->middleware(['whmcs.own:service,id', 'throttle:10,1']);
+    Route::get('/{id}/vnc-console', [ServiceController::class, 'vncConsole'])->name('vncConsole')
+        ->middleware(['whmcs.own:service,id', 'throttle:5,1']);
     Route::post('/{id}/vnc-password', [ServiceController::class, 'changeVncPassword'])->name('vncPassword')
         ->middleware(['whmcs.own:service,id', 'throttle:5,1']);
     Route::get('/{id}/upgrade-options', [ServiceController::class, 'upgradeOptions'])->name('upgradeOptions')
