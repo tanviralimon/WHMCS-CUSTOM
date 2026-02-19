@@ -93,22 +93,6 @@ class InvoiceController extends Controller
         // Check if payment proof already submitted for this invoice
         $proofSubmitted = $this->whmcs->hasPaymentProofTicket($clientId, $id);
 
-        // Normalize transactions — WHMCS may return: array of objects, single object, empty array, or string "0"
-        $txnContainer = is_array($result['transactions'] ?? null) ? $result['transactions'] : [];
-        $rawTxns = $txnContainer['transaction'] ?? [];
-        if (is_array($rawTxns) && !empty($rawTxns) && array_key_exists('id', $rawTxns)) {
-            $rawTxns = [$rawTxns]; // single transaction — wrap in array
-        }
-        $result['transactions'] = ['transaction' => is_array($rawTxns) ? array_values($rawTxns) : []];
-
-        // Normalize items — same issue
-        $itemContainer = is_array($result['items'] ?? null) ? $result['items'] : [];
-        $rawItems = $itemContainer['item'] ?? [];
-        if (is_array($rawItems) && !empty($rawItems) && array_key_exists('id', $rawItems)) {
-            $rawItems = [$rawItems];
-        }
-        $result['items'] = ['item' => is_array($rawItems) ? array_values($rawItems) : []];
-
         return Inertia::render('Client/Invoices/Show', [
             'invoice'            => $result,
             'creditBalance'      => $creditBalance,
