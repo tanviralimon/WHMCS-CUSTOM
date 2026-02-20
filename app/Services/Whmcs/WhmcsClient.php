@@ -178,6 +178,7 @@ class WhmcsClient
         'GetVpsStats', 'VpsAction', 'RebuildVps', 'ChangeHostname',
         'GetIPs', 'GetSSH', 'GetSshKeys', 'AddSshKey', 'RemoveSshKey',
         'GetVnc', 'ChangeVncPassword', 'TestVirtApi',
+        'DebugVnc', 'DebugPrimaryIP',
     ];
 
     public function callSsoProxy(string $action, array $params = []): array

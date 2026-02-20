@@ -872,8 +872,24 @@ const vncPassCopied   = ref(false);
 const vncShowPassword = ref(false);
 
 function openVncConsole() {
-    const url = route('client.services.vncConsole', s.id);
-    window.open(url, '_blank', 'width=1280,height=820,toolbar=0,menubar=0,scrollbars=0,resizable=1');
+    // Open a blank window immediately (avoids popup blocker — must be in direct click handler)
+    const vncWin = window.open('about:blank', '_blank', 'width=1280,height=820,toolbar=0,menubar=0,scrollbars=0,resizable=1');
+
+    // POST the VNC action to backend — SSO will return a redirect_url to Virtualizor's noVNC page
+    router.post(route('client.services.action', s.id), { action: 'vnc' }, {
+        preserveScroll: true,
+        onSuccess: (page) => {
+            const redirectUrl = page.props?.flash?.redirect_url;
+            if (redirectUrl && vncWin) {
+                vncWin.location.href = redirectUrl;
+            } else if (vncWin) {
+                vncWin.close();
+            }
+        },
+        onError: () => {
+            if (vncWin) vncWin.close();
+        },
+    });
 }
 
 async function loadVNC() {
@@ -1699,7 +1715,7 @@ function doDisableRescue() {
                                 <!-- VNC Password Display -->
                                 <div class="bg-gray-50 rounded-lg border border-gray-200 px-3 py-2.5">
                                     <p class="text-[11px] text-gray-500 font-medium mb-1">VNC Password</p>
-                                    <div class="flex items-center gap-2">
+                                    <div v-if="vncData.password" class="flex items-center gap-2">
                                         <span class="text-[13px] font-mono text-gray-900 flex-1">{{ vncShowPassword ? (vncData.password || '—') : '••••••••' }}</span>
                                         <button @click="vncShowPassword = !vncShowPassword" class="text-[11px] text-gray-400 hover:text-gray-700 transition-colors">
                                             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1712,6 +1728,9 @@ function doDisableRescue() {
                                             <svg v-else class="w-3.5 h-3.5 text-emerald-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" /></svg>
                                             {{ vncPassCopied ? 'Copied!' : 'Copy' }}
                                         </button>
+                                    </div>
+                                    <div v-else class="flex items-center gap-2">
+                                        <span class="text-[13px] text-amber-600 flex-1">No VNC password set — set one below to use external VNC clients.</span>
                                     </div>
                                 </div>
                                 <button @click="loadVNC" class="text-[12px] text-indigo-600 hover:text-indigo-800 flex items-center gap-1">

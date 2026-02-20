@@ -1056,7 +1056,78 @@ if ($action === 'RemoveSshKey') {
     exit;
 }
 
+// ── DEBUG: Test VNC API endpoints ──────────────────────────
+if ($action === 'DebugVnc') {
+    if (!$serviceId) { echo json_encode(['result' => 'error', 'message' => 'serviceid is required']); exit; }
+
+    $service = Capsule::table('tblhosting')->where('id', $serviceId)->first();
+    if (!$service) { echo json_encode(['result' => 'error', 'message' => 'Service not found']); exit; }
+
+    $server   = Capsule::table('tblservers')->where('id', $service->server)->first();
+    $hostname = $server->hostname ?: ($server->ipaddress ?? '');
+    $vpsId    = resolveVpsId($service);
+    $creds    = getVirtualizorCredentials($server);
+    $apiKey   = $creds['apiKey'];
+    $apiPass  = $creds['apiPass'];
+    $adminUrl = 'https://' . $hostname . ':4085/index.php';
+
+    $output = ['vpsid' => $vpsId, 'hostname' => $hostname];
+
+    // Test 1: Admin API act=vnc (correct VNC Info endpoint per docs)
+    // POST https://hostname:4085/index.php?act=vnc&api=json → POST novnc=VPSID
+    // Expected: { "info": { "port": "5929", "ip": "x.x.x.x", "password": "xxx" } }
+    $vncRes = virtualizorApiPost($adminUrl . '?' . http_build_query([
+        'act' => 'vnc', 'api' => 'json',
+        'adminapikey' => $apiKey, 'adminapipass' => $apiPass,
+    ]), ['novnc' => $vpsId]);
+    $output['admin_act_vnc'] = [
+        'ok'   => $vncRes['ok'],
+        'http' => $vncRes['http_code'] ?? null,
+        'info' => $vncRes['ok'] ? ($vncRes['data']['info'] ?? null) : null,
+        'data_keys' => $vncRes['ok'] ? array_keys($vncRes['data']) : [],
+        'error' => !$vncRes['ok'] ? ($vncRes['error'] ?? 'failed') : null,
+    ];
+
+    // Test 2: Enduser API act=vnc (enduser VNC info endpoint)
+    // GET https://hostname:4083/index.php?act=vnc&svs=VPSID&novnc=VPSID&api=json
+    // Expected: { "port": "5929", "ip": "x.x.x.x", "password": "xxx", "novnc": 1 }
+    $enduserUrl = 'https://' . $hostname . ':4083/index.php';
+    $vncRes2 = virtualizorApiGet($enduserUrl . '?' . http_build_query([
+        'act' => 'vnc', 'svs' => $vpsId, 'novnc' => $vpsId,
+        'api' => 'json', 'do' => 'add',
+        'apikey' => $apiKey, 'apipass' => $apiPass,
+    ]));
+    $output['enduser_act_vnc'] = [
+        'ok'   => $vncRes2['ok'],
+        'http' => $vncRes2['http_code'] ?? null,
+        'port' => $vncRes2['ok'] ? ($vncRes2['data']['port'] ?? null) : null,
+        'ip'   => $vncRes2['ok'] ? ($vncRes2['data']['ip'] ?? null) : null,
+        'password' => $vncRes2['ok'] ? ($vncRes2['data']['password'] ?? null) : null,
+        'data_keys' => $vncRes2['ok'] ? array_keys($vncRes2['data']) : [],
+        'error' => !$vncRes2['ok'] ? ($vncRes2['error'] ?? 'failed') : null,
+    ];
+
+    // Test 3: Old act=vncpasswd (what the code was previously using — probably wrong)
+    $vncRes3 = virtualizorApiGet($adminUrl . '?' . http_build_query([
+        'act' => 'vncpasswd', 'vpsid' => $vpsId, 'api' => 'json',
+        'adminapikey' => $apiKey, 'adminapipass' => $apiPass,
+    ]));
+    $output['admin_act_vncpasswd'] = [
+        'ok'   => $vncRes3['ok'],
+        'http' => $vncRes3['http_code'] ?? null,
+        'data_keys' => $vncRes3['ok'] ? array_keys($vncRes3['data']) : [],
+        'raw_snippet' => $vncRes3['ok'] ? json_encode(array_slice($vncRes3['data'], 0, 5)) : null,
+        'error' => !$vncRes3['ok'] ? ($vncRes3['error'] ?? 'failed') : null,
+    ];
+
+    echo json_encode($output, JSON_PRETTY_PRINT);
+    exit;
+}
+
 // ── VPS: Get VNC Info ──────────────────────────────────────
+// Uses Admin API: POST act=vnc, novnc=VPSID
+// Docs: https://www.virtualizor.com/docs/admin-api/vnc-info/
+// Response: { "info": { "port": "5929", "ip": "x.x.x.x", "password": "xxx" } }
 if ($action === 'GetVnc') {
     if (!$serviceId) { echo json_encode(['result' => 'error', 'message' => 'serviceid is required']); exit; }
 
@@ -1078,30 +1149,38 @@ if ($action === 'GetVnc') {
     $apiPass = $creds['apiPass'];
     if (empty($apiKey) || empty($apiPass)) { echo json_encode(['result' => 'error', 'message' => 'Virtualizor API credentials missing']); exit; }
 
+    // Admin API: POST act=vnc with novnc=VPSID
     $adminUrl = 'https://' . $hostname . ':4085/index.php';
-    $result   = virtualizorApiGet($adminUrl . '?' . http_build_query([
-        'act' => 'vncpasswd', 'vpsid' => $vpsId, 'api' => 'json',
+    $result   = virtualizorApiPost($adminUrl . '?' . http_build_query([
+        'act' => 'vnc', 'api' => 'json',
         'adminapikey' => $apiKey, 'adminapipass' => $apiPass,
-    ]));
+    ]), ['novnc' => $vpsId]);
 
-    if (!$result['ok']) { echo json_encode(['result' => 'error', 'message' => $result['error'] ?? 'Failed']); exit; }
+    if (!$result['ok']) { echo json_encode(['result' => 'error', 'message' => $result['error'] ?? 'Failed to get VNC info']); exit; }
 
-    $data    = $result['data'];
-    $vpsInfo = $data['vpsid'][$vpsId] ?? $data['vs'] ?? [];
-    $vncPort = $vpsInfo['vnc_port'] ?? $data['vnc_port'] ?? '';
-    $vncPass = $vpsInfo['vncpass']  ?? $data['vncpass']  ?? $vpsInfo['vnc_passwd'] ?? '';
+    $data = $result['data'];
+    $info = $data['info'] ?? [];
+
+    // info.port = actual VNC port (e.g. 5929), info.ip = VNC server IP, info.password = VNC password
+    $vncPort = $info['port'] ?? '';
+    $vncIp   = $info['ip']   ?? '';
+    $vncPass = $info['password'] ?? '';
 
     echo json_encode([
         'result'   => 'success',
-        'host'     => $hostname,
+        'host'     => $vncIp ?: $hostname,   // Use VNC IP if available, else hostname
         'port'     => $vncPort,
         'password' => $vncPass,
         'vpsid'    => $vpsId,
+        'hostname' => $hostname,             // Always include hostname for WSS proxy
     ]);
     exit;
 }
 
 // ── VPS: Change VNC Password ───────────────────────────────
+// Enduser API: POST https://hostname:4083/index.php?act=vncpass&svs=VPSID&api=json&do=1
+// Docs: https://www.virtualizor.com/docs/enduser-api/vnc-password/
+// POST body: vncpass=1&newpass=PASS&conf=PASS
 if ($action === 'ChangeVncPassword') {
     if (!$serviceId) { echo json_encode(['result' => 'error', 'message' => 'serviceid is required']); exit; }
 
@@ -1126,19 +1205,37 @@ if ($action === 'ChangeVncPassword') {
     $apiPass = $creds['apiPass'];
     if (empty($apiKey) || empty($apiPass)) { echo json_encode(['result' => 'error', 'message' => 'Virtualizor API credentials missing']); exit; }
 
-    $adminUrl  = 'https://' . $hostname . ':4085/index.php';
-    $postResult = virtualizorApiPost($adminUrl . '?' . http_build_query([
+    // Try enduser API first (port 4083) — this is the documented endpoint
+    $enduserUrl = 'https://' . $hostname . ':4083/index.php';
+    $postResult = virtualizorApiPost($enduserUrl . '?' . http_build_query([
+        'act' => 'vncpass', 'svs' => $vpsId, 'api' => 'json', 'do' => 1,
+        'apikey' => $apiKey, 'apipass' => $apiPass,
+    ]), [
+        'vncpass' => 1,
+        'newpass' => $newPass,
+        'conf'    => $newPass,
+    ]);
+
+    // Check enduser API result
+    if ($postResult['ok'] && !empty($postResult['data']['done'])) {
+        echo json_encode(['result' => 'success', 'message' => 'VNC password changed successfully']);
+        exit;
+    }
+
+    // Fallback: Admin API (port 4085) with act=vncpasswd
+    $adminUrl = 'https://' . $hostname . ':4085/index.php';
+    $postResult2 = virtualizorApiPost($adminUrl . '?' . http_build_query([
         'act' => 'vncpasswd', 'vpsid' => $vpsId, 'api' => 'json',
         'adminapikey' => $apiKey, 'adminapipass' => $apiPass,
     ]), [
-        'vpsid'       => $vpsId,
-        'vncpasswd'   => $newPass,
+        'vpsid'        => $vpsId,
+        'vncpasswd'    => $newPass,
         'changevncpwd' => 1,
     ]);
 
-    if (!$postResult['ok']) { echo json_encode(['result' => 'error', 'message' => $postResult['error'] ?? 'Failed']); exit; }
+    if (!$postResult2['ok']) { echo json_encode(['result' => 'error', 'message' => $postResult2['error'] ?? 'Failed']); exit; }
 
-    $data = $postResult['data'];
+    $data = $postResult2['data'];
     if (!empty($data['error'])) {
         $errMsg = is_array($data['error']) ? implode(', ', array_values($data['error'])) : (string)$data['error'];
         echo json_encode(['result' => 'error', 'message' => $errMsg]); exit;
