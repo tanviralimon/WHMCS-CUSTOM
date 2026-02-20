@@ -341,6 +341,27 @@ class ServiceController extends Controller
         }
     }
 
+    public function setPrimaryIP(Request $request, int $id)
+    {
+        $clientId = $request->user()->whmcs_client_id;
+
+        $validated = $request->validate([
+            'ip' => ['required', 'string', 'ip'],
+        ]);
+
+        try {
+            $result = $this->whmcs->vpsSetPrimaryIP($id, $clientId, $validated['ip']);
+
+            if (($result['result'] ?? '') !== 'success') {
+                return response()->json(['error' => $result['message'] ?? 'Failed to set primary IP.'], 422);
+            }
+
+            return response()->json(['message' => $result['message'] ?? 'Primary IP updated.']);
+        } catch (\Exception $e) {
+            return response()->json(['error' => $e->getMessage()], 500);
+        }
+    }
+
     public function getSsh(Request $request, int $id)
     {
         $clientId = $request->user()->whmcs_client_id;

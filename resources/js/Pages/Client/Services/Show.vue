@@ -702,6 +702,8 @@ const ipsLoaded   = ref(false);
 const ipsLoading  = ref(false);
 const ipsData     = ref({ ips: [], ips6: [], mac: '', netmask: '', gateway: '' });
 const ipCopied    = ref('');
+const settingPrimaryIp  = ref('');
+const primaryIpError    = ref('');
 
 async function loadIPs() {
     if (ipsLoading.value) return;
@@ -710,9 +712,42 @@ async function loadIPs() {
         const resp = await fetch(route('client.services.ips', s.id), { headers: { 'X-Requested-With': 'XMLHttpRequest' } });
         const data = await resp.json();
         if (data.error) { ipsData.value = { ips: [], ips6: [], mac: '', netmask: '', gateway: '' }; }
-        else { ipsData.value = { ips: data.ips ?? [], ips6: data.ips6 ?? [], mac: data.mac ?? '', netmask: data.netmask ?? '', gateway: data.gateway ?? '' }; }
+        else {
+            // Normalise — backend returns [{ip, is_primary}] objects; guard against plain strings too
+            const normalise = (arr) => (arr ?? []).map(entry =>
+                typeof entry === 'string' ? { ip: entry, is_primary: false } : entry
+            );
+            ipsData.value = {
+                ips:     normalise(data.ips),
+                ips6:    normalise(data.ips6),
+                mac:     data.mac     ?? '',
+                netmask: data.netmask ?? '',
+                gateway: data.gateway ?? '',
+            };
+        }
     } catch (e) { /* silent */ }
     finally { ipsLoaded.value = true; ipsLoading.value = false; }
+}
+
+async function setPrimaryIP(ip) {
+    if (settingPrimaryIp.value) return;
+    settingPrimaryIp.value = ip;
+    primaryIpError.value   = '';
+    try {
+        const resp = await fetch(route('client.services.primaryIp', s.id), {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest', 'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.content ?? '' },
+            body: JSON.stringify({ ip }),
+        });
+        const data = await resp.json();
+        if (data.error) { primaryIpError.value = data.error; }
+        else {
+            // Reload IPs to reflect the updated primary
+            ipsLoaded.value = false;
+            await loadIPs();
+        }
+    } catch (e) { primaryIpError.value = 'Request failed.'; }
+    finally { settingPrimaryIp.value = ''; }
 }
 
 function copyIP(ip) {
@@ -1433,29 +1468,44 @@ function doDisableRescue() {
                         <div v-else class="space-y-3">
                             <div v-if="ipsData.ips.length === 0 && ipsData.ips6.length === 0" class="text-[13px] text-gray-500">No IP addresses found.</div>
                             <div v-else class="space-y-2">
-                                <div v-for="ip in ipsData.ips" :key="ip" class="flex items-center justify-between px-3 py-2 bg-gray-50 rounded-lg border border-gray-200">
-                                    <div class="flex items-center gap-2">
-                                        <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-blue-100 text-blue-700">IPv4</span>
-                                        <span class="text-[13px] font-mono text-gray-900">{{ ip }}</span>
+                                <!-- IPv4 -->
+                                <div v-for="entry in ipsData.ips" :key="entry.ip" class="flex items-center justify-between px-3 py-2 bg-gray-50 rounded-lg border" :class="entry.is_primary ? 'border-indigo-300 bg-indigo-50/40' : 'border-gray-200'">
+                                    <div class="flex items-center gap-2 flex-1 min-w-0">
+                                        <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-blue-100 text-blue-700 flex-shrink-0">IPv4</span>
+                                        <span v-if="entry.is_primary" class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-emerald-100 text-emerald-700 flex-shrink-0">PRIMARY</span>
+                                        <span class="text-[13px] font-mono text-gray-900 truncate">{{ entry.ip }}</span>
                                     </div>
-                                    <button @click="copyIP(ip)" class="text-[11px] text-gray-400 hover:text-gray-700 transition-colors flex items-center gap-1">
-                                        <svg v-if="ipCopied !== ip" class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg>
-                                        <svg v-else class="w-3.5 h-3.5 text-emerald-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" /></svg>
-                                        {{ ipCopied === ip ? 'Copied!' : 'Copy' }}
-                                    </button>
+                                    <div class="flex items-center gap-2 flex-shrink-0 ml-2">
+                                        <button v-if="!entry.is_primary" @click="setPrimaryIP(entry.ip)" :disabled="!!settingPrimaryIp" class="text-[11px] text-indigo-500 hover:text-indigo-700 transition-colors flex items-center gap-1 disabled:opacity-50">
+                                            <svg v-if="settingPrimaryIp === entry.ip" class="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
+                                            <svg v-else class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z" /></svg>
+                                            {{ settingPrimaryIp === entry.ip ? 'Setting…' : 'Set Primary' }}
+                                        </button>
+                                        <button @click="copyIP(entry.ip)" class="text-[11px] text-gray-400 hover:text-gray-700 transition-colors flex items-center gap-1">
+                                            <svg v-if="ipCopied !== entry.ip" class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg>
+                                            <svg v-else class="w-3.5 h-3.5 text-emerald-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" /></svg>
+                                            {{ ipCopied === entry.ip ? 'Copied!' : 'Copy' }}
+                                        </button>
+                                    </div>
                                 </div>
-                                <div v-for="ip in ipsData.ips6" :key="ip" class="flex items-center justify-between px-3 py-2 bg-gray-50 rounded-lg border border-gray-200">
-                                    <div class="flex items-center gap-2">
-                                        <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-purple-100 text-purple-700">IPv6</span>
-                                        <span class="text-[13px] font-mono text-gray-900 break-all">{{ ip }}</span>
+                                <!-- IPv6 -->
+                                <div v-for="entry in ipsData.ips6" :key="entry.ip" class="flex items-center justify-between px-3 py-2 bg-gray-50 rounded-lg border border-gray-200">
+                                    <div class="flex items-center gap-2 flex-1 min-w-0">
+                                        <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-purple-100 text-purple-700 flex-shrink-0">IPv6</span>
+                                        <span class="text-[13px] font-mono text-gray-900 break-all">{{ entry.ip }}</span>
                                     </div>
-                                    <button @click="copyIP(ip)" class="text-[11px] text-gray-400 hover:text-gray-700 transition-colors flex items-center gap-1 flex-shrink-0 ml-2">
-                                        <svg v-if="ipCopied !== ip" class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg>
+                                    <button @click="copyIP(entry.ip)" class="text-[11px] text-gray-400 hover:text-gray-700 transition-colors flex items-center gap-1 flex-shrink-0 ml-2">
+                                        <svg v-if="ipCopied !== entry.ip" class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg>
                                         <svg v-else class="w-3.5 h-3.5 text-emerald-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" /></svg>
-                                        {{ ipCopied === ip ? 'Copied!' : 'Copy' }}
+                                        {{ ipCopied === entry.ip ? 'Copied!' : 'Copy' }}
                                     </button>
                                 </div>
                             </div>
+                            <!-- Primary IP error -->
+                            <p v-if="primaryIpError" class="text-[12px] text-red-600 flex items-center gap-1">
+                                <svg class="w-3.5 h-3.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                                {{ primaryIpError }}
+                            </p>
                             <div v-if="ipsData.gateway || ipsData.netmask" class="grid grid-cols-2 gap-2 pt-1 border-t border-gray-100 mt-2">
                                 <div v-if="ipsData.netmask" class="text-[12px]"><span class="text-gray-500">Netmask:</span> <span class="font-mono text-gray-800">{{ ipsData.netmask }}</span></div>
                                 <div v-if="ipsData.gateway" class="text-[12px]"><span class="text-gray-500">Gateway:</span> <span class="font-mono text-gray-800">{{ ipsData.gateway }}</span></div>

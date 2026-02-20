@@ -259,6 +259,15 @@ class WhmcsService
         ]);
     }
 
+    public function vpsSetPrimaryIP(int $serviceId, int $clientId, string $ip): array
+    {
+        return $this->client->callSsoProxy('SetPrimaryIP', [
+            'serviceid' => $serviceId,
+            'clientid'  => $clientId,
+            'ip'        => $ip,
+        ]);
+    }
+
     public function vpsGetSsh(int $serviceId, int $clientId): array
     {
         return $this->client->callSsoProxy('GetSSH', [

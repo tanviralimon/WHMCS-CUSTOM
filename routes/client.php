@@ -50,6 +50,8 @@ Route::prefix('services')->name('services.')->group(function () {
         ->middleware(['whmcs.own:service,id', 'throttle:5,1']);
     Route::get('/{id}/ips', [ServiceController::class, 'getIPs'])->name('ips')
         ->middleware(['whmcs.own:service,id', 'throttle:10,1']);
+    Route::post('/{id}/primary-ip', [ServiceController::class, 'setPrimaryIP'])->name('primaryIp')
+        ->middleware(['whmcs.own:service,id', 'throttle:5,1']);
     Route::get('/{id}/ssh', [ServiceController::class, 'getSsh'])->name('ssh')
         ->middleware(['whmcs.own:service,id', 'throttle:10,1']);
     Route::get('/{id}/ssh-keys', [ServiceController::class, 'getSshKeys'])->name('sshKeys')
