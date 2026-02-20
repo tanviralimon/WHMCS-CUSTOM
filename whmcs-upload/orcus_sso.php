@@ -2363,32 +2363,53 @@ function handleVirtualizorAction($server, $service, $hostname, $vpsAction)
             ];
         }
 
-        // Step 3: Stop the VPS so password gets applied on next boot
-        $stopParams = [
+        // Step 3: Restart the VPS so the new password is injected on boot
+        $restartParams = [
             'act'          => 'vs',
-            'action'       => 'stop',
+            'action'       => 'restart',
             'vpsid'        => $vpsId,
             'api'          => 'json',
             'adminapikey'  => $apiKey,
             'adminapipass' => $apiPass,
         ];
-        $stopUrl = $adminUrl . '?' . http_build_query($stopParams);
-        virtualizorApiGet($stopUrl);
+        $restartUrl = $adminUrl . '?' . http_build_query($restartParams);
+        $restartResult = virtualizorApiGet($restartUrl);
 
-        // Step 4: Wait for VPS to fully stop
-        sleep(8);
+        // If restart fails (some hypervisors need stop+start), fall back to stop then start
+        if (!$restartResult['ok'] || empty($restartResult['data']['done'])) {
+            $stopParams = [
+                'act'          => 'vs',
+                'action'       => 'stop',
+                'vpsid'        => $vpsId,
+                'api'          => 'json',
+                'adminapikey'  => $apiKey,
+                'adminapipass' => $apiPass,
+            ];
+            virtualizorApiGet($adminUrl . '?' . http_build_query($stopParams));
 
-        // Step 5: Start the VPS — password is injected during boot
-        $startParams = [
-            'act'          => 'vs',
-            'action'       => 'start',
-            'vpsid'        => $vpsId,
-            'api'          => 'json',
-            'adminapikey'  => $apiKey,
-            'adminapipass' => $apiPass,
-        ];
-        $startUrl = $adminUrl . '?' . http_build_query($startParams);
-        virtualizorApiGet($startUrl);
+            // Poll for stopped state (max 20s) instead of a fixed sleep
+            $waited = 0;
+            while ($waited < 20) {
+                sleep(3);
+                $waited += 3;
+                $checkParams = array_merge($stopParams, ['action' => 'status']);
+                $checkResult = virtualizorApiGet($adminUrl . '?' . http_build_query($checkParams));
+                $statusCode  = $checkResult['data']['status'] ?? $checkResult['data']['vs_status'] ?? null;
+                if ($statusCode === 0 || $statusCode === '0' || $statusCode === 'stopped') {
+                    break;
+                }
+            }
+
+            $startParams = [
+                'act'          => 'vs',
+                'action'       => 'start',
+                'vpsid'        => $vpsId,
+                'api'          => 'json',
+                'adminapikey'  => $apiKey,
+                'adminapipass' => $apiPass,
+            ];
+            virtualizorApiGet($adminUrl . '?' . http_build_query($startParams));
+        }
 
         return [
             'result'       => 'success',
