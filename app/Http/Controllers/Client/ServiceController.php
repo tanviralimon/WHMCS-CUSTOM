@@ -454,6 +454,7 @@ class ServiceController extends Controller
                 'host'     => $result['host']     ?? '',
                 'port'     => $result['port']     ?? '',
                 'password' => $result['password'] ?? '',
+                'vpsid'    => $result['vpsid']    ?? '',
             ]);
         } catch (\Exception $e) {
             return response()->json(['error' => $e->getMessage()], 500);
@@ -465,30 +466,27 @@ class ServiceController extends Controller
         $clientId = $request->user()->whmcs_client_id;
 
         try {
-            // Get VNC connection info (host, port, password, hostname)
+            // Get VNC info to obtain the VPS ID
             $vnc = $this->whmcs->vpsGetVnc($id, $clientId);
+            $vpsId = $vnc['vpsid'] ?? '';
 
-            if (($vnc['result'] ?? '') !== 'success') {
-                abort(422, $vnc['message'] ?? 'Failed to get VNC info.');
+            if (empty($vpsId)) {
+                abort(422, 'Could not determine VPS ID for VNC console.');
             }
 
-            // Also get SSO URL for fallback link
-            $ssoUrl = '';
-            try {
-                $action = $this->whmcs->vpsAction($id, $clientId, 'vnc');
-                $ssoUrl = $action['redirect_url'] ?? '';
-            } catch (\Exception $e) { /* non-critical */ }
-
-            return view('client.vnc_console', [
-                'host'      => $vnc['hostname'] ?? $vnc['host'] ?? '',  // Virtualizor hostname
-                'port'      => 4083,                                    // Enduser panel port (websockify proxy)
-                'password'  => $vnc['password'] ?? '',
-                'vpsid'     => (string) ($vnc['vpsid'] ?? ''),
-                'serviceId' => $id,
-                'vncHost'   => $vnc['host'] ?? '',                      // Raw VNC IP for display
-                'vncPort'   => $vnc['port'] ?? '',                      // Raw VNC port for display
-                'ssoUrl'    => $ssoUrl,                                 // SSO fallback URL
+            // Redirect to WHMCS's built-in Virtualizor noVNC client
+            // This is the same URL WHMCS uses: clientarea.php?action=productdetails&id=SERVICE&act=vnc&novnc=1&jsnohf=1&svs=VPSID
+            $whmcsUrl = config('services.whmcs.base_url', env('WHMCS_BASE_URL', 'https://dash.orcustech.com'));
+            $vncUrl = $whmcsUrl . '/clientarea.php?' . http_build_query([
+                'action' => 'productdetails',
+                'id'     => $id,
+                'act'    => 'vnc',
+                'novnc'  => 1,
+                'jsnohf' => 1,
+                'svs'    => $vpsId,
             ]);
+
+            return redirect()->away($vncUrl);
         } catch (\Exception $e) {
             abort(500, $e->getMessage());
         }

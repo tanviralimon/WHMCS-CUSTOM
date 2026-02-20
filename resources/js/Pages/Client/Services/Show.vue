@@ -872,24 +872,9 @@ const vncPassCopied   = ref(false);
 const vncShowPassword = ref(false);
 
 function openVncConsole() {
-    // Open a blank window immediately (avoids popup blocker — must be in direct click handler)
-    const vncWin = window.open('about:blank', '_blank', 'width=1280,height=820,toolbar=0,menubar=0,scrollbars=0,resizable=1');
-
-    // POST the VNC action to backend — SSO will return a redirect_url to Virtualizor's noVNC page
-    router.post(route('client.services.action', s.id), { action: 'vnc' }, {
-        preserveScroll: true,
-        onSuccess: (page) => {
-            const redirectUrl = page.props?.flash?.redirect_url;
-            if (redirectUrl && vncWin) {
-                vncWin.location.href = redirectUrl;
-            } else if (vncWin) {
-                vncWin.close();
-            }
-        },
-        onError: () => {
-            if (vncWin) vncWin.close();
-        },
-    });
+    // Open the VNC console route directly — it redirects to WHMCS's built-in noVNC client
+    const url = route('client.services.vncConsole', s.id);
+    window.open(url, '_blank', 'width=1280,height=820,toolbar=0,menubar=0,scrollbars=0,resizable=1');
 }
 
 async function loadVNC() {
