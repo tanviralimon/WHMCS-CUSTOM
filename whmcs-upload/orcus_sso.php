@@ -871,12 +871,10 @@ if ($action === 'SetPrimaryIP') {
         exit;
     }
 
-    // Step 2: Use act=ips with reorderips=1 (same endpoint as Virtualizor enduser panel)
-    // This is what Virtualizor's "Select Primary IP" dropdown uses under Networking > IPs
-    $adminUrl = 'https://' . $hostname . ':4085/index.php';
-
-    // Try admin API first (port 4085)
-    $ipsRes = virtualizorApiPost($adminUrl . '?' . http_build_query([
+    // Step 2: Use act=ips with reorderips=1 via enduser API (port 4083)
+    // This is the exact same endpoint Virtualizor's panel uses: Networking > IPs > Select Primary IP
+    $enduserUrl = 'https://' . $hostname . ':4083/index.php';
+    virtualizorApiPost($enduserUrl . '?' . http_build_query([
         'act'          => 'ips',
         'svs'          => $vpsId,
         'api'          => 'json',
@@ -886,21 +884,6 @@ if ($action === 'SetPrimaryIP') {
         'ips'        => $ip,
         'reorderips' => 1,
     ]);
-
-    // If admin API didn't work, try enduser API (port 4083)
-    if (!$ipsRes['ok'] || empty($ipsRes['data']['done'])) {
-        $enduserUrl = 'https://' . $hostname . ':4083/index.php';
-        virtualizorApiPost($enduserUrl . '?' . http_build_query([
-            'act'          => 'ips',
-            'svs'          => $vpsId,
-            'api'          => 'json',
-            'adminapikey'  => $apiKey,
-            'adminapipass' => $apiPass,
-        ]), [
-            'ips'        => $ip,
-            'reorderips' => 1,
-        ]);
-    }
 
     echo json_encode(['result' => 'success', 'message' => 'Primary IP set to ' . $ip]);
     exit;
