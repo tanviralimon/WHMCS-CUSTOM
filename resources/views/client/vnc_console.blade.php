@@ -172,20 +172,26 @@
             </svg>
             <h3>Connection Failed</h3>
             <p id="error-detail">Unable to connect to the VNC server.</p>
-            <button id="retry-btn" onclick="window.location.reload()">Retry Connection</button>
+            <div style="display:flex;gap:8px;margin-top:12px">
+                <button id="retry-btn" onclick="window.location.reload()" style="background:#4f46e5;color:white;border:none;padding:8px 24px;border-radius:8px;cursor:pointer;font-size:13px;font-weight:600">Retry Connection</button>
+                @if(!empty($ssoUrl))
+                <a href="{{ $ssoUrl }}" target="_self" style="background:#334155;color:#e2e8f0;border:none;padding:8px 24px;border-radius:8px;cursor:pointer;font-size:13px;font-weight:600;text-decoration:none;display:inline-flex;align-items:center">Open in Virtualizor Panel</a>
+                @endif
+            </div>
         </div>
     </div>
 
-    <!-- noVNC (self-hosted from /novnc/core/) -->
+    <!-- noVNC -->
     <script src="/novnc/vendor/promise.js"></script>
     <script type="module">
         import RFB from '/novnc/core/rfb.js';
 
         // ── Credentials (filled server-side) ──────────────
-        const host     = @json($host);
-        const port     = @json($port);
-        const password = @json($password);
-        const vpsid    = @json($vpsid);
+        const host     = @json($host);       // Virtualizor hostname (e.g. elina.noc01.com)
+        const port     = @json($port);       // 4083 — enduser panel port (websockify proxy)
+        const password = @json($password);   // VNC password
+        const vpsid    = @json($vpsid);      // VPS ID
+        const ssoUrl   = @json($ssoUrl ?? '');
 
         // ── DOM refs ────────────────────────────────────────
         const statusPill  = document.getElementById('status-pill');
@@ -207,12 +213,29 @@
             cadBtn.disabled = true;
         }
 
+        // ── Redirect to SSO VNC if direct WebSocket fails ──
+        let wsAttempted = false;
+        function fallbackToSso() {
+            if (ssoUrl && !wsAttempted) {
+                wsAttempted = true;
+                // Direct WebSocket failed — redirect to Virtualizor's built-in noVNC via SSO
+                window.location.href = ssoUrl;
+                return;
+            }
+        }
+
         // ── Build WebSocket URL ─────────────────────────────
-        // Virtualizor websocket path: /novnc/?virttoken=<vpsid>
-        const wsUrl = `wss://${host}:${port}/novnc/?virttoken=${encodeURIComponent(vpsid)}`;
+        // Virtualizor runs a websockify proxy on the enduser panel port
+        // URL format: wss://hostname:4083/novnc/websockify?token=VPSID
+        // Also try: wss://hostname:4083/novnc/?virttoken=VPSID
+        const wsUrl = `wss://${host}:${port}/novnc/websockify?token=${encodeURIComponent(vpsid)}`;
+
+        console.log('[VNC] Connecting to:', wsUrl);
+        console.log('[VNC] Host:', host, 'Port:', port, 'VPS:', vpsid, 'Pass:', password ? '***' : '(empty)');
 
         // ── Connect ─────────────────────────────────────────
         let rfb;
+        let connectTimeout;
         try {
             rfb = new RFB(
                 document.getElementById('screen'),
@@ -223,27 +246,45 @@
             rfb.scaleViewport  = true;
             rfb.resizeSession  = false;
 
+            // If not connected within 8 seconds, try SSO fallback
+            connectTimeout = setTimeout(() => {
+                console.log('[VNC] Connection timeout — falling back to SSO');
+                fallbackToSso();
+            }, 8000);
+
             rfb.addEventListener('connect', () => {
+                clearTimeout(connectTimeout);
                 loadingEl.style.display = 'none';
                 setStatus('Connected', 'connected');
                 cadBtn.disabled = false;
             });
 
             rfb.addEventListener('disconnect', (e) => {
+                clearTimeout(connectTimeout);
                 cadBtn.disabled = true;
                 if (e.detail.clean) {
                     setStatus('Disconnected', '');
                 } else {
-                    showError('The VNC connection was lost unexpectedly. Click Retry to reconnect.');
+                    // Try SSO fallback on disconnect
+                    if (!wsAttempted && ssoUrl) {
+                        console.log('[VNC] Disconnected — falling back to SSO');
+                        fallbackToSso();
+                    } else {
+                        showError('The VNC connection was lost. The WebSocket proxy may require authentication.');
+                    }
                 }
             });
 
             rfb.addEventListener('credentialsrequired', () => {
-                const pass = prompt('VNC Password Required:');
-                if (pass) {
-                    rfb.sendCredentials({ password: pass });
+                if (password) {
+                    rfb.sendCredentials({ password: password });
                 } else {
-                    showError('VNC password is required to connect.');
+                    const pass = prompt('VNC Password Required:');
+                    if (pass) {
+                        rfb.sendCredentials({ password: pass });
+                    } else {
+                        showError('VNC password is required to connect.');
+                    }
                 }
             });
 
@@ -251,7 +292,14 @@
             cadBtn.addEventListener('click', () => rfb.sendCtrlAltDel());
 
         } catch (err) {
-            showError(err.message || 'Failed to initialise VNC client.');
+            clearTimeout(connectTimeout);
+            console.error('[VNC] Error:', err);
+            // Try SSO fallback
+            if (ssoUrl) {
+                fallbackToSso();
+            } else {
+                showError(err.message || 'Failed to initialise VNC client.');
+            }
         }
 
         // ── Fullscreen ───────────────────────────────────────

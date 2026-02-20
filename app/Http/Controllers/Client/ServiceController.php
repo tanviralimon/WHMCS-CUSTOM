@@ -465,17 +465,30 @@ class ServiceController extends Controller
         $clientId = $request->user()->whmcs_client_id;
 
         try {
-            // Use SSO redirect to Virtualizor's built-in noVNC page
-            // The blade template can't work because it tries to open a WebSocket
-            // to Virtualizor from our domain without an authenticated session.
-            $result = $this->whmcs->vpsAction($id, $clientId, 'vnc');
+            // Get VNC connection info (host, port, password, hostname)
+            $vnc = $this->whmcs->vpsGetVnc($id, $clientId);
 
-            if (($result['result'] ?? '') === 'success' && !empty($result['redirect_url'])) {
-                return redirect()->away($result['redirect_url']);
+            if (($vnc['result'] ?? '') !== 'success') {
+                abort(422, $vnc['message'] ?? 'Failed to get VNC info.');
             }
 
-            // Fallback: show error
-            abort(422, $result['message'] ?? 'Failed to open VNC console. Please try the VNC button on the service page.');
+            // Also get SSO URL for fallback link
+            $ssoUrl = '';
+            try {
+                $action = $this->whmcs->vpsAction($id, $clientId, 'vnc');
+                $ssoUrl = $action['redirect_url'] ?? '';
+            } catch (\Exception $e) { /* non-critical */ }
+
+            return view('client.vnc_console', [
+                'host'      => $vnc['hostname'] ?? $vnc['host'] ?? '',  // Virtualizor hostname
+                'port'      => 4083,                                    // Enduser panel port (websockify proxy)
+                'password'  => $vnc['password'] ?? '',
+                'vpsid'     => (string) ($vnc['vpsid'] ?? ''),
+                'serviceId' => $id,
+                'vncHost'   => $vnc['host'] ?? '',                      // Raw VNC IP for display
+                'vncPort'   => $vnc['port'] ?? '',                      // Raw VNC port for display
+                'ssoUrl'    => $ssoUrl,                                 // SSO fallback URL
+            ]);
         } catch (\Exception $e) {
             abort(500, $e->getMessage());
         }
