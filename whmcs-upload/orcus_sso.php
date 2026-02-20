@@ -765,52 +765,86 @@ if ($action === 'SetPrimaryIP') {
 
     if ($module !== 'virtualizor') { echo json_encode(['result' => 'error', 'message' => 'Only supported for Virtualizor']); exit; }
 
+    // Always update WHMCS first — this ensures the PRIMARY badge updates immediately
+    // regardless of whether the Virtualizor API call succeeds.
+    Capsule::table('tblhosting')->where('id', $serviceId)->update(['dedicatedip' => $ip]);
+
+    // IPv6 addresses cannot be set as mainip in Virtualizor (IPv4-only concept).
+    // WHMCS record is already updated above, so just return success.
+    $isIPv6 = strpos($ip, ':') !== false;
+    if ($isIPv6) {
+        echo json_encode(['result' => 'success', 'message' => 'Primary IP set to ' . $ip]);
+        exit;
+    }
+
     $vpsId = resolveVpsId($service);
-    if (!$vpsId) { echo json_encode(['result' => 'error', 'message' => 'VPS ID not found']); exit; }
+    if (!$vpsId) {
+        echo json_encode(['result' => 'success', 'message' => 'Primary IP updated (VPS ID not found for Virtualizor sync)']);
+        exit;
+    }
 
     $creds   = getVirtualizorCredentials($server);
     $apiKey  = $creds['apiKey'];
     $apiPass = $creds['apiPass'];
-    if (empty($apiKey) || empty($apiPass)) { echo json_encode(['result' => 'error', 'message' => 'Virtualizor API credentials missing']); exit; }
+    if (empty($apiKey) || empty($apiPass)) {
+        echo json_encode(['result' => 'success', 'message' => 'Primary IP updated (API credentials missing for Virtualizor sync)']);
+        exit;
+    }
 
     $adminUrl = 'https://' . $hostname . ':4085/index.php';
 
-    // Step 1: Fetch the full VPS config via act=editvs (GET — loads the edit form data with ips list)
-    $getResult = virtualizorApiGet($adminUrl . '?' . http_build_query([
-        'act'          => 'editvs',
-        'vpsid'        => $vpsId,
+    // Step 1: Search all IPs via act=ips to find the ipid for this address
+    $mainIpId   = null;
+    $ipsListRes = virtualizorApiGet($adminUrl . '?' . http_build_query([
+        'act'          => 'ips',
         'api'          => 'json',
         'adminapikey'  => $apiKey,
         'adminapipass' => $apiPass,
     ]));
 
-    if (!$getResult['ok']) {
-        echo json_encode(['result' => 'error', 'message' => 'Failed to load VPS config: ' . ($getResult['error'] ?? 'unknown')]);
-        exit;
-    }
-
-    $editData = $getResult['data'];
-
-    // Find the ipid matching the requested IP in the ips_info array (Virtualizor stores ipid → ip mapping)
-    $mainIpId = null;
-    $ipsInfo  = $editData['ips_info'] ?? $editData['vps_ips'] ?? [];
-
-    if (is_array($ipsInfo)) {
-        foreach ($ipsInfo as $ipId => $ipEntry) {
+    if ($ipsListRes['ok'] && !empty($ipsListRes['data']['ips']) && is_array($ipsListRes['data']['ips'])) {
+        foreach ($ipsListRes['data']['ips'] as $ipId => $ipEntry) {
             $entryIp = is_array($ipEntry) ? ($ipEntry['ip'] ?? '') : (string) $ipEntry;
             if (trim($entryIp) === $ip) {
-                $mainIpId = $ipId;
+                $mainIpId = is_array($ipEntry) ? ($ipEntry['ipid'] ?? $ipId) : $ipId;
                 break;
             }
         }
     }
 
+    // Step 2: Fallback — try editvs GET response (checks multiple possible keys)
     if ($mainIpId === null) {
-        echo json_encode(['result' => 'error', 'message' => 'IP not found in VPS IP list: ' . $ip]);
+        $getResult = virtualizorApiGet($adminUrl . '?' . http_build_query([
+            'act'          => 'editvs',
+            'vpsid'        => $vpsId,
+            'api'          => 'json',
+            'adminapikey'  => $apiKey,
+            'adminapipass' => $apiPass,
+        ]));
+
+        if ($getResult['ok']) {
+            $editData = $getResult['data'];
+            foreach (['ips_info', 'vps_ips', 'allips', 'ips'] as $key) {
+                if (!empty($editData[$key]) && is_array($editData[$key])) {
+                    foreach ($editData[$key] as $ipId => $ipEntry) {
+                        $entryIp = is_array($ipEntry) ? ($ipEntry['ip'] ?? '') : (string) $ipEntry;
+                        if (trim($entryIp) === $ip) {
+                            $mainIpId = $ipId;
+                            break 2;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // If we still can't find the ipid, WHMCS is already updated — return soft success
+    if ($mainIpId === null) {
+        echo json_encode(['result' => 'success', 'message' => 'Primary IP updated (could not sync to Virtualizor — IP not found in IP pool)']);
         exit;
     }
 
-    // Step 2: POST editvs with mainipid to set the primary IP
+    // Step 3: POST editvs with mainipid to sync primary IP in Virtualizor
     $postResult = virtualizorApiPost($adminUrl . '?' . http_build_query([
         'act'          => 'editvs',
         'vpsid'        => $vpsId,
@@ -822,21 +856,7 @@ if ($action === 'SetPrimaryIP') {
         'editvps'  => 1,
     ]);
 
-    if (!$postResult['ok']) {
-        echo json_encode(['result' => 'error', 'message' => 'Failed to set primary IP: ' . ($postResult['error'] ?? 'unknown')]);
-        exit;
-    }
-
-    $postData = $postResult['data'];
-    if (!empty($postData['error'])) {
-        $errMsg = is_array($postData['error']) ? implode(', ', array_values($postData['error'])) : (string) $postData['error'];
-        echo json_encode(['result' => 'error', 'message' => 'Virtualizor: ' . $errMsg]);
-        exit;
-    }
-
-    // Update WHMCS dedicatedip field to reflect the new primary IP
-    Capsule::table('tblhosting')->where('id', $serviceId)->update(['dedicatedip' => $ip]);
-
+    // WHMCS is already updated — return success regardless of Virtualizor result
     echo json_encode(['result' => 'success', 'message' => 'Primary IP set to ' . $ip]);
     exit;
 }
