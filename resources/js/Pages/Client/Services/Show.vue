@@ -92,9 +92,12 @@ const configOptions = computed(() => {
 });
 const hasConfig = computed(() => configOptions.value.length > 0);
 
+const HIDDEN_CUSTOM_FIELDS = ['vpsid', 'vps id', 'vps_id', 'vserverid', 'vps_uuid', 'uuid', 'server id', 'serverid'];
 const customFields = computed(() => {
     const fields = s.customfields?.customfield || [];
-    return (Array.isArray(fields) ? fields : [fields]).filter(f => f.value);
+    return (Array.isArray(fields) ? fields : [fields]).filter(f =>
+        f.value && !HIDDEN_CUSTOM_FIELDS.includes((f.name || '').toLowerCase().trim())
+    );
 });
 const hasCustomFields = computed(() => customFields.value.length > 0);
 
