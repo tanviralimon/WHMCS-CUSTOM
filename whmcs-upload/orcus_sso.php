@@ -749,6 +749,7 @@ if ($action === 'GetIPs') {
 // ── DEBUG: Dump raw Virtualizor editvs response (call once, then remove) ──
 if ($action === 'DebugPrimaryIP') {
     if (!$serviceId) { echo json_encode(['result' => 'error', 'message' => 'serviceid is required']); exit; }
+    $ip = trim($_POST['ip'] ?? $_GET['ip'] ?? '');
     $service = Capsule::table('tblhosting')->where('id', $serviceId)->first();
     if (!$service) { echo json_encode(['result' => 'error', 'message' => 'Service not found']); exit; }
     $server = Capsule::table('tblservers')->where('id', $service->server)->first();
@@ -758,33 +759,80 @@ if ($action === 'DebugPrimaryIP') {
     $apiKey = $creds['apiKey']; $apiPass = $creds['apiPass'];
     $adminUrl = 'https://' . $hostname . ':4085/index.php';
 
-    // 1) editvs GET
+    // 1) editvs GET — full VPS config
     $editGetRes = virtualizorApiGet($adminUrl . '?' . http_build_query([
         'act' => 'editvs', 'vpsid' => $vpsId, 'api' => 'json',
         'adminapikey' => $apiKey, 'adminapipass' => $apiPass,
     ]));
 
-    // 2) managevps test POST
-    $manageRes = virtualizorApiPost($adminUrl . '?' . http_build_query([
-        'act' => 'managevps', 'vpsid' => $vpsId, 'api' => 'json',
-        'adminapikey' => $apiKey, 'adminapipass' => $apiPass,
-    ]), ['editvps' => 1, 'theme_edit' => 1, 'mainipid' => 999999, 'vpsid' => $vpsId]);
+    $vpsInfo = $editGetRes['ok'] ? ($editGetRes['data']['vps'] ?? null) : null;
+    $vpsIps = $vpsInfo['ips'] ?? [];
+    $vpsIps6 = $vpsInfo['ips6'] ?? [];
+    $topIps = $editGetRes['ok'] ? ($editGetRes['data']['ips'] ?? []) : [];
+    $topIps6 = $editGetRes['ok'] ? ($editGetRes['data']['ips6'] ?? []) : [];
+
+    // Find ipid for the requested IP
+    $foundIpId = null;
+    $searchedIn = '';
+    if ($ip) {
+        foreach ($vpsIps as $ipId => $ipVal) {
+            $ipStr = is_array($ipVal) ? ($ipVal['ip'] ?? '') : (string)$ipVal;
+            if (trim($ipStr) === $ip) { $foundIpId = $ipId; $searchedIn = 'vps.ips'; break; }
+        }
+        if ($foundIpId === null) {
+            foreach ($vpsIps6 as $ipId => $ipVal) {
+                $ipStr = is_array($ipVal) ? ($ipVal['ip'] ?? '') : (string)$ipVal;
+                if (trim($ipStr) === $ip) { $foundIpId = $ipId; $searchedIn = 'vps.ips6'; break; }
+            }
+        }
+        if ($foundIpId === null) {
+            foreach ($topIps as $ipId => $ipVal) {
+                $ipStr = is_array($ipVal) ? ($ipVal['ip'] ?? '') : (string)$ipVal;
+                if (trim($ipStr) === $ip) { $foundIpId = $ipId; $searchedIn = 'top.ips'; break; }
+            }
+        }
+    }
+
+    // 2) If ip provided AND ipid found, do a REAL managevps call + verify
+    $manageResult = null;
+    $afterVps = null;
+    if ($foundIpId !== null) {
+        $manageRes = virtualizorApiPost($adminUrl . '?' . http_build_query([
+            'act' => 'managevps', 'vpsid' => $vpsId, 'api' => 'json',
+            'adminapikey' => $apiKey, 'adminapipass' => $apiPass,
+        ]), ['editvps' => 1, 'theme_edit' => 1, 'mainipid' => $foundIpId, 'vpsid' => $vpsId]);
+        $manageResult = [
+            'ok' => $manageRes['ok'],
+            'done' => $manageRes['ok'] ? ($manageRes['data']['done'] ?? null) : null,
+            'error' => $manageRes['ok'] ? ($manageRes['data']['error'] ?? null) : ($manageRes['error'] ?? 'failed'),
+        ];
+
+        // Re-fetch VPS to check if mainip changed
+        $afterRes = virtualizorApiPost($adminUrl . '?' . http_build_query([
+            'act' => 'vs', 'api' => 'json',
+            'adminapikey' => $apiKey, 'adminapipass' => $apiPass,
+        ]), ['vpsid' => $vpsId]);
+        if ($afterRes['ok']) {
+            $afterInfo = $afterRes['data']['vs'][(string)$vpsId] ?? $afterRes['data']['vs'][$vpsId] ?? null;
+            $afterVps = [
+                'mainip' => $afterInfo['ip'] ?? $afterInfo['mainip'] ?? 'N/A',
+                'ips' => $afterInfo['ips'] ?? [],
+            ];
+        }
+    }
 
     echo json_encode([
-        'vpsid'            => $vpsId,
-        'editvs_ok'        => $editGetRes['ok'],
-        'editvs_http'      => $editGetRes['http_code'] ?? 0,
-        'editvs_keys'      => $editGetRes['ok'] ? array_keys($editGetRes['data']) : ($editGetRes['error'] ?? 'failed'),
-        'vps_key_exists'   => isset($editGetRes['data']['vps']),
-        'vps_type'         => $editGetRes['ok'] && isset($editGetRes['data']['vps']) ? gettype($editGetRes['data']['vps']) : 'N/A',
-        'vps_ips'          => $editGetRes['ok'] && isset($editGetRes['data']['vps']['ips']) ? $editGetRes['data']['vps']['ips'] : 'N/A',
-        'vps_ips6'         => $editGetRes['ok'] && isset($editGetRes['data']['vps']['ips6']) ? $editGetRes['data']['vps']['ips6'] : 'N/A',
-        'vps_mainipid'     => $editGetRes['ok'] && isset($editGetRes['data']['vps']['mainipid']) ? $editGetRes['data']['vps']['mainipid'] : 'N/A',
-        'vps_mainip'       => $editGetRes['ok'] && isset($editGetRes['data']['vps']['mainip']) ? $editGetRes['data']['vps']['mainip'] : 'N/A',
-        'manage_ok'        => $manageRes['ok'],
-        'manage_http'      => $manageRes['http_code'] ?? 0,
-        'manage_done'      => $manageRes['ok'] ? ($manageRes['data']['done'] ?? null) : null,
-        'manage_error'     => $manageRes['ok'] ? ($manageRes['data']['error'] ?? null) : ($manageRes['error'] ?? 'failed'),
+        'vpsid'          => $vpsId,
+        'requested_ip'   => $ip ?: '(none)',
+        'found_ipid'     => $foundIpId,
+        'searched_in'    => $searchedIn,
+        'vps_ips'        => $vpsIps,
+        'vps_ips6'       => $vpsIps6,
+        'top_ips'        => is_array($topIps) ? array_slice($topIps, 0, 10, true) : 'N/A',
+        'vps_hostname'   => $vpsInfo['hostname'] ?? 'N/A',
+        'vps_ip_field'   => $vpsInfo['ip'] ?? 'N/A',
+        'manage_result'  => $manageResult,
+        'after_change'   => $afterVps,
     ], JSON_PRETTY_PRINT);
     exit;
 }
