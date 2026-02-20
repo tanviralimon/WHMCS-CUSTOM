@@ -1326,7 +1326,7 @@ function doDisableRescue() {
                     <template v-if="managementTab === 'controls'">
                     <!-- VPS Power Actions -->
                     <Card title="Power Actions" description="Control your VPS power state.">
-                        <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                        <div class="grid grid-cols-3 gap-3">
                             <button @click="confirmAction('boot')" :disabled="actionLoading === 'boot'" class="flex flex-col items-center gap-2.5 p-4 rounded-xl border border-gray-100 bg-gray-50/50 hover:bg-emerald-50 hover:border-emerald-200 hover:shadow-sm transition-all group disabled:opacity-50 disabled:cursor-wait">
                                 <div class="w-10 h-10 rounded-lg bg-emerald-100 flex items-center justify-center">
                                     <svg v-if="actionLoading !== 'boot'" class="w-5 h-5 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M5.636 5.636a9 9 0 1012.728 0M12 3v9" /></svg>
@@ -1348,15 +1348,7 @@ function doDisableRescue() {
                                 </div>
                                 <span class="text-[12px] font-medium text-gray-700 group-hover:text-red-700 text-center">Shutdown</span>
                             </button>
-                            <button @click="confirmAction('poweroff')" :disabled="actionLoading === 'poweroff'" class="flex flex-col items-center gap-2.5 p-4 rounded-xl border border-gray-100 bg-gray-50/50 hover:bg-rose-50 hover:border-rose-300 hover:shadow-sm transition-all group disabled:opacity-50 disabled:cursor-wait">
-                                <div class="w-10 h-10 rounded-lg bg-rose-100 flex items-center justify-center">
-                                    <svg v-if="actionLoading !== 'poweroff'" class="w-5 h-5 text-rose-700" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
-                                    <svg v-else class="w-5 h-5 text-rose-700 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" /><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
-                                </div>
-                                <span class="text-[12px] font-medium text-gray-700 group-hover:text-rose-700 text-center">Power Off</span>
-                            </button>
                         </div>
-                        <p class="mt-3 text-[11px] text-gray-400 text-center">Power Off performs a hard stop — use only if Shutdown is unresponsive.</p>
                     </Card>
 
                     <!-- Reinstall OS -->
@@ -1891,11 +1883,6 @@ function doDisableRescue() {
                             <svg v-if="actionLoading !== 'shutdown'" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" /></svg>
                             <svg v-else class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" /><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
                             Shutdown
-                        </button>
-                        <button @click="confirmAction('poweroff')" :disabled="actionLoading === 'poweroff'" class="w-full flex items-center gap-2.5 px-3 py-2.5 text-[13px] font-medium text-rose-700 bg-rose-50 rounded-lg hover:bg-rose-100 transition-colors disabled:opacity-50">
-                            <svg v-if="actionLoading !== 'poweroff'" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
-                            <svg v-else class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" /><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
-                            Power Off
                         </button>
                     </div>
                 </Card>
