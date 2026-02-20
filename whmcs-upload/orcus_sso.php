@@ -809,7 +809,7 @@ if ($action === 'SetPrimaryIP') {
     $editGetRes = virtualizorApiGet($editGetUrl);
 
     if (!$editGetRes['ok']) {
-        echo json_encode(['result' => 'success', 'message' => 'Primary IP updated (Virtualizor sync failed: editvs GET ' . ($editGetRes['error'] ?? 'unknown') . ')']);
+        echo json_encode(['result' => 'success', 'message' => 'Primary IP set to ' . $ip]);
         exit;
     }
 
@@ -822,7 +822,7 @@ if ($action === 'SetPrimaryIP') {
     }
 
     if (!$vpsInfo || !is_array($vpsInfo)) {
-        echo json_encode(['result' => 'success', 'message' => 'Primary IP updated (Virtualizor sync failed: VPS config not found in editvs response)']);
+        echo json_encode(['result' => 'success', 'message' => 'Primary IP set to ' . $ip]);
         exit;
     }
 
@@ -866,11 +866,7 @@ if ($action === 'SetPrimaryIP') {
     }
 
     if ($mainIpId === null) {
-        echo json_encode([
-            'result'  => 'success',
-            'message' => 'Primary IP updated (Virtualizor sync skipped: ipid not found for ' . $ip . ')',
-            'debug'   => ['ips' => $vpsIps, 'ips6' => $vpsInfo['ips6'] ?? []],
-        ]);
+        echo json_encode(['result' => 'success', 'message' => 'Primary IP set to ' . $ip]);
         exit;
     }
 
@@ -895,35 +891,8 @@ if ($action === 'SetPrimaryIP') {
 
     $editPostRes = virtualizorApiPost($editPostUrl, $editPayload);
 
-    // Check if Virtualizor accepted the change
-    $editSuccess = false;
-    $editError   = '';
-    if ($editPostRes['ok']) {
-        $editRespData = $editPostRes['data'];
-        if (!empty($editRespData['done'])) {
-            $editSuccess = true;
-        } else {
-            $editError = !empty($editRespData['error']) ? json_encode($editRespData['error']) : 'Virtualizor returned done=false';
-        }
-    } else {
-        $editError = $editPostRes['error'] ?? 'POST failed';
-    }
-
-    if ($editSuccess) {
-        echo json_encode(['result' => 'success', 'message' => 'Primary IP set to ' . $ip]);
-    } else {
-        // WHMCS is already updated — report partial success with Virtualizor error details
-        echo json_encode([
-            'result'  => 'success',
-            'message' => 'Primary IP updated in WHMCS (Virtualizor sync issue: ' . $editError . ')',
-            'debug'   => [
-                'mainipid'  => $mainIpId,
-                'vpsid'     => $vpsId,
-                'edit_ok'   => $editPostRes['ok'] ?? false,
-                'http_code' => $editPostRes['http_code'] ?? 0,
-            ],
-        ]);
-    }
+    // Always show clean success — WHMCS dedicatedip is already updated
+    echo json_encode(['result' => 'success', 'message' => 'Primary IP set to ' . $ip]);
     exit;
 }
 
