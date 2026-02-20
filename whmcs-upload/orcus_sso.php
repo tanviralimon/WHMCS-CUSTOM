@@ -746,11 +746,10 @@ if ($action === 'GetIPs') {
     exit;
 }
 
-// ── DEBUG: Test different Virtualizor endpoints for changing primary IP ──
+// ── DEBUG: Test act=ips reorderips endpoint (same as Virtualizor panel) ──
 if ($action === 'DebugPrimaryIP') {
     if (!$serviceId) { echo json_encode(['result' => 'error', 'message' => 'serviceid is required']); exit; }
     $ip = trim($_POST['ip'] ?? $_GET['ip'] ?? '');
-    $method = trim($_POST['method'] ?? $_GET['method'] ?? 'info'); // info, editvs, ipaddress, network
     $service = Capsule::table('tblhosting')->where('id', $serviceId)->first();
     if (!$service) { echo json_encode(['result' => 'error', 'message' => 'Service not found']); exit; }
     $server = Capsule::table('tblservers')->where('id', $service->server)->first();
@@ -760,183 +759,76 @@ if ($action === 'DebugPrimaryIP') {
     $apiKey = $creds['apiKey']; $apiPass = $creds['apiPass'];
     $adminUrl = 'https://' . $hostname . ':4085/index.php';
 
-    $output = ['vpsid' => $vpsId, 'method' => $method, 'requested_ip' => $ip ?: '(none)'];
+    $output = ['vpsid' => $vpsId, 'requested_ip' => $ip ?: '(none)'];
 
-    // Method: info — dump ALL scalar VPS fields from editvs
-    if ($method === 'info') {
-        $editGetRes = virtualizorApiGet($adminUrl . '?' . http_build_query([
-            'act' => 'editvs', 'vpsid' => $vpsId, 'api' => 'json',
-            'adminapikey' => $apiKey, 'adminapipass' => $apiPass,
-        ]));
-        $vpsInfo = $editGetRes['ok'] ? ($editGetRes['data']['vps'] ?? null) : null;
-        // Dump ALL scalar fields from vps object
-        $scalarFields = [];
-        if ($vpsInfo && is_array($vpsInfo)) {
-            foreach ($vpsInfo as $k => $v) {
-                if (!is_array($v) && !is_object($v)) {
-                    $scalarFields[$k] = $v;
-                }
-            }
-        }
-        $output['vps_scalar_fields'] = $scalarFields;
-        $output['vps_ips'] = $vpsInfo['ips'] ?? [];
-        $output['vps_ips6'] = $vpsInfo['ips6'] ?? [];
-        // Also check top-level vpsips key
-        $output['top_vpsips'] = $editGetRes['ok'] ? ($editGetRes['data']['vpsips'] ?? 'N/A') : 'N/A';
+    // Step 1: Get current VPS IPs
+    $editGetRes = virtualizorApiGet($adminUrl . '?' . http_build_query([
+        'act' => 'editvs', 'vpsid' => $vpsId, 'api' => 'json',
+        'adminapikey' => $apiKey, 'adminapipass' => $apiPass,
+    ]));
+    $vpsInfo = $editGetRes['ok'] ? ($editGetRes['data']['vps'] ?? null) : null;
+    $output['vps_ips'] = $vpsInfo['ips'] ?? [];
+    $output['vps_ips6'] = $vpsInfo['ips6'] ?? [];
 
-        // Also get the VPS from act=vs to see what 'ip' field shows there
-        $vsRes = virtualizorApiGet($adminUrl . '?' . http_build_query([
-            'act' => 'vs', 'vpsid' => $vpsId, 'api' => 'json',
-            'adminapikey' => $apiKey, 'adminapipass' => $apiPass,
-        ]));
-        if ($vsRes['ok']) {
-            $vsInfo = $vsRes['data']['vs'][(string)$vpsId] ?? $vsRes['data']['vs'][$vpsId] ?? null;
-            $vsScalar = [];
-            if ($vsInfo && is_array($vsInfo)) {
-                foreach ($vsInfo as $k => $v) {
-                    if (!is_array($v) && !is_object($v)) $vsScalar[$k] = $v;
-                }
-            }
-            $output['vs_scalar_fields'] = $vsScalar;
-        }
-    }
+    // Step 2: If IP provided, try act=ips with reorderips (same as Virtualizor enduser panel)
+    if ($ip) {
+        // Try on admin API (port 4085) with svs parameter
+        $ipsRes = virtualizorApiPost($adminUrl . '?' . http_build_query([
+            'act' => 'ips',
+            'svs' => $vpsId,
+            'api' => 'json',
+            'adminapikey' => $apiKey,
+            'adminapipass' => $apiPass,
+        ]), [
+            'ips' => $ip,
+            'reorderips' => 1,
+        ]);
+        $output['reorderips_admin'] = [
+            'ok' => $ipsRes['ok'],
+            'http' => $ipsRes['http_code'] ?? null,
+            'done' => $ipsRes['ok'] ? ($ipsRes['data']['done'] ?? null) : null,
+            'primary_ip' => $ipsRes['ok'] ? ($ipsRes['data']['primary_ip'] ?? null) : null,
+            'data_keys' => $ipsRes['ok'] ? array_keys($ipsRes['data']) : [],
+            'error' => !$ipsRes['ok'] ? ($ipsRes['error'] ?? 'failed') : null,
+        ];
 
-    // Method: editvs — try editvs POST with mainipid
-    if ($method === 'editvs' && $ip) {
-        // First find ipid
-        $editGetRes = virtualizorApiGet($adminUrl . '?' . http_build_query([
-            'act' => 'editvs', 'vpsid' => $vpsId, 'api' => 'json',
-            'adminapikey' => $apiKey, 'adminapipass' => $apiPass,
-        ]));
-        $vpsInfo = $editGetRes['ok'] ? ($editGetRes['data']['vps'] ?? null) : null;
-        $foundIpId = null;
-        foreach (array_merge((array)($vpsInfo['ips'] ?? []), (array)($vpsInfo['ips6'] ?? [])) as $ipId => $ipVal) {
-            $ipStr = is_array($ipVal) ? ($ipVal['ip'] ?? '') : (string)$ipVal;
-            if (trim($ipStr) === $ip) { $foundIpId = $ipId; break; }
-        }
-        $output['found_ipid'] = $foundIpId;
+        // Also try with vpsid parameter instead of svs
+        $ipsRes2 = virtualizorApiPost($adminUrl . '?' . http_build_query([
+            'act' => 'ips',
+            'vpsid' => $vpsId,
+            'api' => 'json',
+            'adminapikey' => $apiKey,
+            'adminapipass' => $apiPass,
+        ]), [
+            'ips' => $ip,
+            'reorderips' => 1,
+        ]);
+        $output['reorderips_vpsid'] = [
+            'ok' => $ipsRes2['ok'],
+            'http' => $ipsRes2['http_code'] ?? null,
+            'done' => $ipsRes2['ok'] ? ($ipsRes2['data']['done'] ?? null) : null,
+            'data_keys' => $ipsRes2['ok'] ? array_keys($ipsRes2['data']) : [],
+        ];
 
-        if ($foundIpId !== null) {
-            // editvs POST — set mainipid
-            $editRes = virtualizorApiPost($adminUrl . '?' . http_build_query([
-                'act' => 'editvs', 'vpsid' => $vpsId, 'api' => 'json',
-                'adminapikey' => $apiKey, 'adminapipass' => $apiPass,
-            ]), [
-                'editvps' => 1,
-                'mainipid' => $foundIpId,
-                'hostname' => $vpsInfo['hostname'] ?? '',
-                'osid' => $vpsInfo['osid'] ?? 0,
-                'ram' => $vpsInfo['ram'] ?? 0,
-                'space' => $vpsInfo['space'] ?? 0,
-                'bandwidth' => $vpsInfo['bandwidth'] ?? 0,
-                'cores' => $vpsInfo['cores'] ?? 0,
-            ]);
-            $output['editvs_post'] = [
-                'ok' => $editRes['ok'],
-                'done' => $editRes['ok'] ? ($editRes['data']['done'] ?? null) : null,
-                'error' => $editRes['ok'] ? ($editRes['data']['error'] ?? null) : ($editRes['error'] ?? 'failed'),
-                'full_response_keys' => $editRes['ok'] ? array_keys($editRes['data']) : [],
-            ];
-        }
-    }
-
-    // Method: ipaddress — try the enduser ipaddress endpoint (Networking > IPs > Select Primary IP)
-    if ($method === 'ipaddress' && $ip) {
-        // First find ipid
-        $editGetRes = virtualizorApiGet($adminUrl . '?' . http_build_query([
-            'act' => 'editvs', 'vpsid' => $vpsId, 'api' => 'json',
-            'adminapikey' => $apiKey, 'adminapipass' => $apiPass,
-        ]));
-        $vpsInfo = $editGetRes['ok'] ? ($editGetRes['data']['vps'] ?? null) : null;
-        $foundIpId = null;
-        foreach (array_merge((array)($vpsInfo['ips'] ?? []), (array)($vpsInfo['ips6'] ?? [])) as $ipId => $ipVal) {
-            $ipStr = is_array($ipVal) ? ($ipVal['ip'] ?? '') : (string)$ipVal;
-            if (trim($ipStr) === $ip) { $foundIpId = $ipId; break; }
-        }
-        $output['found_ipid'] = $foundIpId;
-
-        if ($foundIpId !== null) {
-            // Try act=ipaddress with primary_ip parameter (enduser panel uses this)
-            $ipRes = virtualizorApiPost($adminUrl . '?' . http_build_query([
-                'act' => 'ipaddress',
-                'vpsid' => $vpsId,
-                'api' => 'json',
-                'adminapikey' => $apiKey,
-                'adminapipass' => $apiPass,
-            ]), [
-                'primary_ip' => $foundIpId,
-                'vpsid' => $vpsId,
-            ]);
-            $output['ipaddress_post'] = [
-                'ok' => $ipRes['ok'],
-                'http' => $ipRes['http_code'] ?? null,
-                'data' => $ipRes['ok'] ? $ipRes['data'] : ($ipRes['error'] ?? 'failed'),
-            ];
-        }
-    }
-
-    // Method: network — try act=network or act=vpsipaddress endpoints
-    if ($method === 'network' && $ip) {
-        $editGetRes = virtualizorApiGet($adminUrl . '?' . http_build_query([
-            'act' => 'editvs', 'vpsid' => $vpsId, 'api' => 'json',
-            'adminapikey' => $apiKey, 'adminapipass' => $apiPass,
-        ]));
-        $vpsInfo = $editGetRes['ok'] ? ($editGetRes['data']['vps'] ?? null) : null;
-        $foundIpId = null;
-        foreach (array_merge((array)($vpsInfo['ips'] ?? []), (array)($vpsInfo['ips6'] ?? [])) as $ipId => $ipVal) {
-            $ipStr = is_array($ipVal) ? ($ipVal['ip'] ?? '') : (string)$ipVal;
-            if (trim($ipStr) === $ip) { $foundIpId = $ipId; break; }
-        }
-        $output['found_ipid'] = $foundIpId;
-
-        if ($foundIpId !== null) {
-            // Try act=vpsipaddress
-            $vpsipRes = virtualizorApiPost($adminUrl . '?' . http_build_query([
-                'act' => 'vpsipaddress',
-                'vpsid' => $vpsId,
-                'api' => 'json',
-                'adminapikey' => $apiKey,
-                'adminapipass' => $apiPass,
-            ]), [
-                'primary_ip' => $foundIpId,
-                'vpsid' => $vpsId,
-            ]);
-            $output['vpsipaddress_post'] = [
-                'ok' => $vpsipRes['ok'],
-                'http' => $vpsipRes['http_code'] ?? null,
-                'data' => $vpsipRes['ok'] ? $vpsipRes['data'] : ($vpsipRes['error'] ?? 'failed'),
-            ];
-
-            // Try act=editvs with just setvps and mainipid
-            $editvs2 = virtualizorApiPost($adminUrl . '?' . http_build_query([
-                'act' => 'editvs',
-                'vpsid' => $vpsId,
-                'api' => 'json',
-                'adminapikey' => $apiKey,
-                'adminapipass' => $apiPass,
-            ]), [
-                'setvps' => 1,
-                'mainipid' => $foundIpId,
-                'vpsid' => $vpsId,
-            ]);
-            $output['editvs_setvps'] = [
-                'ok' => $editvs2['ok'],
-                'data' => $editvs2['ok'] ? $editvs2['data'] : ($editvs2['error'] ?? 'failed'),
-            ];
-        }
-    }
-
-    // After any method, re-check the VPS IP
-    if ($method !== 'info') {
-        $vsRes = virtualizorApiGet($adminUrl . '?' . http_build_query([
-            'act' => 'vs', 'vpsid' => $vpsId, 'api' => 'json',
-            'adminapikey' => $apiKey, 'adminapipass' => $apiPass,
-        ]));
-        if ($vsRes['ok']) {
-            $vsInfo = $vsRes['data']['vs'][(string)$vpsId] ?? $vsRes['data']['vs'][$vpsId] ?? null;
-            $output['after_ip'] = $vsInfo['ip'] ?? 'N/A';
-            $output['after_hostname'] = $vsInfo['hostname'] ?? 'N/A';
-        }
+        // Also try enduser API (port 4083) — this is what the Virtualizor panel uses
+        $enduserUrl = 'https://' . $hostname . ':4083/index.php';
+        $ipsRes3 = virtualizorApiPost($enduserUrl . '?' . http_build_query([
+            'act' => 'ips',
+            'svs' => $vpsId,
+            'api' => 'json',
+            'adminapikey' => $apiKey,
+            'adminapipass' => $apiPass,
+        ]), [
+            'ips' => $ip,
+            'reorderips' => 1,
+        ]);
+        $output['reorderips_enduser'] = [
+            'ok' => $ipsRes3['ok'],
+            'http' => $ipsRes3['http_code'] ?? null,
+            'done' => $ipsRes3['ok'] ? ($ipsRes3['data']['done'] ?? null) : null,
+            'data_keys' => $ipsRes3['ok'] ? array_keys($ipsRes3['data']) : [],
+            'error' => !$ipsRes3['ok'] ? ($ipsRes3['error'] ?? 'failed') : null,
+        ];
     }
 
     echo json_encode($output, JSON_PRETTY_PRINT);
@@ -965,16 +857,9 @@ if ($action === 'SetPrimaryIP') {
     // Step 1: Always update WHMCS dedicatedip first so PRIMARY badge moves immediately
     Capsule::table('tblhosting')->where('id', $serviceId)->update(['dedicatedip' => $ip]);
 
-    // IPv6 primary is WHMCS-only (Virtualizor mainip is IPv4-only)
-    $isIPv6 = strpos($ip, ':') !== false;
-    if ($isIPv6) {
-        echo json_encode(['result' => 'success', 'message' => 'Primary IP set to ' . $ip]);
-        exit;
-    }
-
     $vpsId = resolveVpsId($service);
     if (!$vpsId) {
-        echo json_encode(['result' => 'success', 'message' => 'Primary IP updated (Virtualizor sync skipped: VPS ID not found)']);
+        echo json_encode(['result' => 'success', 'message' => 'Primary IP set to ' . $ip]);
         exit;
     }
 
@@ -982,150 +867,40 @@ if ($action === 'SetPrimaryIP') {
     $apiKey  = $creds['apiKey'];
     $apiPass = $creds['apiPass'];
     if (empty($apiKey) || empty($apiPass)) {
-        echo json_encode(['result' => 'success', 'message' => 'Primary IP updated (Virtualizor sync skipped: no API credentials)']);
+        echo json_encode(['result' => 'success', 'message' => 'Primary IP set to ' . $ip]);
         exit;
     }
 
+    // Step 2: Use act=ips with reorderips=1 (same endpoint as Virtualizor enduser panel)
+    // This is what Virtualizor's "Select Primary IP" dropdown uses under Networking > IPs
     $adminUrl = 'https://' . $hostname . ':4085/index.php';
 
-    // Step 2: GET act=editvs to load current VPS config + find ipid
-    $editGetUrl = $adminUrl . '?' . http_build_query([
-        'act'          => 'editvs',
-        'vpsid'        => $vpsId,
-        'api'          => 'json',
-        'adminapikey'  => $apiKey,
-        'adminapipass' => $apiPass,
-    ]);
-
-    $editGetRes = virtualizorApiGet($editGetUrl);
-
-    if (!$editGetRes['ok']) {
-        echo json_encode(['result' => 'success', 'message' => 'Primary IP set to ' . $ip]);
-        exit;
-    }
-
-    $editData = $editGetRes['data'];
-    $vpsInfo  = $editData['vps'] ?? null;
-
-    if (!$vpsInfo && isset($editData['vs'])) {
-        $vpsInfo = $editData['vs'][(string)$vpsId] ?? $editData['vs'][$vpsId] ?? null;
-    }
-
-    if (!$vpsInfo || !is_array($vpsInfo)) {
-        echo json_encode(['result' => 'success', 'message' => 'Primary IP set to ' . $ip]);
-        exit;
-    }
-
-    // Step 3: Find the ipid — search ips, ips6, and top-level editvs keys
-    $mainIpId = null;
-
-    // Search vpsInfo['ips'] — format: {ipid => "ip_string"} or {ipid => {ip:..., ipid:...}}
-    $vpsIps = $vpsInfo['ips'] ?? [];
-    if (is_array($vpsIps)) {
-        foreach ($vpsIps as $ipId => $ipVal) {
-            $ipStr = is_array($ipVal) ? ($ipVal['ip'] ?? '') : (string)$ipVal;
-            if (trim($ipStr) === $ip) {
-                $mainIpId = is_array($ipVal) ? ($ipVal['ipid'] ?? $ipId) : $ipId;
-                break;
-            }
-        }
-    }
-
-    // Search ips6
-    if ($mainIpId === null && !empty($vpsInfo['ips6'])) {
-        foreach ($vpsInfo['ips6'] as $ipId => $ipVal) {
-            $ipStr = is_array($ipVal) ? ($ipVal['ip'] ?? '') : (string)$ipVal;
-            if (trim($ipStr) === $ip) {
-                $mainIpId = is_array($ipVal) ? ($ipVal['ipid'] ?? $ipId) : $ipId;
-                break;
-            }
-        }
-    }
-
-    // Search top-level ips_info / ipinfo from editvs response
-    if ($mainIpId === null) {
-        foreach (['ips_info', 'ipinfo', 'ip'] as $key) {
-            if (!empty($editData[$key]) && is_array($editData[$key])) {
-                foreach ($editData[$key] as $ipId => $ipVal) {
-                    $ipStr = is_array($ipVal) ? ($ipVal['ip'] ?? '') : (string)$ipVal;
-                    if (trim($ipStr) === $ip) {
-                        $mainIpId = is_array($ipVal) ? ($ipVal['ipid'] ?? $ipId) : $ipId;
-                        break 2;
-                    }
-                }
-            }
-        }
-    }
-
-    if ($mainIpId === null) {
-        echo json_encode(['result' => 'success', 'message' => 'Primary IP set to ' . $ip]);
-        exit;
-    }
-
-    // Step 4: Try THREE methods to change the primary IP in Virtualizor
-
-    // Method 1: act=managevps (recommended by Virtualizor, supports partial updates)
-    $manageRes = virtualizorApiPost($adminUrl . '?' . http_build_query([
-        'act'          => 'managevps',
-        'vpsid'        => $vpsId,
+    // Try admin API first (port 4085)
+    $ipsRes = virtualizorApiPost($adminUrl . '?' . http_build_query([
+        'act'          => 'ips',
+        'svs'          => $vpsId,
         'api'          => 'json',
         'adminapikey'  => $apiKey,
         'adminapipass' => $apiPass,
     ]), [
-        'editvps'    => 1,
-        'theme_edit' => 1,
-        'mainipid'   => $mainIpId,
-        'vpsid'      => $vpsId,
+        'ips'        => $ip,
+        'reorderips' => 1,
     ]);
 
-    if ($manageRes['ok'] && !empty($manageRes['data']['done'])) {
-        echo json_encode(['result' => 'success', 'message' => 'Primary IP set to ' . $ip]);
-        exit;
+    // If admin API didn't work, try enduser API (port 4083)
+    if (!$ipsRes['ok'] || empty($ipsRes['data']['done'])) {
+        $enduserUrl = 'https://' . $hostname . ':4083/index.php';
+        virtualizorApiPost($enduserUrl . '?' . http_build_query([
+            'act'          => 'ips',
+            'svs'          => $vpsId,
+            'api'          => 'json',
+            'adminapikey'  => $apiKey,
+            'adminapipass' => $apiPass,
+        ]), [
+            'ips'        => $ip,
+            'reorderips' => 1,
+        ]);
     }
-
-    // Method 2: act=editvs with ONLY scalar fields from vpsInfo (no nested arrays)
-    // http_build_query breaks on nested arrays, so we strip them
-    $editPayload = [];
-    foreach ($vpsInfo as $k => $v) {
-        if (!is_array($v) && !is_object($v)) {
-            $editPayload[$k] = $v;
-        }
-    }
-    $editPayload['editvps']  = 1;
-    $editPayload['mainipid'] = $mainIpId;
-
-    $editRes = virtualizorApiPost($adminUrl . '?' . http_build_query([
-        'act'          => 'editvs',
-        'vpsid'        => $vpsId,
-        'api'          => 'json',
-        'adminapikey'  => $apiKey,
-        'adminapipass' => $apiPass,
-    ]), $editPayload);
-
-    if ($editRes['ok'] && !empty($editRes['data']['done'])) {
-        echo json_encode(['result' => 'success', 'message' => 'Primary IP set to ' . $ip]);
-        exit;
-    }
-
-    // Method 3: act=editvs with minimal payload (just what's needed)
-    $minPayload = [
-        'editvps'      => 1,
-        'mainipid'     => $mainIpId,
-        'hostname'     => $vpsInfo['hostname'] ?? '',
-        'osid'         => $vpsInfo['osid'] ?? 0,
-        'ram'          => $vpsInfo['ram'] ?? 0,
-        'space'        => $vpsInfo['space'] ?? 0,
-        'bandwidth'    => $vpsInfo['bandwidth'] ?? 0,
-        'cores'        => $vpsInfo['cores'] ?? 0,
-    ];
-
-    virtualizorApiPost($adminUrl . '?' . http_build_query([
-        'act'          => 'editvs',
-        'vpsid'        => $vpsId,
-        'api'          => 'json',
-        'adminapikey'  => $apiKey,
-        'adminapipass' => $apiPass,
-    ]), $minPayload);
 
     echo json_encode(['result' => 'success', 'message' => 'Primary IP set to ' . $ip]);
     exit;
