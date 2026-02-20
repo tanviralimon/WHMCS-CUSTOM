@@ -706,6 +706,23 @@ const settingPrimaryIp = ref('');
 const primaryIpError   = ref('');
 const ipDropdownOpen   = ref(false);
 const ipSearchQuery    = ref('');
+const ipTriggerRef     = ref(null);
+const ipDropdownStyle  = ref({});
+
+function openIpDropdown() {
+    if (ipDropdownOpen.value) { ipDropdownOpen.value = false; ipSearchQuery.value = ''; return; }
+    if (ipTriggerRef.value) {
+        const r = ipTriggerRef.value.getBoundingClientRect();
+        ipDropdownStyle.value = {
+            position: 'fixed',
+            top:  (r.bottom + 4) + 'px',
+            left:  r.left + 'px',
+            width: r.width + 'px',
+            zIndex: 9999,
+        };
+    }
+    ipDropdownOpen.value = true;
+}
 
 // Safely extract the IP string from either a plain string or an {ip, is_primary} object
 function extractIp(entry) {
@@ -1512,36 +1529,37 @@ function doDisableRescue() {
                             <!-- Select Primary IP dropdown -->
                             <div v-if="allIpsFlat.length > 0" class="pt-3 border-t border-gray-100">
                                 <label class="text-[12px] font-medium text-gray-700 mb-1.5 block">Select Primary IP</label>
-                                <div class="relative">
+                                <div>
                                     <!-- Click-outside backdrop -->
-                                    <div v-if="ipDropdownOpen" @click="ipDropdownOpen = false; ipSearchQuery = ''" class="fixed inset-0 z-10"></div>
+                                    <Teleport to="body">
+                                        <div v-if="ipDropdownOpen" @click="ipDropdownOpen = false; ipSearchQuery = ''" class="fixed inset-0" style="z-index:9998"></div>
+                                        <!-- Dropdown panel — rendered at body level to escape card overflow -->
+                                        <div v-if="ipDropdownOpen" :style="ipDropdownStyle" class="bg-white border border-gray-200 rounded-lg shadow-xl overflow-hidden">
+                                            <div class="p-2 border-b border-gray-100">
+                                                <input v-model="ipSearchQuery" type="text" placeholder="Search IP…" autofocus
+                                                    class="w-full px-2.5 py-1.5 text-[13px] border border-gray-200 rounded-md focus:outline-none focus:border-indigo-400" />
+                                            </div>
+                                            <div class="max-h-48 overflow-y-auto">
+                                                <button v-for="entry in filteredIps" :key="entry.ip"
+                                                    @click="!entry.is_primary && setPrimaryIP(entry.ip)"
+                                                    :disabled="entry.is_primary || !!settingPrimaryIp"
+                                                    class="w-full flex items-center gap-2.5 px-3 py-2.5 text-left hover:bg-indigo-50 transition-colors disabled:cursor-default"
+                                                    :class="entry.is_primary ? 'bg-indigo-50/60' : ''">
+                                                    <svg v-if="entry.is_primary" class="w-3.5 h-3.5 text-indigo-600 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/></svg>
+                                                    <svg v-else-if="settingPrimaryIp === entry.ip" class="w-3.5 h-3.5 animate-spin flex-shrink-0 text-indigo-400" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
+                                                    <span v-else class="w-3.5 h-3.5 flex-shrink-0"></span>
+                                                    <span class="text-[13px] font-mono text-gray-900 truncate">{{ entry.ip }}</span>
+                                                </button>
+                                                <div v-if="filteredIps.length === 0" class="px-3 py-3 text-[12px] text-gray-400 text-center">No results</div>
+                                            </div>
+                                        </div>
+                                    </Teleport>
                                     <!-- Trigger button -->
-                                    <button @click="ipDropdownOpen = !ipDropdownOpen"
-                                        class="relative z-20 w-full flex items-center justify-between px-3 py-2 bg-white border border-gray-300 rounded-lg text-[13px] font-mono text-gray-900 hover:border-indigo-400 focus:outline-none focus:border-indigo-500 transition-colors">
+                                    <button ref="ipTriggerRef" @click="openIpDropdown"
+                                        class="w-full flex items-center justify-between px-3 py-2 bg-white border border-gray-300 rounded-lg text-[13px] font-mono text-gray-900 hover:border-indigo-400 focus:outline-none focus:border-indigo-500 transition-colors">
                                         <span class="truncate">{{ primaryIpValue || 'Select an IP…' }}</span>
                                         <svg class="w-4 h-4 text-gray-400 ml-2 flex-shrink-0 transition-transform" :class="ipDropdownOpen ? 'rotate-180' : ''" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" /></svg>
                                     </button>
-                                    <!-- Dropdown panel -->
-                                    <div v-if="ipDropdownOpen" class="absolute z-20 left-0 right-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg overflow-hidden">
-                                        <div class="p-2 border-b border-gray-100">
-                                            <input v-model="ipSearchQuery" type="text" placeholder="Search IP…"
-                                                class="w-full px-2.5 py-1.5 text-[13px] border border-gray-200 rounded-md focus:outline-none focus:border-indigo-400" />
-                                        </div>
-                                        <div class="max-h-44 overflow-y-auto">
-                                            <button v-for="entry in filteredIps" :key="entry.ip"
-                                                @click="!entry.is_primary && setPrimaryIP(entry.ip)"
-                                                :disabled="entry.is_primary || !!settingPrimaryIp"
-                                                class="w-full flex items-center gap-2.5 px-3 py-2.5 text-left hover:bg-indigo-50 transition-colors disabled:cursor-default"
-                                                :class="entry.is_primary ? 'bg-indigo-50/60' : ''">
-                                                <!-- Status icon -->
-                                                <svg v-if="entry.is_primary" class="w-3.5 h-3.5 text-indigo-600 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/></svg>
-                                                <svg v-else-if="settingPrimaryIp === entry.ip" class="w-3.5 h-3.5 animate-spin flex-shrink-0 text-indigo-400" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
-                                                <span v-else class="w-3.5 h-3.5 flex-shrink-0"></span>
-                                                <span class="text-[13px] font-mono text-gray-900 truncate">{{ entry.ip }}</span>
-                                            </button>
-                                            <div v-if="filteredIps.length === 0" class="px-3 py-3 text-[12px] text-gray-400 text-center">No results</div>
-                                        </div>
-                                    </div>
                                 </div>
                                 <p v-if="primaryIpError" class="text-[12px] text-red-600 mt-1.5 flex items-center gap-1">
                                     <svg class="w-3.5 h-3.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
