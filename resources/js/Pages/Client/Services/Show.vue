@@ -197,14 +197,15 @@ const pendingAction = ref(null);
 const actionLoading = ref(null);
 
 const actionLabels = {
-    boot: 'Boot', reboot: 'Reboot', shutdown: 'Shutdown',
+    boot: 'Boot', reboot: 'Reboot', shutdown: 'Shutdown', poweroff: 'Power Off',
     vnc: 'Open VNC Console', console: 'Open Console',
 };
 
 const actionDescriptions = {
     boot: 'This will start your VPS if it is currently powered off.',
     reboot: 'This will restart your VPS. All running processes will be temporarily interrupted.',
-    shutdown: 'This will power off your VPS. You will need to boot it again to bring it back online.',
+    shutdown: 'This will gracefully shut down your VPS. You will need to boot it again to bring it back online.',
+    poweroff: 'This will forcefully cut power to your VPS (hard stop). Use this only if the VPS is unresponsive.',
     vnc: 'This will open a VNC console session to your VPS.',
     console: 'This will open a direct console to your VPS.',
 };
@@ -829,6 +830,160 @@ function copyVncPassword() {
         setTimeout(() => { vncPassCopied.value = false; }, 2000);
     });
 }
+
+// ── Bandwidth / Graphs ──────────────────────────────────────
+const bandwidthLoaded    = ref(false);
+const bandwidthLoading   = ref(false);
+const bandwidthData      = ref(null);
+const bandwidthMonth     = ref('');
+const bandwidthMonths    = computed(() => {
+    // Build last 12 months for selector
+    const months = [];
+    const now = new Date();
+    for (let i = 0; i < 12; i++) {
+        const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+        const y = d.getFullYear();
+        const m = String(d.getMonth() + 1).padStart(2, '0');
+        months.push({ value: `${y}${m}`, label: `${y}-${m}` });
+    }
+    return months;
+});
+
+async function loadBandwidth() {
+    if (bandwidthLoading.value) return;
+    bandwidthLoading.value = true;
+    try {
+        const url = route('client.services.bandwidth', s.id) + (bandwidthMonth.value ? `?month=${bandwidthMonth.value}` : '');
+        const resp = await fetch(url, { headers: { 'X-Requested-With': 'XMLHttpRequest' } });
+        const data = await resp.json();
+        if (!data.error) {
+            bandwidthData.value = data.bandwidth ?? data.raw ?? {};
+        }
+    } catch (e) { /* silent */ }
+    finally { bandwidthLoaded.value = true; bandwidthLoading.value = false; }
+}
+
+function formatBwBytes(val) {
+    if (!val && val !== 0) return '—';
+    const gb = parseFloat(val);
+    if (isNaN(gb)) return val;
+    if (gb >= 1024) return (gb / 1024).toFixed(2) + ' TB';
+    if (gb >= 1) return gb.toFixed(2) + ' GB';
+    return (gb * 1024).toFixed(0) + ' MB';
+}
+
+// ── Tasks & Logs ───────────────────────────────────────────
+const logsActiveTab   = ref('tasks'); // 'tasks' | 'logs' | 'statuslogs'
+const tasksLoaded     = ref(false);
+const tasksLoading    = ref(false);
+const tasksData       = ref([]);
+const logsLoaded      = ref(false);
+const logsLoading     = ref(false);
+const logsData        = ref([]);
+const statusLogsLoaded  = ref(false);
+const statusLogsLoading = ref(false);
+const statusLogsData    = ref([]);
+
+async function loadTasks() {
+    if (tasksLoading.value) return;
+    tasksLoading.value = true;
+    try {
+        const resp = await fetch(route('client.services.tasks', s.id), { headers: { 'X-Requested-With': 'XMLHttpRequest' } });
+        const data = await resp.json();
+        if (!data.error) tasksData.value = data.tasks ?? [];
+    } catch (e) { /* silent */ }
+    finally { tasksLoaded.value = true; tasksLoading.value = false; }
+}
+
+async function loadLogs() {
+    if (logsLoading.value) return;
+    logsLoading.value = true;
+    try {
+        const resp = await fetch(route('client.services.logs', s.id), { headers: { 'X-Requested-With': 'XMLHttpRequest' } });
+        const data = await resp.json();
+        if (!data.error) logsData.value = data.logs ?? [];
+    } catch (e) { /* silent */ }
+    finally { logsLoaded.value = true; logsLoading.value = false; }
+}
+
+async function loadStatusLogs() {
+    if (statusLogsLoading.value) return;
+    statusLogsLoading.value = true;
+    try {
+        const resp = await fetch(route('client.services.statusLogs', s.id), { headers: { 'X-Requested-With': 'XMLHttpRequest' } });
+        const data = await resp.json();
+        if (!data.error) statusLogsData.value = data.statuslogs ?? [];
+    } catch (e) { /* silent */ }
+    finally { statusLogsLoaded.value = true; statusLogsLoading.value = false; }
+}
+
+function switchLogsTab(tab) {
+    logsActiveTab.value = tab;
+    if (tab === 'tasks' && !tasksLoaded.value) loadTasks();
+    if (tab === 'logs' && !logsLoaded.value) loadLogs();
+    if (tab === 'statuslogs' && !statusLogsLoaded.value) loadStatusLogs();
+}
+
+function openLogsSection() {
+    if (!tasksLoaded.value) loadTasks();
+}
+
+// ── Rescue Mode ────────────────────────────────────────────
+const rescueLoaded      = ref(false);
+const rescueLoading     = ref(false);
+const rescueEnabled     = ref(false);
+const cantRescue        = ref(false);
+const rescuePassInput   = ref('');
+const rescuePassConfirm = ref('');
+const rescuePassError   = ref('');
+const rescueActionLoading = ref(false);
+const showRescueSection = ref(false);
+
+async function loadRescueStatus() {
+    if (rescueLoading.value) return;
+    rescueLoading.value = true;
+    try {
+        const resp = await fetch(route('client.services.rescue', s.id), { headers: { 'X-Requested-With': 'XMLHttpRequest' } });
+        const data = await resp.json();
+        if (!data.error) {
+            rescueEnabled.value  = data.enabled;
+            cantRescue.value     = data.cant_rescue;
+        }
+    } catch (e) { /* silent */ }
+    finally { rescueLoaded.value = true; rescueLoading.value = false; }
+}
+
+function openRescueSection() {
+    showRescueSection.value = true;
+    if (!rescueLoaded.value) loadRescueStatus();
+}
+
+function doEnableRescue() {
+    rescuePassError.value = '';
+    if (rescuePassInput.value.length < 6) { rescuePassError.value = 'Password must be at least 6 characters.'; return; }
+    if (rescuePassInput.value !== rescuePassConfirm.value) { rescuePassError.value = 'Passwords do not match.'; return; }
+    rescueActionLoading.value = true;
+    router.post(route('client.services.rescue.enable', s.id), {
+        password: rescuePassInput.value,
+        conf_password: rescuePassConfirm.value,
+    }, {
+        preserveScroll: true,
+        onSuccess: () => { rescuePassInput.value = ''; rescuePassConfirm.value = ''; rescueLoaded.value = false; loadRescueStatus(); },
+        onError: (errors) => { rescuePassError.value = errors.whmcs || 'Failed to enable rescue mode.'; },
+        onFinish: () => { rescueActionLoading.value = false; },
+    });
+}
+
+function doDisableRescue() {
+    if (!confirm('Disable rescue mode? Your VPS will be restored to normal operation.')) return;
+    rescueActionLoading.value = true;
+    router.post(route('client.services.rescue.disable', s.id), {}, {
+        preserveScroll: true,
+        onSuccess: () => { rescueLoaded.value = false; loadRescueStatus(); },
+        onError: (errors) => { rescuePassError.value = errors.whmcs || 'Failed to disable rescue mode.'; },
+        onFinish: () => { rescueActionLoading.value = false; },
+    });
+}
 </script>
 
 <template>
@@ -1154,7 +1309,7 @@ function copyVncPassword() {
 
                     <!-- VPS Power Actions -->
                     <Card title="Power Actions" description="Control your VPS power state.">
-                        <div class="grid grid-cols-3 gap-3">
+                        <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
                             <button @click="confirmAction('boot')" :disabled="actionLoading === 'boot'" class="flex flex-col items-center gap-2.5 p-4 rounded-xl border border-gray-100 bg-gray-50/50 hover:bg-emerald-50 hover:border-emerald-200 hover:shadow-sm transition-all group disabled:opacity-50 disabled:cursor-wait">
                                 <div class="w-10 h-10 rounded-lg bg-emerald-100 flex items-center justify-center">
                                     <svg v-if="actionLoading !== 'boot'" class="w-5 h-5 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M5.636 5.636a9 9 0 1012.728 0M12 3v9" /></svg>
@@ -1176,7 +1331,15 @@ function copyVncPassword() {
                                 </div>
                                 <span class="text-[12px] font-medium text-gray-700 group-hover:text-red-700 text-center">Shutdown</span>
                             </button>
+                            <button @click="confirmAction('poweroff')" :disabled="actionLoading === 'poweroff'" class="flex flex-col items-center gap-2.5 p-4 rounded-xl border border-gray-100 bg-gray-50/50 hover:bg-rose-50 hover:border-rose-300 hover:shadow-sm transition-all group disabled:opacity-50 disabled:cursor-wait">
+                                <div class="w-10 h-10 rounded-lg bg-rose-100 flex items-center justify-center">
+                                    <svg v-if="actionLoading !== 'poweroff'" class="w-5 h-5 text-rose-700" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
+                                    <svg v-else class="w-5 h-5 text-rose-700 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" /><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
+                                </div>
+                                <span class="text-[12px] font-medium text-gray-700 group-hover:text-rose-700 text-center">Power Off</span>
+                            </button>
                         </div>
+                        <p class="mt-3 text-[11px] text-gray-400 text-center">Power Off performs a hard stop — use only if Shutdown is unresponsive.</p>
                     </Card>
 
                     <!-- Reinstall OS -->
@@ -1461,6 +1624,206 @@ function copyVncPassword() {
                             </div>
                         </dl>
                     </Card>
+
+                    <!-- Bandwidth / Graphs -->
+                    <Card title="Bandwidth & Graphs" description="Monthly transfer usage and network statistics.">
+                        <div v-if="!bandwidthLoaded" class="flex items-center justify-between">
+                            <p class="text-[13px] text-gray-500">Load your VPS bandwidth statistics.</p>
+                            <button @click="loadBandwidth" :disabled="bandwidthLoading" class="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-[13px] font-semibold rounded-lg transition-colors disabled:opacity-50 flex items-center gap-2">
+                                <svg v-if="bandwidthLoading" class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
+                                <svg v-else class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>
+                                {{ bandwidthLoading ? 'Loading…' : 'Load Bandwidth' }}
+                            </button>
+                        </div>
+                        <div v-else class="space-y-4">
+                            <!-- Month Selector + Refresh -->
+                            <div class="flex items-center justify-between gap-3">
+                                <select v-model="bandwidthMonth" @change="bandwidthLoaded = false; loadBandwidth()" class="text-[13px] rounded-lg border-gray-300 focus:border-indigo-500 focus:ring-indigo-500">
+                                    <option value="">Current Month</option>
+                                    <option v-for="m in bandwidthMonths" :key="m.value" :value="m.value">{{ m.label }}</option>
+                                </select>
+                                <button @click="bandwidthLoaded = false; loadBandwidth()" :disabled="bandwidthLoading" class="px-3 py-1.5 text-[12px] font-medium text-indigo-700 bg-indigo-50 hover:bg-indigo-100 rounded-lg transition-colors disabled:opacity-50 flex items-center gap-1">
+                                    <svg class="w-3.5 h-3.5" :class="{'animate-spin': bandwidthLoading}" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
+                                    Refresh
+                                </button>
+                            </div>
+                            <!-- Stats grid -->
+                            <div v-if="bandwidthData" class="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                                <div v-if="bandwidthData.used_bandwidth !== undefined || bandwidthData.network_in !== undefined" class="bg-blue-50 rounded-xl border border-blue-200 p-3 text-center">
+                                    <p class="text-[11px] text-blue-600 font-medium uppercase tracking-wide mb-1">Used</p>
+                                    <p class="text-[18px] font-bold text-blue-800">{{ formatBwBytes(bandwidthData.used_bandwidth ?? bandwidthData.network_in ?? 0) }}</p>
+                                </div>
+                                <div v-if="bandwidthData.bandwidth !== undefined || bandwidthData.total !== undefined" class="bg-gray-50 rounded-xl border border-gray-200 p-3 text-center">
+                                    <p class="text-[11px] text-gray-500 font-medium uppercase tracking-wide mb-1">Limit</p>
+                                    <p class="text-[18px] font-bold text-gray-800">{{ (bandwidthData.bandwidth === 0 || bandwidthData.total === 0) ? '∞' : formatBwBytes(bandwidthData.bandwidth ?? bandwidthData.total) }}</p>
+                                </div>
+                                <div v-if="bandwidthData.free_bandwidth !== undefined" class="bg-emerald-50 rounded-xl border border-emerald-200 p-3 text-center">
+                                    <p class="text-[11px] text-emerald-600 font-medium uppercase tracking-wide mb-1">Remaining</p>
+                                    <p class="text-[18px] font-bold text-emerald-800">{{ formatBwBytes(bandwidthData.free_bandwidth) }}</p>
+                                </div>
+                                <div v-if="bandwidthData.speed_in !== undefined || bandwidthData.network_speed !== undefined" class="bg-purple-50 rounded-xl border border-purple-200 p-3 text-center">
+                                    <p class="text-[11px] text-purple-600 font-medium uppercase tracking-wide mb-1">Speed In</p>
+                                    <p class="text-[16px] font-bold text-purple-800">{{ bandwidthData.speed_in ?? bandwidthData.network_speed ?? '—' }} <span class="text-[11px] font-normal">Mbps</span></p>
+                                </div>
+                                <div v-if="bandwidthData.speed_out !== undefined" class="bg-indigo-50 rounded-xl border border-indigo-200 p-3 text-center">
+                                    <p class="text-[11px] text-indigo-600 font-medium uppercase tracking-wide mb-1">Speed Out</p>
+                                    <p class="text-[16px] font-bold text-indigo-800">{{ bandwidthData.speed_out ?? '—' }} <span class="text-[11px] font-normal">Mbps</span></p>
+                                </div>
+                            </div>
+                            <!-- Bandwidth bar -->
+                            <div v-if="bandwidthData && ((bandwidthData.used_bandwidth !== undefined) || (bandwidthData.network_in !== undefined)) && (bandwidthData.bandwidth !== undefined || bandwidthData.total !== undefined)">
+                                <div class="flex justify-between text-[12px] text-gray-600 mb-1.5">
+                                    <span>Monthly Usage</span>
+                                    <span>{{ bandwidthData.percent ?? 0 }}%</span>
+                                </div>
+                                <div class="w-full bg-gray-100 rounded-full h-3">
+                                    <div class="h-3 rounded-full transition-all duration-700" :class="progressColor(bandwidthData.percent ?? 0)" :style="{ width: Math.min(bandwidthData.percent ?? 0, 100) + '%' }"></div>
+                                </div>
+                            </div>
+                            <div v-if="bandwidthData && Object.keys(bandwidthData).length === 0" class="text-[13px] text-gray-400 text-center py-4">No bandwidth data available for this period.</div>
+                        </div>
+                    </Card>
+
+                    <!-- Tasks & Logs -->
+                    <Card title="Tasks & Logs" description="VPS activity, system logs, and status history.">
+                        <div v-if="!tasksLoaded && !logsLoaded && !statusLogsLoaded" class="flex items-center justify-between">
+                            <p class="text-[13px] text-gray-500">View task history, system logs, and status changes.</p>
+                            <button @click="openLogsSection" class="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-[13px] font-semibold rounded-lg transition-colors flex items-center gap-2">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" /></svg>
+                                Load Logs
+                            </button>
+                        </div>
+                        <div v-else class="space-y-3">
+                            <!-- Sub-tabs -->
+                            <div class="flex border-b border-gray-200 -mx-1">
+                                <button v-for="tab in [{id:'tasks',label:'Tasks'},{id:'logs',label:'Logs'},{id:'statuslogs',label:'Status Logs'}]" :key="tab.id"
+                                    @click="switchLogsTab(tab.id)"
+                                    :class="['px-4 py-2 text-[13px] font-medium border-b-2 transition-colors -mb-px', logsActiveTab === tab.id ? 'border-indigo-500 text-indigo-600' : 'border-transparent text-gray-500 hover:text-gray-700']">
+                                    {{ tab.label }}
+                                </button>
+                            </div>
+                            <!-- Tasks -->
+                            <div v-if="logsActiveTab === 'tasks'">
+                                <div v-if="tasksLoading" class="flex justify-center py-6"><svg class="w-6 h-6 animate-spin text-gray-400" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg></div>
+                                <div v-else-if="tasksData.length === 0" class="text-center py-6 text-[13px] text-gray-400">No tasks found.</div>
+                                <div v-else class="overflow-x-auto">
+                                    <table class="w-full text-[12px]">
+                                        <thead><tr class="border-b border-gray-100"><th class="text-left py-2 px-2 text-gray-500 font-medium">ID</th><th class="text-left py-2 px-2 text-gray-500 font-medium">Action</th><th class="text-left py-2 px-2 text-gray-500 font-medium">Started</th><th class="text-left py-2 px-2 text-gray-500 font-medium">Ended</th><th class="text-left py-2 px-2 text-gray-500 font-medium">Status</th></tr></thead>
+                                        <tbody>
+                                            <tr v-for="t in tasksData.slice(0, 20)" :key="t.actid ?? t.id ?? Math.random()" class="border-b border-gray-50 hover:bg-gray-50">
+                                                <td class="py-2 px-2 text-gray-500 font-mono">{{ t.actid ?? t.id ?? '—' }}</td>
+                                                <td class="py-2 px-2 text-gray-900 font-medium">{{ t.action ?? t.name ?? '—' }}</td>
+                                                <td class="py-2 px-2 text-gray-500">{{ t.started ?? t.created_at ?? '—' }}</td>
+                                                <td class="py-2 px-2 text-gray-500">{{ t.ended ?? t.updated_at ?? '—' }}</td>
+                                                <td class="py-2 px-2"><span :class="['inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold', (t.status === 2 || t.status === 'done' || t.done) ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700']">{{ t.status === 2 || t.done ? 'Done' : (t.status === 1 ? 'Running' : (t.status ?? 'Pending')) }}</span></td>
+                                            </tr>
+                                        </tbody>
+                                    </table>
+                                </div>
+                                <button @click="tasksLoaded = false; loadTasks()" class="mt-2 text-[12px] text-indigo-600 hover:text-indigo-800 flex items-center gap-1"><svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>Refresh</button>
+                            </div>
+                            <!-- Logs -->
+                            <div v-if="logsActiveTab === 'logs'">
+                                <div v-if="logsLoading" class="flex justify-center py-6"><svg class="w-6 h-6 animate-spin text-gray-400" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg></div>
+                                <div v-else-if="logsData.length === 0" class="text-center py-6 text-[13px] text-gray-400">No logs found.</div>
+                                <div v-else class="overflow-x-auto">
+                                    <table class="w-full text-[12px]">
+                                        <thead><tr class="border-b border-gray-100"><th class="text-left py-2 px-2 text-gray-500 font-medium">Date</th><th class="text-left py-2 px-2 text-gray-500 font-medium">Task</th><th class="text-left py-2 px-2 text-gray-500 font-medium">Status</th><th class="text-left py-2 px-2 text-gray-500 font-medium">IP</th></tr></thead>
+                                        <tbody>
+                                            <tr v-for="(log, i) in logsData.slice(0, 50)" :key="i" class="border-b border-gray-50 hover:bg-gray-50">
+                                                <td class="py-2 px-2 text-gray-500 whitespace-nowrap">{{ log.date ?? log.time ?? '—' }}</td>
+                                                <td class="py-2 px-2 text-gray-900">{{ log.task ?? log.action ?? log.message ?? '—' }}</td>
+                                                <td class="py-2 px-2"><span :class="['inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold', log.status === 'success' || log.status === 1 || log.status === '1' ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-100 text-gray-600']">{{ log.status ?? '—' }}</span></td>
+                                                <td class="py-2 px-2 text-gray-400 font-mono text-[11px]">{{ log.ip ?? '—' }}</td>
+                                            </tr>
+                                        </tbody>
+                                    </table>
+                                </div>
+                                <button @click="logsLoaded = false; loadLogs()" class="mt-2 text-[12px] text-indigo-600 hover:text-indigo-800 flex items-center gap-1"><svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>Refresh</button>
+                            </div>
+                            <!-- Status Logs -->
+                            <div v-if="logsActiveTab === 'statuslogs'">
+                                <div v-if="statusLogsLoading" class="flex justify-center py-6"><svg class="w-6 h-6 animate-spin text-gray-400" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg></div>
+                                <div v-else-if="statusLogsData.length === 0" class="text-center py-6 text-[13px] text-gray-400">No status logs found.</div>
+                                <div v-else class="overflow-x-auto">
+                                    <table class="w-full text-[12px]">
+                                        <thead><tr class="border-b border-gray-100"><th class="text-left py-2 px-2 text-gray-500 font-medium">Time</th><th class="text-left py-2 px-2 text-gray-500 font-medium">Status</th></tr></thead>
+                                        <tbody>
+                                            <tr v-for="(entry, i) in statusLogsData.slice(0, 50)" :key="i" class="border-b border-gray-50 hover:bg-gray-50">
+                                                <td class="py-2 px-2 text-gray-500 whitespace-nowrap">{{ entry.time ?? entry.timestamp ?? '—' }}</td>
+                                                <td class="py-2 px-2"><span :class="['inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold', (String(entry.status ?? entry.system_status ?? '')).toLowerCase() === 'running' || (entry.status ?? entry.system_status ?? '') === 1 ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700']"><span class="w-1.5 h-1.5 rounded-full" :class="(String(entry.status ?? entry.system_status ?? '')).toLowerCase() === 'running' ? 'bg-emerald-500' : 'bg-red-500'"></span>{{ entry.status ?? entry.system_status ?? '—' }}</span></td>
+                                            </tr>
+                                        </tbody>
+                                    </table>
+                                </div>
+                                <button @click="statusLogsLoaded = false; loadStatusLogs()" class="mt-2 text-[12px] text-indigo-600 hover:text-indigo-800 flex items-center gap-1"><svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>Refresh</button>
+                            </div>
+                        </div>
+                    </Card>
+
+                    <!-- Rescue Mode -->
+                    <Card title="Rescue Mode" description="Boot your VPS into a recovery environment to repair your system.">
+                        <div v-if="!showRescueSection" class="flex items-start gap-4 p-4 rounded-xl border border-amber-200 bg-amber-50/50">
+                            <div class="w-10 h-10 rounded-lg bg-amber-100 flex items-center justify-center flex-shrink-0">
+                                <svg class="w-5 h-5 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.27 16.5c-.77.833.192 2.5 1.732 2.5z" /></svg>
+                            </div>
+                            <div class="flex-1 min-w-0">
+                                <p class="text-[13px] font-semibold text-gray-900">Rescue Mode</p>
+                                <p class="text-[12px] text-gray-500 mt-0.5">Boot into a minimal rescue environment to fix issues. Your data remains intact.</p>
+                            </div>
+                            <button @click="openRescueSection" class="inline-flex items-center gap-2 px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white text-[13px] font-semibold rounded-lg transition-colors shadow-sm flex-shrink-0">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                                Manage
+                            </button>
+                        </div>
+                        <div v-else class="space-y-4">
+                            <div v-if="rescueLoading" class="flex justify-center py-4"><svg class="w-6 h-6 animate-spin text-gray-400" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg></div>
+                            <div v-else>
+                                <!-- Status banner -->
+                                <div :class="['flex items-center gap-3 px-4 py-3 rounded-xl border mb-4', rescueEnabled ? 'bg-amber-50 border-amber-300' : 'bg-gray-50 border-gray-200']">
+                                    <span :class="['w-3 h-3 rounded-full flex-shrink-0', rescueEnabled ? 'bg-amber-500 animate-pulse' : 'bg-gray-300']"></span>
+                                    <div class="flex-1">
+                                        <p class="text-[13px] font-semibold" :class="rescueEnabled ? 'text-amber-800' : 'text-gray-700'">Rescue Mode: {{ rescueEnabled ? 'ACTIVE' : 'Inactive' }}</p>
+                                        <p class="text-[12px] mt-0.5" :class="rescueEnabled ? 'text-amber-600' : 'text-gray-400'">{{ rescueEnabled ? 'Your VPS is in rescue mode. Reboot to enter the rescue environment.' : 'Your VPS is running normally.' }}</p>
+                                    </div>
+                                </div>
+                                <div v-if="cantRescue" class="px-3 py-2 bg-red-50 border border-red-200 rounded-lg text-[12px] text-red-700 mb-3">Rescue mode is not available for this VPS type or virtualization.</div>
+                                <!-- Disable -->
+                                <div v-if="rescueEnabled && !cantRescue" class="space-y-3">
+                                    <p class="text-[13px] text-gray-600">To exit rescue mode and return to normal operation:</p>
+                                    <p v-if="rescuePassError" class="text-[12px] text-red-600">{{ rescuePassError }}</p>
+                                    <button @click="doDisableRescue" :disabled="rescueActionLoading" class="inline-flex items-center gap-2 px-4 py-2 bg-gray-800 hover:bg-gray-900 text-white text-[13px] font-semibold rounded-lg transition-colors disabled:opacity-50">
+                                        <svg v-if="rescueActionLoading" class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
+                                        {{ rescueActionLoading ? 'Disabling…' : 'Disable Rescue Mode' }}
+                                    </button>
+                                </div>
+                                <!-- Enable form -->
+                                <div v-if="!rescueEnabled && !cantRescue" class="space-y-3">
+                                    <p class="text-[13px] text-gray-600">Set a temporary password for the rescue environment:</p>
+                                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                        <div>
+                                            <label class="block text-[12px] font-medium text-gray-700 mb-1">Rescue Password</label>
+                                            <input v-model="rescuePassInput" type="password" placeholder="Min 6 characters" class="w-full px-3 py-2 text-[13px] border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500" />
+                                        </div>
+                                        <div>
+                                            <label class="block text-[12px] font-medium text-gray-700 mb-1">Confirm Password</label>
+                                            <input v-model="rescuePassConfirm" type="password" placeholder="Repeat password" class="w-full px-3 py-2 text-[13px] border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500" />
+                                        </div>
+                                    </div>
+                                    <p v-if="rescuePassError" class="text-[12px] text-red-600">{{ rescuePassError }}</p>
+                                    <div class="flex items-start gap-2 p-3 bg-amber-50 border border-amber-200 rounded-lg">
+                                        <svg class="w-4 h-4 text-amber-600 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.27 16.5c-.77.833.192 2.5 1.732 2.5z" /></svg>
+                                        <p class="text-[12px] text-amber-700">After enabling, use the <strong>Power Actions → Reboot</strong> button above to enter the rescue environment.</p>
+                                    </div>
+                                    <button @click="doEnableRescue" :disabled="rescueActionLoading || rescuePassInput.length < 6" class="inline-flex items-center gap-2 px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white text-[13px] font-semibold rounded-lg transition-colors disabled:opacity-50">
+                                        <svg v-if="rescueActionLoading" class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
+                                        {{ rescueActionLoading ? 'Enabling…' : 'Enable Rescue Mode' }}
+                                    </button>
+                                </div>
+                                <button @click="rescueLoaded = false; loadRescueStatus()" class="mt-3 text-[12px] text-indigo-600 hover:text-indigo-800 flex items-center gap-1"><svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>Refresh Status</button>
+                            </div>
+                        </div>
+                    </Card>
                 </template>
 
                 <!-- Configuration Tab -->
@@ -1502,6 +1865,11 @@ function copyVncPassword() {
                             <svg v-if="actionLoading !== 'shutdown'" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" /></svg>
                             <svg v-else class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" /><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
                             Shutdown
+                        </button>
+                        <button @click="confirmAction('poweroff')" :disabled="actionLoading === 'poweroff'" class="w-full flex items-center gap-2.5 px-3 py-2.5 text-[13px] font-medium text-rose-700 bg-rose-50 rounded-lg hover:bg-rose-100 transition-colors disabled:opacity-50">
+                            <svg v-if="actionLoading !== 'poweroff'" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
+                            <svg v-else class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" /><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
+                            Power Off
                         </button>
                     </div>
                 </Card>

@@ -1007,6 +1007,310 @@ if ($action === 'ChangeVncPassword') {
     exit;
 }
 
+// ── VPS: Get Bandwidth Stats ────────────────────────────────
+if ($action === 'GetBandwidth') {
+    if (!$serviceId) { echo json_encode(['result' => 'error', 'message' => 'serviceid is required']); exit; }
+
+    $service = Capsule::table('tblhosting')->where('id', $serviceId)->first();
+    if (!$service) { echo json_encode(['result' => 'error', 'message' => 'Service not found']); exit; }
+    if ($clientId && $service->userid != $clientId) { echo json_encode(['result' => 'error', 'message' => 'Access denied']); exit; }
+
+    $server   = Capsule::table('tblservers')->where('id', $service->server)->first();
+    $module   = strtolower($server->type ?? '');
+    $hostname = $server->hostname ?: ($server->ipaddress ?? '');
+
+    if ($module !== 'virtualizor') { echo json_encode(['result' => 'error', 'message' => 'Only supported for Virtualizor']); exit; }
+
+    $vpsId = resolveVpsId($service);
+    if (!$vpsId) { echo json_encode(['result' => 'error', 'message' => 'VPS ID not found']); exit; }
+
+    $creds   = getVirtualizorCredentials($server);
+    $apiKey  = $creds['apiKey'];
+    $apiPass = $creds['apiPass'];
+    if (empty($apiKey) || empty($apiPass)) { echo json_encode(['result' => 'error', 'message' => 'Virtualizor API credentials missing']); exit; }
+
+    $adminUrl = 'https://' . $hostname . ':4085/index.php';
+    $params   = [
+        'act' => 'bandwidth', 'svs' => $vpsId, 'api' => 'json',
+        'adminapikey' => $apiKey, 'adminapipass' => $apiPass,
+    ];
+    $month = trim($_POST['month'] ?? $_GET['month'] ?? '');
+    if ($month) $params['show'] = $month;
+
+    $result = virtualizorApiGet($adminUrl . '?' . http_build_query($params));
+
+    if (!$result['ok']) { echo json_encode(['result' => 'error', 'message' => $result['error'] ?? 'Failed']); exit; }
+
+    $data = $result['data'];
+    if (!empty($data['error'])) {
+        $errMsg = is_array($data['error']) ? implode(', ', array_values($data['error'])) : (string)$data['error'];
+        echo json_encode(['result' => 'error', 'message' => $errMsg]); exit;
+    }
+
+    $bw = $data['bandwidth'] ?? $data['bw'] ?? [];
+    echo json_encode(['result' => 'success', 'bandwidth' => $bw, 'raw' => $data]);
+    exit;
+}
+
+// ── VPS: Get Task Logs ─────────────────────────────────────
+if ($action === 'GetTasks') {
+    if (!$serviceId) { echo json_encode(['result' => 'error', 'message' => 'serviceid is required']); exit; }
+
+    $service = Capsule::table('tblhosting')->where('id', $serviceId)->first();
+    if (!$service) { echo json_encode(['result' => 'error', 'message' => 'Service not found']); exit; }
+    if ($clientId && $service->userid != $clientId) { echo json_encode(['result' => 'error', 'message' => 'Access denied']); exit; }
+
+    $server   = Capsule::table('tblservers')->where('id', $service->server)->first();
+    $module   = strtolower($server->type ?? '');
+    $hostname = $server->hostname ?: ($server->ipaddress ?? '');
+
+    if ($module !== 'virtualizor') { echo json_encode(['result' => 'error', 'message' => 'Only supported for Virtualizor']); exit; }
+
+    $vpsId = resolveVpsId($service);
+    if (!$vpsId) { echo json_encode(['result' => 'error', 'message' => 'VPS ID not found']); exit; }
+
+    $creds   = getVirtualizorCredentials($server);
+    $apiKey  = $creds['apiKey'];
+    $apiPass = $creds['apiPass'];
+    if (empty($apiKey) || empty($apiPass)) { echo json_encode(['result' => 'error', 'message' => 'Virtualizor API credentials missing']); exit; }
+
+    $adminUrl = 'https://' . $hostname . ':4085/index.php';
+    $result   = virtualizorApiGet($adminUrl . '?' . http_build_query([
+        'act' => 'tasks', 'vpsid' => $vpsId, 'api' => 'json',
+        'adminapikey' => $apiKey, 'adminapipass' => $apiPass,
+    ]));
+
+    if (!$result['ok']) { echo json_encode(['result' => 'error', 'message' => $result['error'] ?? 'Failed']); exit; }
+
+    $data  = $result['data'];
+    $tasks = $data['tasks'] ?? $data['actlogs'] ?? [];
+    // Normalize: may be keyed by actid
+    if (!empty($tasks) && !array_key_exists(0, $tasks)) {
+        $tasks = array_values($tasks);
+    }
+    echo json_encode(['result' => 'success', 'tasks' => $tasks]);
+    exit;
+}
+
+// ── VPS: Get VPS Logs ─────────────────────────────────────
+if ($action === 'GetLogs') {
+    if (!$serviceId) { echo json_encode(['result' => 'error', 'message' => 'serviceid is required']); exit; }
+
+    $service = Capsule::table('tblhosting')->where('id', $serviceId)->first();
+    if (!$service) { echo json_encode(['result' => 'error', 'message' => 'Service not found']); exit; }
+    if ($clientId && $service->userid != $clientId) { echo json_encode(['result' => 'error', 'message' => 'Access denied']); exit; }
+
+    $server   = Capsule::table('tblservers')->where('id', $service->server)->first();
+    $module   = strtolower($server->type ?? '');
+    $hostname = $server->hostname ?: ($server->ipaddress ?? '');
+
+    if ($module !== 'virtualizor') { echo json_encode(['result' => 'error', 'message' => 'Only supported for Virtualizor']); exit; }
+
+    $vpsId = resolveVpsId($service);
+    if (!$vpsId) { echo json_encode(['result' => 'error', 'message' => 'VPS ID not found']); exit; }
+
+    $creds   = getVirtualizorCredentials($server);
+    $apiKey  = $creds['apiKey'];
+    $apiPass = $creds['apiPass'];
+    if (empty($apiKey) || empty($apiPass)) { echo json_encode(['result' => 'error', 'message' => 'Virtualizor API credentials missing']); exit; }
+
+    $adminUrl = 'https://' . $hostname . ':4085/index.php';
+    $result   = virtualizorApiGet($adminUrl . '?' . http_build_query([
+        'act' => 'logs', 'svs' => $vpsId, 'api' => 'json',
+        'adminapikey' => $apiKey, 'adminapipass' => $apiPass,
+    ]));
+
+    if (!$result['ok']) { echo json_encode(['result' => 'error', 'message' => $result['error'] ?? 'Failed']); exit; }
+
+    $data = $result['data'];
+    $logs = $data['logs'] ?? [];
+    if (!empty($logs) && !array_key_exists(0, $logs)) {
+        $logs = array_values($logs);
+    }
+    echo json_encode(['result' => 'success', 'logs' => $logs]);
+    exit;
+}
+
+// ── VPS: Get Status Logs ───────────────────────────────────
+if ($action === 'GetStatusLogs') {
+    if (!$serviceId) { echo json_encode(['result' => 'error', 'message' => 'serviceid is required']); exit; }
+
+    $service = Capsule::table('tblhosting')->where('id', $serviceId)->first();
+    if (!$service) { echo json_encode(['result' => 'error', 'message' => 'Service not found']); exit; }
+    if ($clientId && $service->userid != $clientId) { echo json_encode(['result' => 'error', 'message' => 'Access denied']); exit; }
+
+    $server   = Capsule::table('tblservers')->where('id', $service->server)->first();
+    $module   = strtolower($server->type ?? '');
+    $hostname = $server->hostname ?: ($server->ipaddress ?? '');
+
+    if ($module !== 'virtualizor') { echo json_encode(['result' => 'error', 'message' => 'Only supported for Virtualizor']); exit; }
+
+    $vpsId = resolveVpsId($service);
+    if (!$vpsId) { echo json_encode(['result' => 'error', 'message' => 'VPS ID not found']); exit; }
+
+    $creds   = getVirtualizorCredentials($server);
+    $apiKey  = $creds['apiKey'];
+    $apiPass = $creds['apiPass'];
+    if (empty($apiKey) || empty($apiPass)) { echo json_encode(['result' => 'error', 'message' => 'Virtualizor API credentials missing']); exit; }
+
+    $adminUrl = 'https://' . $hostname . ':4085/index.php';
+    $result   = virtualizorApiGet($adminUrl . '?' . http_build_query([
+        'act' => 'statuslogs', 'svs' => $vpsId, 'api' => 'json',
+        'adminapikey' => $apiKey, 'adminapipass' => $apiPass,
+    ]));
+
+    if (!$result['ok']) { echo json_encode(['result' => 'error', 'message' => $result['error'] ?? 'Failed']); exit; }
+
+    $data    = $result['data'];
+    $entries = $data['statuslogs'] ?? $data['logs'] ?? [];
+    // May be keyed by timestamp
+    if (!empty($entries) && !array_key_exists(0, $entries)) {
+        $entries = array_values($entries);
+    }
+    // Sort newest first
+    usort($entries, fn($a, $b) => ($b['time'] ?? $b['timestamp'] ?? 0) <=> ($a['time'] ?? $a['timestamp'] ?? 0));
+    echo json_encode(['result' => 'success', 'statuslogs' => array_slice($entries, 0, 100)]);
+    exit;
+}
+
+// ── VPS: Get Rescue Status ─────────────────────────────────
+if ($action === 'GetRescueStatus') {
+    if (!$serviceId) { echo json_encode(['result' => 'error', 'message' => 'serviceid is required']); exit; }
+
+    $service = Capsule::table('tblhosting')->where('id', $serviceId)->first();
+    if (!$service) { echo json_encode(['result' => 'error', 'message' => 'Service not found']); exit; }
+    if ($clientId && $service->userid != $clientId) { echo json_encode(['result' => 'error', 'message' => 'Access denied']); exit; }
+
+    $server   = Capsule::table('tblservers')->where('id', $service->server)->first();
+    $module   = strtolower($server->type ?? '');
+    $hostname = $server->hostname ?: ($server->ipaddress ?? '');
+
+    if ($module !== 'virtualizor') { echo json_encode(['result' => 'error', 'message' => 'Only supported for Virtualizor']); exit; }
+
+    $vpsId = resolveVpsId($service);
+    if (!$vpsId) { echo json_encode(['result' => 'error', 'message' => 'VPS ID not found']); exit; }
+
+    $creds   = getVirtualizorCredentials($server);
+    $apiKey  = $creds['apiKey'];
+    $apiPass = $creds['apiPass'];
+    if (empty($apiKey) || empty($apiPass)) { echo json_encode(['result' => 'error', 'message' => 'Virtualizor API credentials missing']); exit; }
+
+    $adminUrl = 'https://' . $hostname . ':4085/index.php';
+    $result   = virtualizorApiGet($adminUrl . '?' . http_build_query([
+        'act' => 'rescue', 'svs' => $vpsId, 'api' => 'json',
+        'adminapikey' => $apiKey, 'adminapipass' => $apiPass,
+    ]));
+
+    if (!$result['ok']) { echo json_encode(['result' => 'error', 'message' => $result['error'] ?? 'Failed']); exit; }
+
+    $data    = $result['data'];
+    $enabled = !empty($data['rescue_enabled']) || !empty($data['vps_rescue']);
+    $cantRescue = !empty($data['cant_rescue']);
+
+    echo json_encode([
+        'result'      => 'success',
+        'enabled'     => $enabled,
+        'cant_rescue' => $cantRescue,
+    ]);
+    exit;
+}
+
+// ── VPS: Enable Rescue Mode ────────────────────────────────
+if ($action === 'EnableRescue') {
+    if (!$serviceId) { echo json_encode(['result' => 'error', 'message' => 'serviceid is required']); exit; }
+
+    $rescuePass = trim($_POST['password'] ?? '');
+    $rescueConf = trim($_POST['conf_password'] ?? '');
+    if (strlen($rescuePass) < 6) { echo json_encode(['result' => 'error', 'message' => 'Password must be at least 6 characters']); exit; }
+    if ($rescuePass !== $rescueConf) { echo json_encode(['result' => 'error', 'message' => 'Passwords do not match']); exit; }
+
+    $service = Capsule::table('tblhosting')->where('id', $serviceId)->first();
+    if (!$service) { echo json_encode(['result' => 'error', 'message' => 'Service not found']); exit; }
+    if ($clientId && $service->userid != $clientId) { echo json_encode(['result' => 'error', 'message' => 'Access denied']); exit; }
+
+    $server   = Capsule::table('tblservers')->where('id', $service->server)->first();
+    $module   = strtolower($server->type ?? '');
+    $hostname = $server->hostname ?: ($server->ipaddress ?? '');
+
+    if ($module !== 'virtualizor') { echo json_encode(['result' => 'error', 'message' => 'Only supported for Virtualizor']); exit; }
+
+    $vpsId = resolveVpsId($service);
+    if (!$vpsId) { echo json_encode(['result' => 'error', 'message' => 'VPS ID not found']); exit; }
+
+    $creds   = getVirtualizorCredentials($server);
+    $apiKey  = $creds['apiKey'];
+    $apiPass = $creds['apiPass'];
+    if (empty($apiKey) || empty($apiPass)) { echo json_encode(['result' => 'error', 'message' => 'Virtualizor API credentials missing']); exit; }
+
+    $adminUrl   = 'https://' . $hostname . ':4085/index.php';
+    $postResult = virtualizorApiPost($adminUrl . '?' . http_build_query([
+        'act' => 'rescue', 'svs' => $vpsId, 'api' => 'json',
+        'adminapikey' => $apiKey, 'adminapipass' => $apiPass,
+    ]), [
+        'vpsid'         => $vpsId,
+        'password'      => $rescuePass,
+        'conf_password' => $rescueConf,
+        'enablerescue'  => 'Enable Rescue',
+    ]);
+
+    if (!$postResult['ok']) { echo json_encode(['result' => 'error', 'message' => $postResult['error'] ?? 'Failed']); exit; }
+
+    $data = $postResult['data'];
+    if (!empty($data['error'])) {
+        $errMsg = is_array($data['error']) ? implode(', ', array_values($data['error'])) : (string)$data['error'];
+        echo json_encode(['result' => 'error', 'message' => $errMsg]); exit;
+    }
+    if (empty($data['done']) && empty($data['rescue_enabled'])) {
+        echo json_encode(['result' => 'error', 'message' => 'Failed to enable rescue mode']); exit;
+    }
+
+    echo json_encode(['result' => 'success', 'message' => 'Rescue mode enabled. Boot your VPS to enter rescue environment.']);
+    exit;
+}
+
+// ── VPS: Disable Rescue Mode ───────────────────────────────
+if ($action === 'DisableRescue') {
+    if (!$serviceId) { echo json_encode(['result' => 'error', 'message' => 'serviceid is required']); exit; }
+
+    $service = Capsule::table('tblhosting')->where('id', $serviceId)->first();
+    if (!$service) { echo json_encode(['result' => 'error', 'message' => 'Service not found']); exit; }
+    if ($clientId && $service->userid != $clientId) { echo json_encode(['result' => 'error', 'message' => 'Access denied']); exit; }
+
+    $server   = Capsule::table('tblservers')->where('id', $service->server)->first();
+    $module   = strtolower($server->type ?? '');
+    $hostname = $server->hostname ?: ($server->ipaddress ?? '');
+
+    if ($module !== 'virtualizor') { echo json_encode(['result' => 'error', 'message' => 'Only supported for Virtualizor']); exit; }
+
+    $vpsId = resolveVpsId($service);
+    if (!$vpsId) { echo json_encode(['result' => 'error', 'message' => 'VPS ID not found']); exit; }
+
+    $creds   = getVirtualizorCredentials($server);
+    $apiKey  = $creds['apiKey'];
+    $apiPass = $creds['apiPass'];
+    if (empty($apiKey) || empty($apiPass)) { echo json_encode(['result' => 'error', 'message' => 'Virtualizor API credentials missing']); exit; }
+
+    $adminUrl   = 'https://' . $hostname . ':4085/index.php';
+    $postResult = virtualizorApiPost($adminUrl . '?' . http_build_query([
+        'act' => 'rescue', 'svs' => $vpsId, 'api' => 'json',
+        'adminapikey' => $apiKey, 'adminapipass' => $apiPass,
+    ]), [
+        'vpsid'        => $vpsId,
+        'disablerescue' => 1,
+    ]);
+
+    if (!$postResult['ok']) { echo json_encode(['result' => 'error', 'message' => $postResult['error'] ?? 'Failed']); exit; }
+
+    $data = $postResult['data'];
+    if (!empty($data['error'])) {
+        $errMsg = is_array($data['error']) ? implode(', ', array_values($data['error'])) : (string)$data['error'];
+        echo json_encode(['result' => 'error', 'message' => $errMsg]); exit;
+    }
+
+    echo json_encode(['result' => 'success', 'message' => 'Rescue mode disabled. Your VPS has been restored.']);
+    exit;
+}
+
 if ($action === 'GetGatewayConfig') {
     // Return payment gateway module configuration.
     // Uses WHMCS's built-in getGatewayVariables() which handles decryption

@@ -481,6 +481,142 @@ class ServiceController extends Controller
         }
     }
 
+    // ─── Bandwidth / Graphs ────────────────────────────────────
+
+    public function getBandwidth(Request $request, int $id)
+    {
+        $clientId = $request->user()->whmcs_client_id;
+        $month    = $request->query('month', '');
+
+        try {
+            $result = $this->whmcs->vpsBandwidth($id, $clientId, $month);
+
+            if (($result['result'] ?? '') !== 'success') {
+                return response()->json(['error' => $result['message'] ?? 'Failed to get bandwidth data.'], 422);
+            }
+
+            return response()->json([
+                'bandwidth' => $result['bandwidth'] ?? [],
+                'raw'       => $result['raw'] ?? [],
+            ]);
+        } catch (\Exception $e) {
+            return response()->json(['error' => $e->getMessage()], 500);
+        }
+    }
+
+    // ─── Tasks & Logs ──────────────────────────────────────────
+
+    public function getTasks(Request $request, int $id)
+    {
+        $clientId = $request->user()->whmcs_client_id;
+
+        try {
+            $result = $this->whmcs->vpsTasks($id, $clientId);
+
+            if (($result['result'] ?? '') !== 'success') {
+                return response()->json(['error' => $result['message'] ?? 'Failed to get tasks.'], 422);
+            }
+
+            return response()->json(['tasks' => $result['tasks'] ?? []]);
+        } catch (\Exception $e) {
+            return response()->json(['error' => $e->getMessage()], 500);
+        }
+    }
+
+    public function getLogs(Request $request, int $id)
+    {
+        $clientId = $request->user()->whmcs_client_id;
+
+        try {
+            $result = $this->whmcs->vpsLogs($id, $clientId);
+
+            if (($result['result'] ?? '') !== 'success') {
+                return response()->json(['error' => $result['message'] ?? 'Failed to get logs.'], 422);
+            }
+
+            return response()->json(['logs' => $result['logs'] ?? []]);
+        } catch (\Exception $e) {
+            return response()->json(['error' => $e->getMessage()], 500);
+        }
+    }
+
+    public function getStatusLogs(Request $request, int $id)
+    {
+        $clientId = $request->user()->whmcs_client_id;
+
+        try {
+            $result = $this->whmcs->vpsStatusLogs($id, $clientId);
+
+            if (($result['result'] ?? '') !== 'success') {
+                return response()->json(['error' => $result['message'] ?? 'Failed to get status logs.'], 422);
+            }
+
+            return response()->json(['statuslogs' => $result['statuslogs'] ?? []]);
+        } catch (\Exception $e) {
+            return response()->json(['error' => $e->getMessage()], 500);
+        }
+    }
+
+    // ─── Rescue Mode ───────────────────────────────────────────
+
+    public function getRescueStatus(Request $request, int $id)
+    {
+        $clientId = $request->user()->whmcs_client_id;
+
+        try {
+            $result = $this->whmcs->vpsRescueStatus($id, $clientId);
+
+            if (($result['result'] ?? '') !== 'success') {
+                return response()->json(['error' => $result['message'] ?? 'Failed to get rescue status.'], 422);
+            }
+
+            return response()->json([
+                'enabled'     => (bool) ($result['enabled'] ?? false),
+                'cant_rescue' => (bool) ($result['cant_rescue'] ?? false),
+            ]);
+        } catch (\Exception $e) {
+            return response()->json(['error' => $e->getMessage()], 500);
+        }
+    }
+
+    public function enableRescue(Request $request, int $id)
+    {
+        $request->validate([
+            'password'      => 'required|string|min:6|max:64',
+            'conf_password' => 'required|string|same:password',
+        ]);
+        $clientId = $request->user()->whmcs_client_id;
+
+        try {
+            $result = $this->whmcs->vpsEnableRescue($id, $clientId, $request->password, $request->conf_password);
+
+            if (($result['result'] ?? '') !== 'success') {
+                return back()->withErrors(['whmcs' => $result['message'] ?? 'Failed to enable rescue mode.']);
+            }
+
+            return back()->with('success', $result['message'] ?? 'Rescue mode enabled.');
+        } catch (\Exception $e) {
+            return back()->withErrors(['whmcs' => 'Failed: ' . $e->getMessage()]);
+        }
+    }
+
+    public function disableRescue(Request $request, int $id)
+    {
+        $clientId = $request->user()->whmcs_client_id;
+
+        try {
+            $result = $this->whmcs->vpsDisableRescue($id, $clientId);
+
+            if (($result['result'] ?? '') !== 'success') {
+                return back()->withErrors(['whmcs' => $result['message'] ?? 'Failed to disable rescue mode.']);
+            }
+
+            return back()->with('success', $result['message'] ?? 'Rescue mode disabled.');
+        } catch (\Exception $e) {
+            return back()->withErrors(['whmcs' => 'Failed: ' . $e->getMessage()]);
+        }
+    }
+
     /**
      * Get available upgrade/downgrade options for a service.
      * Returns JSON with products, pricing, and payment methods.

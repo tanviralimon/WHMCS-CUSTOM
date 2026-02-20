@@ -64,6 +64,27 @@ Route::prefix('services')->name('services.')->group(function () {
         ->middleware(['whmcs.own:service,id', 'throttle:5,1']);
     Route::post('/{id}/vnc-password', [ServiceController::class, 'changeVncPassword'])->name('vncPassword')
         ->middleware(['whmcs.own:service,id', 'throttle:5,1']);
+
+    // ── VPS: Bandwidth / Graphs
+    Route::get('/{id}/bandwidth', [ServiceController::class, 'getBandwidth'])->name('bandwidth')
+        ->middleware(['whmcs.own:service,id', 'throttle:15,1']);
+
+    // ── VPS: Tasks & Logs
+    Route::get('/{id}/tasks', [ServiceController::class, 'getTasks'])->name('tasks')
+        ->middleware(['whmcs.own:service,id', 'throttle:15,1']);
+    Route::get('/{id}/logs', [ServiceController::class, 'getLogs'])->name('logs')
+        ->middleware(['whmcs.own:service,id', 'throttle:15,1']);
+    Route::get('/{id}/status-logs', [ServiceController::class, 'getStatusLogs'])->name('statusLogs')
+        ->middleware(['whmcs.own:service,id', 'throttle:15,1']);
+
+    // ── VPS: Rescue Mode
+    Route::get('/{id}/rescue', [ServiceController::class, 'getRescueStatus'])->name('rescue')
+        ->middleware(['whmcs.own:service,id', 'throttle:10,1']);
+    Route::post('/{id}/rescue/enable', [ServiceController::class, 'enableRescue'])->name('rescue.enable')
+        ->middleware(['whmcs.own:service,id', 'throttle:5,1']);
+    Route::post('/{id}/rescue/disable', [ServiceController::class, 'disableRescue'])->name('rescue.disable')
+        ->middleware(['whmcs.own:service,id', 'throttle:5,1']);
+
     Route::get('/{id}/upgrade-options', [ServiceController::class, 'upgradeOptions'])->name('upgradeOptions')
         ->middleware(['whmcs.own:service,id', 'throttle:10,1']);
     Route::post('/{id}/upgrade-calculate', [ServiceController::class, 'calculateUpgrade'])->name('upgradeCalculate')

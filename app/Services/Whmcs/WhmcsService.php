@@ -311,6 +311,66 @@ class WhmcsService
         ]);
     }
 
+    public function vpsBandwidth(int $serviceId, int $clientId, string $month = ''): array
+    {
+        $params = [
+            'serviceid' => $serviceId,
+            'clientid'  => $clientId,
+        ];
+        if ($month) $params['month'] = $month;
+        return $this->client->callSsoProxy('GetBandwidth', $params);
+    }
+
+    public function vpsTasks(int $serviceId, int $clientId): array
+    {
+        return $this->client->callSsoProxy('GetTasks', [
+            'serviceid' => $serviceId,
+            'clientid'  => $clientId,
+        ]);
+    }
+
+    public function vpsLogs(int $serviceId, int $clientId): array
+    {
+        return $this->client->callSsoProxy('GetLogs', [
+            'serviceid' => $serviceId,
+            'clientid'  => $clientId,
+        ]);
+    }
+
+    public function vpsStatusLogs(int $serviceId, int $clientId): array
+    {
+        return $this->client->callSsoProxy('GetStatusLogs', [
+            'serviceid' => $serviceId,
+            'clientid'  => $clientId,
+        ]);
+    }
+
+    public function vpsRescueStatus(int $serviceId, int $clientId): array
+    {
+        return $this->client->callSsoProxy('GetRescueStatus', [
+            'serviceid' => $serviceId,
+            'clientid'  => $clientId,
+        ]);
+    }
+
+    public function vpsEnableRescue(int $serviceId, int $clientId, string $password, string $confPassword): array
+    {
+        return $this->client->callSsoProxy('EnableRescue', [
+            'serviceid'     => $serviceId,
+            'clientid'      => $clientId,
+            'password'      => $password,
+            'conf_password' => $confPassword,
+        ]);
+    }
+
+    public function vpsDisableRescue(int $serviceId, int $clientId): array
+    {
+        return $this->client->callSsoProxy('DisableRescue', [
+            'serviceid' => $serviceId,
+            'clientid'  => $clientId,
+        ]);
+    }
+
     /**
      * Get service info from SSO proxy (module type, panel URLs, etc.)
      */
