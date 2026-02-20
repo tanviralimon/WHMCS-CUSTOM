@@ -433,7 +433,6 @@ class ServiceController extends Controller
                 'host'     => $result['host']     ?? '',
                 'port'     => $result['port']     ?? '',
                 'password' => $result['password'] ?? '',
-                'vpsid'    => $result['vpsid']    ?? '',
             ]);
         } catch (\Exception $e) {
             return response()->json(['error' => $e->getMessage()], 500);

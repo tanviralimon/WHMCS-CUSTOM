@@ -2806,7 +2806,6 @@ function handleVirtualizorStats($server, $service, $hostname)
     return [
         'result' => 'success',
         'vps' => [
-            'vpsid'          => $vpsId,
             'hostname'       => $vpsInfo['hostname'] ?? $service->domain ?? '',
             'os_name'        => $vpsInfo['os_name'] ?? '',
             'os_distro'      => $vpsInfo['os_distro'] ?? '',

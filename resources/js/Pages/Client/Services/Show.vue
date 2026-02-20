@@ -59,6 +59,7 @@ const tabs = computed(() => {
     return t;
 });
 const activeTab = ref(isVps ? 'management' : 'overview');
+const managementTab = ref('server');
 
 // Details
 const details = computed(() => {
@@ -789,7 +790,7 @@ function doRemoveSshKey(keyId) {
 // ── VNC ─────────────────────────────────────────────────────
 const vncLoaded       = ref(false);
 const vncLoading      = ref(false);
-const vncData         = ref({ host: '', port: '', password: '', vpsid: '' });
+const vncData         = ref({ host: '', port: '', password: '' });
 const vncPassInput    = ref('');
 const vncPassError    = ref('');
 const vncPassLoading  = ref(false);
@@ -1240,6 +1241,16 @@ function doDisableRescue() {
 
                 <!-- Management Tab (VPS) -->
                 <template v-if="activeTab === 'management' && isVps">
+                    <!-- Management Sub-Tabs -->
+                    <div class="flex bg-gray-100 rounded-xl p-1 mb-4 gap-1">
+                        <button v-for="mt in [{id:'server',label:'Overview'},{id:'controls',label:'Controls'},{id:'access',label:'Access'},{id:'monitoring',label:'Monitoring'},{id:'settings',label:'Settings'}]" :key="mt.id" @click="managementTab = mt.id"
+                            :class="['flex-1 py-2 text-[12px] font-medium rounded-lg transition-all text-center', managementTab === mt.id ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700']">
+                            {{ mt.label }}
+                        </button>
+                    </div>
+
+                    <!-- Overview Sub-Tab: VPS Info + Resources -->
+                    <template v-if="managementTab === 'server'">
                     <!-- VPS Information -->
                     <Card v-if="vps" title="VPS Information" description="Live server details from Virtualizor.">
                         <dl class="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-4">
@@ -1306,7 +1317,10 @@ function doDisableRescue() {
                             Auto-refreshing every 30 seconds
                         </p>
                     </Card>
+                    </template>
 
+                    <!-- Controls Sub-Tab: Power + Hostname + Password + Reinstall -->
+                    <template v-if="managementTab === 'controls'">
                     <!-- VPS Power Actions -->
                     <Card title="Power Actions" description="Control your VPS power state.">
                         <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
@@ -1407,7 +1421,10 @@ function doDisableRescue() {
                             </button>
                         </div>
                     </Card>
+                    </template>
 
+                    <!-- Access Sub-Tab: IPs + SSH + VNC -->
+                    <template v-if="managementTab === 'access'">
                     <!-- IP Addresses -->
                     <Card title="IP Addresses">
                         <div v-if="!ipsLoaded" class="flex items-center justify-between">
@@ -1615,16 +1632,10 @@ function doDisableRescue() {
                             </div>
                         </div>
                     </Card>
+                    </template>
 
-                    <Card v-if="hasConfig" title="Configuration Options">
-                        <dl class="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-3">
-                            <div v-for="opt in configOptions" :key="opt.id || opt.option">
-                                <dt class="text-[12px] font-medium text-gray-500">{{ opt.option || opt.optionname }}</dt>
-                                <dd class="text-[14px] text-gray-900 mt-0.5">{{ opt.value }}</dd>
-                            </div>
-                        </dl>
-                    </Card>
-
+                    <!-- Monitoring Sub-Tab: Bandwidth + Logs -->
+                    <template v-if="managementTab === 'monitoring'">
                     <!-- Bandwidth / Graphs -->
                     <Card title="Bandwidth & Graphs" description="Monthly transfer usage and network statistics.">
                         <div v-if="!bandwidthLoaded" class="flex items-center justify-between">
@@ -1760,7 +1771,10 @@ function doDisableRescue() {
                             </div>
                         </div>
                     </Card>
+                    </template>
 
+                    <!-- Settings Sub-Tab: Rescue + Config -->
+                    <template v-if="managementTab === 'settings'">
                     <!-- Rescue Mode -->
                     <Card title="Rescue Mode" description="Boot your VPS into a recovery environment to repair your system.">
                         <div v-if="!showRescueSection" class="flex items-start gap-4 p-4 rounded-xl border border-amber-200 bg-amber-50/50">
@@ -1824,6 +1838,15 @@ function doDisableRescue() {
                             </div>
                         </div>
                     </Card>
+                    <Card v-if="hasConfig" title="Configuration Options">
+                        <dl class="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-3">
+                            <div v-for="opt in configOptions" :key="opt.id || opt.option">
+                                <dt class="text-[12px] font-medium text-gray-500">{{ opt.option || opt.optionname }}</dt>
+                                <dd class="text-[14px] text-gray-900 mt-0.5">{{ opt.value }}</dd>
+                            </div>
+                        </dl>
+                    </Card>
+                    </template>
                 </template>
 
                 <!-- Configuration Tab -->
