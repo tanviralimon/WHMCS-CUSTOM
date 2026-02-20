@@ -465,19 +465,17 @@ class ServiceController extends Controller
         $clientId = $request->user()->whmcs_client_id;
 
         try {
-            $result = $this->whmcs->vpsGetVnc($id, $clientId);
+            // Use SSO redirect to Virtualizor's built-in noVNC page
+            // The blade template can't work because it tries to open a WebSocket
+            // to Virtualizor from our domain without an authenticated session.
+            $result = $this->whmcs->vpsAction($id, $clientId, 'vnc');
 
-            if (($result['result'] ?? '') !== 'success') {
-                abort(422, $result['message'] ?? 'Failed to get VNC info.');
+            if (($result['result'] ?? '') === 'success' && !empty($result['redirect_url'])) {
+                return redirect()->away($result['redirect_url']);
             }
 
-            return view('client.vnc_console', [
-                'host'      => $result['host']     ?? '',
-                'port'      => (int) ($result['port']     ?: 4083),
-                'password'  => $result['password'] ?? '',
-                'vpsid'     => (string) ($result['vpsid'] ?? ''),
-                'serviceId' => $id,
-            ]);
+            // Fallback: show error
+            abort(422, $result['message'] ?? 'Failed to open VNC console. Please try the VNC button on the service page.');
         } catch (\Exception $e) {
             abort(500, $e->getMessage());
         }
