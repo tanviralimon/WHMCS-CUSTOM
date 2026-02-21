@@ -134,7 +134,7 @@ class InvoiceController extends Controller
             'invoice'            => $result,
             'creditBalance'      => $creditBalance,
             'clientDetails'      => $clientDetails,
-            'companyName'        => config('app.name', 'OrcusTech'),
+            'companyName'        => 'OrcusTech',
             'paymentMethods'     => $gateways,
             'bankInfo'           => $bankInfo,
             'ticketUploadConfig' => $ticketUploadConfig,
@@ -144,9 +144,64 @@ class InvoiceController extends Controller
 
     public function downloadPdf(Request $request, int $id)
     {
-        // Redirect to WHMCS invoice PDF download
-        $url = rtrim(config('whmcs.base_url'), '/') . '/dl.php?type=i&id=' . $id;
-        return redirect()->away($url);
+        $clientId = $request->user()->whmcs_client_id;
+        $whmcsBase = rtrim(config('whmcs.base_url'), '/');
+
+        // Strategy 1: Create SSO token and use it to fetch the PDF server-side
+        try {
+            $sso = $this->whmcs->createClientSsoToken($clientId, 'clientarea:invoices');
+            if (!empty($sso['redirect_url'])) {
+                // First hit the SSO URL to get the session cookie, then download the PDF
+                $ch = curl_init();
+                $cookieFile = tempnam(sys_get_temp_dir(), 'whmcs_sso_');
+
+                // Step 1: Follow SSO redirect to establish session
+                curl_setopt_array($ch, [
+                    CURLOPT_URL => $sso['redirect_url'],
+                    CURLOPT_RETURNTRANSFER => true,
+                    CURLOPT_FOLLOWLOCATION => true,
+                    CURLOPT_COOKIEJAR => $cookieFile,
+                    CURLOPT_COOKIEFILE => $cookieFile,
+                    CURLOPT_SSL_VERIFYPEER => false,
+                    CURLOPT_TIMEOUT => 15,
+                    CURLOPT_USERAGENT => 'OrcusTech/1.0',
+                ]);
+                curl_exec($ch);
+
+                // Step 2: Download the PDF with the authenticated session
+                curl_setopt($ch, CURLOPT_URL, $whmcsBase . '/dl.php?type=i&id=' . $id);
+                $pdfContent = curl_exec($ch);
+                $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+                $contentType = curl_getinfo($ch, CURLINFO_CONTENT_TYPE);
+                curl_close($ch);
+                @unlink($cookieFile);
+
+                if ($httpCode === 200 && $pdfContent && str_contains($contentType, 'pdf')) {
+                    return response($pdfContent, 200, [
+                        'Content-Type' => 'application/pdf',
+                        'Content-Disposition' => 'inline; filename="Invoice-' . $id . '.pdf"',
+                        'Cache-Control' => 'no-cache',
+                    ]);
+                }
+            }
+        } catch (\Exception $e) {
+            // Fall through to SSO redirect
+        }
+
+        // Strategy 2: Redirect user through SSO to the PDF (browser will handle auth)
+        try {
+            $sso = $this->whmcs->createClientSsoToken($clientId, 'clientarea:invoices');
+            if (!empty($sso['redirect_url'])) {
+                $ssoUrl = $sso['redirect_url'];
+                $sep = str_contains($ssoUrl, '?') ? '&' : '?';
+                return redirect()->away($ssoUrl . $sep . 'goto=' . urlencode('dl.php?type=i&id=' . $id));
+            }
+        } catch (\Exception $e) {
+            // Fall through to direct link
+        }
+
+        // Strategy 3: Direct link (will require WHMCS login)
+        return redirect()->away($whmcsBase . '/dl.php?type=i&id=' . $id);
     }
 
     /**

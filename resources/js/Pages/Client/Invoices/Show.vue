@@ -209,6 +209,18 @@ function selectedGatewayName() {
     return pm?.displayname || selectedGateway.value;
 }
 
+// Reactive payment method name — updates when user selects a different gateway
+const currentPaymentMethodName = computed(() => {
+    // If user has changed the gateway from the original, show the new selection
+    if (selectedGateway.value && selectedGateway.value !== inv.value.paymentmethod) {
+        const pm = props.paymentMethods?.find(p => p.module === selectedGateway.value);
+        return pm?.displayname || selectedGateway.value || '—';
+    }
+    // Otherwise show the original method's display name or raw value
+    const pm = props.paymentMethods?.find(p => p.module === inv.value.paymentmethod);
+    return pm?.displayname || inv.value.paymentmethod || '—';
+});
+
 function friendlyGatewayName() {
     const m = (selectedGateway.value || '').toLowerCase();
     if (m.includes('sslcommerz')) return 'SSLCommerz';
@@ -330,7 +342,7 @@ const statusConfig = computed(() => {
                             </div>
                             <div>
                                 <p class="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1.5">Payment Method</p>
-                                <p class="text-[13px] font-semibold text-gray-900 capitalize">{{ inv.paymentmethod || '—' }}</p>
+                                <p class="text-[13px] font-semibold text-gray-900 capitalize">{{ currentPaymentMethodName }}</p>
                             </div>
                         </div>
                     </div>
