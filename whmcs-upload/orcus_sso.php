@@ -66,6 +66,73 @@ use WHMCS\Database\Capsule;
 
 header('Content-Type: application/json');
 
+// ═══════════════════════════════════════════════════════════
+// VNC Proxy — GET endpoint (before POST auth check)
+// Browser loads this directly in an iframe/popup.
+// Uses HMAC-signed tokens so no credentials are exposed in URL.
+// ═══════════════════════════════════════════════════════════
+if ($_SERVER['REQUEST_METHOD'] === 'GET' && ($_GET['action'] ?? '') === 'VncProxy') {
+    // Parse token: serviceid:clientid:vpsid:expiry:hmac
+    $token = $_GET['token'] ?? '';
+    $parts = explode(':', $token);
+
+    if (count($parts) !== 5) {
+        header('Content-Type: text/html');
+        echo '<h2>Invalid VNC token</h2>';
+        exit;
+    }
+
+    [$svcId, $cltId, $vpsId, $expiry, $hmac] = $parts;
+
+    // Check expiry (tokens valid for 5 minutes)
+    if (time() > (int)$expiry) {
+        header('Content-Type: text/html');
+        echo '<h2>VNC token expired</h2><p>Please close this window and click "Open VNC Console" again.</p>';
+        exit;
+    }
+
+    // Verify HMAC — signed with identifier+secret
+    $signKey = 'OvW1qayQgHu3mYa1UiqgCaOW0zrBKhQT:XHI9r0iN5zLMqIfd7AWUMsm4MKpymVxZ';
+    $expected = hash_hmac('sha256', "$svcId:$cltId:$vpsId:$expiry", $signKey);
+    if (!hash_equals($expected, $hmac)) {
+        header('Content-Type: text/html');
+        echo '<h2>Invalid VNC token signature</h2>';
+        exit;
+    }
+
+    // Auto-login the user to WHMCS
+    // Since we included init.php, we have access to WHMCS session
+    try {
+        // Get client info
+        $client = Capsule::table('tblclients')->where('id', (int)$cltId)->first();
+        if ($client) {
+            // Start/resume WHMCS session and set logged-in state
+            if (session_status() === PHP_SESSION_NONE) {
+                session_start();
+            }
+            $_SESSION['uid'] = (int)$cltId;
+            $_SESSION['upw'] = $client->password ?? '';
+            $_SESSION['tkval'] = sha1(time() . mt_rand());
+        }
+    } catch (\Exception $e) {
+        // If session creation fails, try to proceed anyway — WHMCS may prompt login
+    }
+
+    // Redirect to WHMCS's built-in noVNC page (jsnohf=1 = no header/footer)
+    $vncUrl = '/clientarea.php?' . http_build_query([
+        'action' => 'productdetails',
+        'id'     => (int)$svcId,
+        'act'    => 'vnc',
+        'novnc'  => 1,
+        'jsnohf' => 1,
+        'svs'    => (int)$vpsId,
+    ]);
+
+    header('Content-Type: text/html');
+    header('Location: ' . $vncUrl);
+    exit;
+}
+
 // ── Authenticate ───────────────────────────────────────────
 $identifier = $_POST['identifier'] ?? '';
 $secret     = $_POST['secret'] ?? '';
@@ -1121,6 +1188,47 @@ if ($action === 'DebugVnc') {
     ];
 
     echo json_encode($output, JSON_PRETTY_PRINT);
+    exit;
+}
+
+// ── VPS: Create VNC Token ──────────────────────────────────
+// Generates an HMAC-signed token for the VncProxy GET endpoint.
+// The token allows the browser to load the WHMCS noVNC page in
+// an iframe/popup without exposing API credentials.
+if ($action === 'CreateVncToken') {
+    if (!$serviceId) { echo json_encode(['result' => 'error', 'message' => 'serviceid is required']); exit; }
+
+    $service = Capsule::table('tblhosting')->where('id', $serviceId)->first();
+    if (!$service) { echo json_encode(['result' => 'error', 'message' => 'Service not found']); exit; }
+    if ($clientId && $service->userid != $clientId) { echo json_encode(['result' => 'error', 'message' => 'Access denied']); exit; }
+
+    $server  = Capsule::table('tblservers')->where('id', $service->server)->first();
+    $module  = strtolower($server->type ?? '');
+    if ($module !== 'virtualizor') { echo json_encode(['result' => 'error', 'message' => 'Only supported for Virtualizor']); exit; }
+
+    $vpsId = resolveVpsId($service);
+    if (!$vpsId) { echo json_encode(['result' => 'error', 'message' => 'VPS ID not found']); exit; }
+
+    $cltId  = $service->userid;
+    $expiry = time() + 300; // 5 minutes
+
+    // Sign with identifier:secret — same key used for verification in VncProxy
+    $signKey = 'OvW1qayQgHu3mYa1UiqgCaOW0zrBKhQT:XHI9r0iN5zLMqIfd7AWUMsm4MKpymVxZ';
+    $hmac    = hash_hmac('sha256', "$serviceId:$cltId:$vpsId:$expiry", $signKey);
+    $token   = "$serviceId:$cltId:$vpsId:$expiry:$hmac";
+
+    // Build the proxy URL — browser will load this directly
+    $proxyUrl = '/orcus_sso.php?' . http_build_query([
+        'action' => 'VncProxy',
+        'token'  => $token,
+    ]);
+
+    echo json_encode([
+        'result'   => 'success',
+        'url'      => $proxyUrl,
+        'vpsid'    => $vpsId,
+        'expiry'   => $expiry,
+    ]);
     exit;
 }
 

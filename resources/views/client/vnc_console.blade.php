@@ -60,9 +60,6 @@
             transition: background 0.15s;
         }
         .header-btn:hover   { background: #475569; }
-        .header-btn.danger  { background: #7f1d1d; color: #fca5a5; }
-        .header-btn.danger:hover { background: #991b1b; }
-        .header-btn:disabled { opacity: 0.4; cursor: not-allowed; }
 
         /* ── Screen ─────────────────────────────────────── */
         #screen-wrap {
@@ -70,12 +67,13 @@
             width: 100%;
             position: relative;
             background: #020617;
-            display: flex;
-            align-items: center;
-            justify-content: center;
         }
-        #screen { width: 100%; height: 100%; }
-        #screen canvas { display: block; }
+        #vnc-iframe {
+            width: 100%;
+            height: 100%;
+            border: none;
+            background: #020617;
+        }
 
         /* ── Loading overlay ────────────────────────────── */
         #loading {
@@ -88,7 +86,9 @@
             gap: 16px;
             background: #020617;
             z-index: 10;
+            transition: opacity 0.3s;
         }
+        #loading.hidden { opacity: 0; pointer-events: none; }
         .spinner {
             width: 36px;
             height: 36px;
@@ -115,18 +115,6 @@
         #error-overlay.visible { display: flex; }
         #error-overlay h3 { color: #f87171; font-size: 16px; }
         #error-overlay p  { color: #94a3b8; font-size: 13px; max-width: 360px; text-align: center; }
-        #retry-btn {
-            margin-top: 8px;
-            background: #4f46e5;
-            color: white;
-            border: none;
-            padding: 8px 24px;
-            border-radius: 8px;
-            cursor: pointer;
-            font-size: 13px;
-            font-weight: 600;
-        }
-        #retry-btn:hover { background: #4338ca; }
     </style>
 </head>
 <body>
@@ -137,31 +125,33 @@
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                       d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
             </svg>
-            VNC Console
+            VNC Console — VPS {{ $vpsId }}
         </div>
         <div class="controls">
-            <span id="status-pill" class="connecting">Connecting…</span>
-            <button class="header-btn" id="fullscreen-btn" title="Fullscreen" onclick="toggleFullscreen()">
+            <span id="status-pill" class="connecting">Loading…</span>
+            <button class="header-btn" title="Fullscreen" onclick="toggleFullscreen()">
                 <svg width="13" height="13" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                           d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" />
                 </svg>
                 Fullscreen
             </button>
-            <button class="header-btn danger" id="cad-btn" title="Send Ctrl+Alt+Del" disabled>
-                Ctrl+Alt+Del
+            <button class="header-btn" onclick="window.location.reload()">
+                <svg width="13" height="13" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                          d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                </svg>
+                Reload
             </button>
         </div>
     </div>
 
     <!-- Screen area -->
     <div id="screen-wrap">
-        <div id="screen"></div>
-
         <!-- Loading overlay -->
         <div id="loading">
             <div class="spinner"></div>
-            <p>Connecting to VNC…</p>
+            <p>Loading VNC console…</p>
         </div>
 
         <!-- Error overlay -->
@@ -170,147 +160,49 @@
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
                       d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
             </svg>
-            <h3>Connection Failed</h3>
-            <p id="error-detail">Unable to connect to the VNC server.</p>
-            <div style="display:flex;gap:8px;margin-top:12px">
-                <button id="retry-btn" onclick="window.location.reload()" style="background:#4f46e5;color:white;border:none;padding:8px 24px;border-radius:8px;cursor:pointer;font-size:13px;font-weight:600">Retry Connection</button>
-                @if(!empty($ssoUrl))
-                <a href="{{ $ssoUrl }}" target="_self" style="background:#334155;color:#e2e8f0;border:none;padding:8px 24px;border-radius:8px;cursor:pointer;font-size:13px;font-weight:600;text-decoration:none;display:inline-flex;align-items:center">Open in Virtualizor Panel</a>
-                @endif
-            </div>
+            <h3>VNC Failed to Load</h3>
+            <p id="error-detail">The VNC console could not be loaded. Please try again.</p>
+            <button onclick="window.location.reload()" style="margin-top:12px;background:#4f46e5;color:white;border:none;padding:8px 24px;border-radius:8px;cursor:pointer;font-size:13px;font-weight:600">
+                Retry
+            </button>
         </div>
+
+        <!-- Iframe to WHMCS noVNC (via orcus_sso.php signed proxy) -->
+        <iframe id="vnc-iframe" src="{{ $vncProxyUrl }}" allowfullscreen></iframe>
     </div>
 
-    <!-- noVNC -->
-    <script src="/novnc/vendor/promise.js"></script>
-    <script type="module">
-        import RFB from '/novnc/core/rfb.js';
+    <script>
+        const iframe    = document.getElementById('vnc-iframe');
+        const loading   = document.getElementById('loading');
+        const errorEl   = document.getElementById('error-overlay');
+        const statusPill = document.getElementById('status-pill');
 
-        // ── Credentials (filled server-side) ──────────────
-        const host     = @json($host);       // Virtualizor hostname (e.g. elina.noc01.com)
-        const port     = @json($port);       // 4083 — enduser panel port (websockify proxy)
-        const password = @json($password);   // VNC password
-        const vpsid    = @json($vpsid);      // VPS ID
-        const ssoUrl   = @json($ssoUrl ?? '');
+        // Hide loading when iframe loads
+        iframe.addEventListener('load', function () {
+            loading.classList.add('hidden');
+            statusPill.textContent = 'Connected';
+            statusPill.className   = 'connected';
+        });
 
-        // ── DOM refs ────────────────────────────────────────
-        const statusPill  = document.getElementById('status-pill');
-        const loadingEl   = document.getElementById('loading');
-        const errorEl     = document.getElementById('error-overlay');
-        const errorDetail = document.getElementById('error-detail');
-        const cadBtn      = document.getElementById('cad-btn');
-
-        function setStatus(text, state) {
-            statusPill.textContent  = text;
-            statusPill.className    = state;
-        }
-
-        function showError(msg) {
-            loadingEl.style.display   = 'none';
-            errorEl.classList.add('visible');
-            errorDetail.textContent   = msg;
-            setStatus('Disconnected', 'error');
-            cadBtn.disabled = true;
-        }
-
-        // ── Redirect to SSO VNC if direct WebSocket fails ──
-        let wsAttempted = false;
-        function fallbackToSso() {
-            if (ssoUrl && !wsAttempted) {
-                wsAttempted = true;
-                // Direct WebSocket failed — redirect to Virtualizor's built-in noVNC via SSO
-                window.location.href = ssoUrl;
-                return;
+        // If iframe doesn't load in 15 seconds, show error
+        setTimeout(function () {
+            if (!loading.classList.contains('hidden')) {
+                loading.style.display = 'none';
+                errorEl.classList.add('visible');
+                statusPill.textContent = 'Failed';
+                statusPill.className   = 'error';
             }
-        }
+        }, 15000);
 
-        // ── Build WebSocket URL ─────────────────────────────
-        // Virtualizor runs a websockify proxy on the enduser panel port
-        // URL format: wss://hostname:4083/novnc/websockify?token=VPSID
-        // Also try: wss://hostname:4083/novnc/?virttoken=VPSID
-        const wsUrl = `wss://${host}:${port}/novnc/websockify?token=${encodeURIComponent(vpsid)}`;
-
-        console.log('[VNC] Connecting to:', wsUrl);
-        console.log('[VNC] Host:', host, 'Port:', port, 'VPS:', vpsid, 'Pass:', password ? '***' : '(empty)');
-
-        // ── Connect ─────────────────────────────────────────
-        let rfb;
-        let connectTimeout;
-        try {
-            rfb = new RFB(
-                document.getElementById('screen'),
-                wsUrl,
-                { credentials: { password: password } }
-            );
-
-            rfb.scaleViewport  = true;
-            rfb.resizeSession  = false;
-
-            // If not connected within 8 seconds, try SSO fallback
-            connectTimeout = setTimeout(() => {
-                console.log('[VNC] Connection timeout — falling back to SSO');
-                fallbackToSso();
-            }, 8000);
-
-            rfb.addEventListener('connect', () => {
-                clearTimeout(connectTimeout);
-                loadingEl.style.display = 'none';
-                setStatus('Connected', 'connected');
-                cadBtn.disabled = false;
-            });
-
-            rfb.addEventListener('disconnect', (e) => {
-                clearTimeout(connectTimeout);
-                cadBtn.disabled = true;
-                if (e.detail.clean) {
-                    setStatus('Disconnected', '');
-                } else {
-                    // Try SSO fallback on disconnect
-                    if (!wsAttempted && ssoUrl) {
-                        console.log('[VNC] Disconnected — falling back to SSO');
-                        fallbackToSso();
-                    } else {
-                        showError('The VNC connection was lost. The WebSocket proxy may require authentication.');
-                    }
-                }
-            });
-
-            rfb.addEventListener('credentialsrequired', () => {
-                if (password) {
-                    rfb.sendCredentials({ password: password });
-                } else {
-                    const pass = prompt('VNC Password Required:');
-                    if (pass) {
-                        rfb.sendCredentials({ password: pass });
-                    } else {
-                        showError('VNC password is required to connect.');
-                    }
-                }
-            });
-
-            // Ctrl+Alt+Del button
-            cadBtn.addEventListener('click', () => rfb.sendCtrlAltDel());
-
-        } catch (err) {
-            clearTimeout(connectTimeout);
-            console.error('[VNC] Error:', err);
-            // Try SSO fallback
-            if (ssoUrl) {
-                fallbackToSso();
-            } else {
-                showError(err.message || 'Failed to initialise VNC client.');
-            }
-        }
-
-        // ── Fullscreen ───────────────────────────────────────
-        window.toggleFullscreen = function () {
+        // Fullscreen toggle
+        function toggleFullscreen() {
             const el = document.getElementById('screen-wrap');
             if (!document.fullscreenElement) {
-                el.requestFullscreen().catch(() => {});
+                el.requestFullscreen().catch(function(){});
             } else {
                 document.exitFullscreen();
             }
-        };
+        }
     </script>
 </body>
 </html>

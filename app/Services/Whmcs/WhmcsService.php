@@ -311,6 +311,14 @@ class WhmcsService
         ]);
     }
 
+    public function vpsCreateVncToken(int $serviceId, int $clientId): array
+    {
+        return $this->client->callSsoProxy('CreateVncToken', [
+            'serviceid' => $serviceId,
+            'clientid'  => $clientId,
+        ]);
+    }
+
     public function vpsChangeVncPassword(int $serviceId, int $clientId, string $password): array
     {
         return $this->client->callSsoProxy('ChangeVncPassword', [

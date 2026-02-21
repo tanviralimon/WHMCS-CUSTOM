@@ -177,7 +177,7 @@ class WhmcsClient
     private const SSO_SLOW_ACTIONS = [
         'GetVpsStats', 'VpsAction', 'RebuildVps', 'ChangeHostname',
         'GetIPs', 'GetSSH', 'GetSshKeys', 'AddSshKey', 'RemoveSshKey',
-        'GetVnc', 'ChangeVncPassword', 'TestVirtApi',
+        'GetVnc', 'ChangeVncPassword', 'CreateVncToken', 'TestVirtApi',
         'DebugVnc', 'DebugPrimaryIP',
     ];
 

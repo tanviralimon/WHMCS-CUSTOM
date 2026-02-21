@@ -466,27 +466,22 @@ class ServiceController extends Controller
         $clientId = $request->user()->whmcs_client_id;
 
         try {
-            // Get VNC info to obtain the VPS ID
-            $vnc = $this->whmcs->vpsGetVnc($id, $clientId);
-            $vpsId = $vnc['vpsid'] ?? '';
+            // Ask orcus_sso.php to generate a signed VNC proxy token
+            $token = $this->whmcs->vpsCreateVncToken($id, $clientId);
 
-            if (empty($vpsId)) {
-                abort(422, 'Could not determine VPS ID for VNC console.');
+            if (($token['result'] ?? '') !== 'success' || empty($token['url'])) {
+                abort(422, $token['message'] ?? 'Failed to generate VNC token.');
             }
 
-            // Redirect to WHMCS's built-in Virtualizor noVNC client
-            // This is the same URL WHMCS uses: clientarea.php?action=productdetails&id=SERVICE&act=vnc&novnc=1&jsnohf=1&svs=VPSID
-            $whmcsUrl = config('services.whmcs.base_url', env('WHMCS_BASE_URL', 'https://dash.orcustech.com'));
-            $vncUrl = $whmcsUrl . '/clientarea.php?' . http_build_query([
-                'action' => 'productdetails',
-                'id'     => $id,
-                'act'    => 'vnc',
-                'novnc'  => 1,
-                'jsnohf' => 1,
-                'svs'    => $vpsId,
-            ]);
+            // Build the full proxy URL on the WHMCS server
+            $whmcsUrl = rtrim(config('services.whmcs.base_url', env('WHMCS_BASE_URL', 'https://dash.orcustech.com')), '/');
+            $proxyUrl = $whmcsUrl . $token['url'];
 
-            return redirect()->away($vncUrl);
+            return view('client.vnc_console', [
+                'vncProxyUrl' => $proxyUrl,
+                'serviceId'   => $id,
+                'vpsId'       => $token['vpsid'] ?? '',
+            ]);
         } catch (\Exception $e) {
             abort(500, $e->getMessage());
         }
