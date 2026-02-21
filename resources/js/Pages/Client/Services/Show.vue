@@ -924,6 +924,7 @@ function copyVncPassword() {
 const bandwidthLoaded    = ref(false);
 const bandwidthLoading   = ref(false);
 const bandwidthData      = ref(null);
+const bandwidthError     = ref('');
 const bandwidthMonth     = ref('');
 const bandwidthMonths    = computed(() => {
     // Build last 12 months for selector
@@ -941,14 +942,35 @@ const bandwidthMonths    = computed(() => {
 async function loadBandwidth() {
     if (bandwidthLoading.value) return;
     bandwidthLoading.value = true;
+    bandwidthError.value = '';
     try {
         const url = route('client.services.bandwidth', s.id) + (bandwidthMonth.value ? `?month=${bandwidthMonth.value}` : '');
         const resp = await fetch(url, { headers: { 'X-Requested-With': 'XMLHttpRequest' } });
         const data = await resp.json();
-        if (!data.error) {
-            bandwidthData.value = data.bandwidth ?? data.raw ?? {};
+        if (data.error) {
+            bandwidthError.value = data.error;
+        } else {
+            // Use normalized bandwidth, fall back to raw Virtualizor response
+            let bw = data.bandwidth ?? {};
+            // If bandwidth is empty or has no useful fields, try raw response
+            if (bw && Object.keys(bw).length === 0 && data.raw) {
+                const rawBw = data.raw?.bandwidth ?? data.raw?.bw ?? {};
+                if (rawBw && Object.keys(rawBw).length > 0) {
+                    bw = {
+                        used_bandwidth: parseFloat(rawBw.used_gb ?? (rawBw.used ? (rawBw.used / 1024).toFixed(2) : 0)),
+                        bandwidth: parseFloat(rawBw.limit_gb ?? (rawBw.limit ? (rawBw.limit / 1024).toFixed(2) : 0)),
+                        free_bandwidth: parseFloat(rawBw.free_gb ?? (rawBw.free ? (rawBw.free / 1024).toFixed(2) : 0)),
+                        percent: parseFloat(rawBw.percent ?? 0),
+                        network_in: rawBw.in?.used_gb ? parseFloat(rawBw.in.used_gb) : null,
+                        network_out: rawBw.out?.used_gb ? parseFloat(rawBw.out.used_gb) : null,
+                    };
+                }
+            }
+            bandwidthData.value = bw;
         }
-    } catch (e) { /* silent */ }
+    } catch (e) {
+        bandwidthError.value = 'Network error: ' + (e.message || 'Request failed');
+    }
     finally { bandwidthLoaded.value = true; bandwidthLoading.value = false; }
 }
 
@@ -972,6 +994,7 @@ const logsData        = ref([]);
 const statusLogsLoaded  = ref(false);
 const statusLogsLoading = ref(false);
 const statusLogsData    = ref([]);
+const statusLogsError   = ref('');
 
 async function loadTasks() {
     if (tasksLoading.value) return;
@@ -998,11 +1021,18 @@ async function loadLogs() {
 async function loadStatusLogs() {
     if (statusLogsLoading.value) return;
     statusLogsLoading.value = true;
+    statusLogsError.value = '';
     try {
         const resp = await fetch(route('client.services.statusLogs', s.id), { headers: { 'X-Requested-With': 'XMLHttpRequest' } });
         const data = await resp.json();
-        if (!data.error) statusLogsData.value = data.statuslogs ?? [];
-    } catch (e) { /* silent */ }
+        if (data.error) {
+            statusLogsError.value = data.error;
+        } else {
+            statusLogsData.value = data.statuslogs ?? [];
+        }
+    } catch (e) {
+        statusLogsError.value = 'Network error: ' + (e.message || 'Request failed');
+    }
     finally { statusLogsLoaded.value = true; statusLogsLoading.value = false; }
 }
 
@@ -1858,7 +1888,11 @@ function doDisableRescue() {
                                     <div class="h-3 rounded-full transition-all duration-700" :class="progressColor(bandwidthData.percent ?? 0)" :style="{ width: Math.min(bandwidthData.percent ?? 0, 100) + '%' }"></div>
                                 </div>
                             </div>
-                            <div v-if="bandwidthData && Object.keys(bandwidthData).length === 0" class="text-[13px] text-gray-400 text-center py-4">No bandwidth data available for this period.</div>
+                            <div v-if="bandwidthError" class="px-4 py-3 bg-red-50 border border-red-200 rounded-lg text-[13px] text-red-700 flex items-center gap-2">
+                                <svg class="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                                {{ bandwidthError }}
+                            </div>
+                            <div v-else-if="bandwidthData && Object.keys(bandwidthData).length === 0" class="text-[13px] text-gray-400 text-center py-4">No bandwidth data available for this period.</div>
                         </div>
                     </Card>
 
@@ -1922,6 +1956,10 @@ function doDisableRescue() {
                             <!-- Status Logs -->
                             <div v-if="logsActiveTab === 'statuslogs'">
                                 <div v-if="statusLogsLoading" class="flex justify-center py-6"><svg class="w-6 h-6 animate-spin text-gray-400" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg></div>
+                                <div v-else-if="statusLogsError" class="px-4 py-3 bg-red-50 border border-red-200 rounded-lg text-[13px] text-red-700 flex items-center gap-2">
+                                    <svg class="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                                    {{ statusLogsError }}
+                                </div>
                                 <div v-else-if="statusLogsData.length === 0" class="text-center py-6 text-[13px] text-gray-400">No status logs found.</div>
                                 <div v-else class="overflow-x-auto">
                                     <table class="w-full text-[12px]">
