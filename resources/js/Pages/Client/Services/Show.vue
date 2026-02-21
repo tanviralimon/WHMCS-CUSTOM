@@ -167,16 +167,17 @@ function progressRingColor(pct) {
     return 'text-indigo-500';
 }
 
-const osIcon = computed(() => {
-    if (!vps.value) return '\uD83D\uDDA5\uFE0F';
-    const distro = (vps.value.os_distro || vps.value.os_name || '').toLowerCase();
-    if (distro.includes('ubuntu')) return '\uD83D\uDFE0';
-    if (distro.includes('centos')) return '\uD83D\uDFE3';
-    if (distro.includes('debian')) return '\uD83D\uDD34';
-    if (distro.includes('almalinux') || distro.includes('alma')) return '\uD83D\uDD35';
-    if (distro.includes('rocky')) return '\uD83D\uDFE2';
-    if (distro.includes('windows')) return '\uD83E\uDE9F';
-    return '\uD83D\uDC27';
+const osLogoUrl = computed(() => {
+    const distro = (vps.value?.os_distro || vps.value?.os_name || '').toLowerCase();
+    if (distro.includes('ubuntu')) return '/images/os/ubuntu.svg';
+    if (distro.includes('centos')) return '/images/os/centos.svg';
+    if (distro.includes('debian')) return '/images/os/debian.svg';
+    if (distro.includes('almalinux') || distro.includes('alma')) return '/images/os/almalinux.svg';
+    if (distro.includes('rocky')) return '/images/os/rocky.svg';
+    if (distro.includes('windows')) return '/images/os/windows.svg';
+    if (distro.includes('fedora')) return '/images/os/fedora.svg';
+    if (distro.includes('suse') || distro.includes('opensuse')) return '/images/os/opensuse.svg';
+    return '/images/os/linux.svg';
 });
 
 // Cancel Modal
@@ -1103,7 +1104,9 @@ function doDisableRescue() {
                 <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
                     <div class="flex items-center gap-4">
                         <div class="relative">
-                            <div class="w-14 h-14 rounded-xl bg-white/10 backdrop-blur flex items-center justify-center text-2xl">{{ osIcon }}</div>
+                            <div class="w-14 h-14 rounded-xl bg-white/10 backdrop-blur flex items-center justify-center p-2">
+                                <img :src="osLogoUrl" :alt="vps?.os_name || 'OS'" class="w-10 h-10 rounded-lg object-contain" />
+                            </div>
                             <span :class="[vpsStatusColor, 'absolute -bottom-0.5 -right-0.5 w-4 h-4 rounded-full border-2 border-slate-800']" :title="vpsStatusLabel"></span>
                         </div>
                         <div>
@@ -1131,17 +1134,7 @@ function doDisableRescue() {
                             </div>
                         </div>
                     </div>
-                    <div class="flex items-center gap-2 flex-shrink-0">
-                        <a v-if="panelLoginUrl" :href="panelLoginUrl" target="_blank" class="inline-flex items-center gap-2 px-4 py-2 bg-indigo-500 hover:bg-indigo-400 text-white text-[13px] font-semibold rounded-lg transition-colors shadow-sm">
-                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" /></svg>
-                            {{ moduleName }}
-                        </a>
-                        <button @click="confirmAction('vnc')" :disabled="actionLoading === 'vnc'" class="inline-flex items-center gap-2 px-4 py-2 bg-white/10 hover:bg-white/20 text-white text-[13px] font-semibold rounded-lg transition-colors backdrop-blur">
-                            <svg v-if="actionLoading !== 'vnc'" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" /></svg>
-                            <svg v-else class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" /><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
-                            VNC
-                        </button>
-                    </div>
+
                 </div>
             </div>
 
@@ -1329,7 +1322,7 @@ function doDisableRescue() {
                     <!-- VPS Information -->
                     <Card v-if="vps" title="VPS Information" description="Live server details from Virtualizor.">
                         <dl class="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-4">
-                            <div v-if="vps.os_name"><dt class="text-[12px] font-medium text-gray-500 uppercase tracking-wider">Operating System</dt><dd class="mt-1 text-[14px] text-gray-900 flex items-center gap-2"><span>{{ osIcon }}</span> {{ vps.os_name }}</dd></div>
+                            <div v-if="vps.os_name"><dt class="text-[12px] font-medium text-gray-500 uppercase tracking-wider">Operating System</dt><dd class="mt-1 text-[14px] text-gray-900 flex items-center gap-2"><img :src="osLogoUrl" :alt="vps.os_name" class="w-5 h-5 rounded" /> {{ vps.os_name }}</dd></div>
                             <div><dt class="text-[12px] font-medium text-gray-500 uppercase tracking-wider">Hostname</dt><dd class="mt-1 text-[13px] text-gray-900 font-mono">{{ vps.hostname || s.domain || '\u2014' }}</dd></div>
                             <div><dt class="text-[12px] font-medium text-gray-500 uppercase tracking-wider">Status</dt><dd class="mt-1 flex items-center gap-2"><span :class="[vpsStatusColor, 'w-2.5 h-2.5 rounded-full inline-block']"></span><span class="text-[14px] text-gray-900 font-medium">{{ vpsStatusLabel }}</span></dd></div>
                             <div v-if="vps.ips?.length"><dt class="text-[12px] font-medium text-gray-500 uppercase tracking-wider">IP Address{{ vps.ips.length > 1 ? 'es' : '' }}</dt><dd class="mt-1 space-y-0.5"><span v-for="ip in vps.ips" :key="ip" class="block text-[13px] text-gray-900 font-mono">{{ ip }}</span></dd></div>
