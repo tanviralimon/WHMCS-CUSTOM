@@ -1957,7 +1957,7 @@ function doDisableRescue() {
                                         <tbody>
                                             <tr v-for="t in tasksData.slice(0, 20)" :key="t.actid ?? t.id ?? Math.random()" class="border-b border-gray-50 hover:bg-gray-50">
                                                 <td class="py-2 px-2 text-gray-500 font-mono">{{ t.actid ?? t.id ?? '—' }}</td>
-                                                <td class="py-2 px-2 text-gray-900 font-medium">{{ t.action ?? t.name ?? '—' }}</td>
+                                                <td class="py-2 px-2 text-gray-900 font-medium capitalize">{{ (t.action ?? t.name ?? '—').replaceAll('_', ' ') }}</td>
                                                 <td class="py-2 px-2 text-gray-500">{{ t.started ?? t.created_at ?? '—' }}</td>
                                                 <td class="py-2 px-2 text-gray-500">{{ t.ended ?? t.updated_at ?? '—' }}</td>
                                                 <td class="py-2 px-2"><span :class="['inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold', String(t.status) === '-1' || t.status === 'failed' ? 'bg-red-100 text-red-700' : (String(t.status) === '2' || String(t.status) === '1' || t.status === 'done' || t.done) ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700']">{{ String(t.status) === '-1' || t.status === 'failed' ? 'Failed' : (String(t.status) === '2' || t.done ? 'Done' : (String(t.status) === '1' ? 'Completed' : (String(t.status) === '0' ? 'Pending' : (t.status ?? 'Pending')))) }}</span></td>
