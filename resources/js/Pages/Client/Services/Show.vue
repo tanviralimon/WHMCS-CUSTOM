@@ -950,28 +950,45 @@ async function loadBandwidth() {
         if (data.error) {
             bandwidthError.value = data.error;
         } else {
-            // Use normalized bandwidth, fall back to raw Virtualizor response
-            let bw = data.bandwidth ?? {};
-            // If bandwidth is empty or has no useful fields, try raw response
-            if (bw && Object.keys(bw).length === 0 && data.raw) {
-                const rawBw = data.raw?.bandwidth ?? data.raw?.bw ?? {};
-                if (rawBw && Object.keys(rawBw).length > 0) {
-                    bw = {
-                        used_bandwidth: parseFloat(rawBw.used_gb ?? (rawBw.used ? (rawBw.used / 1024).toFixed(2) : 0)),
-                        bandwidth: parseFloat(rawBw.limit_gb ?? (rawBw.limit ? (rawBw.limit / 1024).toFixed(2) : 0)),
-                        free_bandwidth: parseFloat(rawBw.free_gb ?? (rawBw.free ? (rawBw.free / 1024).toFixed(2) : 0)),
-                        percent: parseFloat(rawBw.percent ?? 0),
-                        network_in: rawBw.in?.used_gb ? parseFloat(rawBw.in.used_gb) : null,
-                        network_out: rawBw.out?.used_gb ? parseFloat(rawBw.out.used_gb) : null,
-                    };
-                }
-            }
-            bandwidthData.value = bw;
+            bandwidthData.value = normalizeBandwidth(data);
         }
     } catch (e) {
         bandwidthError.value = 'Network error: ' + (e.message || 'Request failed');
     }
     finally { bandwidthLoaded.value = true; bandwidthLoading.value = false; }
+}
+
+// Normalize bandwidth from any response format into consistent fields
+function normalizeBandwidth(data) {
+    // Try the main bandwidth object, then raw, then raw.bandwidth
+    const bw = data.bandwidth ?? {};
+    const rawBw = data.raw?.bandwidth ?? data.raw?.bw ?? {};
+    // Pick the source that has the most data
+    const src = (bw.used_bandwidth !== undefined) ? bw       // already normalized (new orcus_sso.php)
+              : (bw.used_gb !== undefined || bw.used !== undefined) ? bw  // raw Virtualizor format
+              : (rawBw.used_gb !== undefined || rawBw.used !== undefined) ? rawBw  // nested in raw
+              : bw;
+
+    if (!src || Object.keys(src).length === 0) return {};
+
+    // If already has our normalized field names, return as-is
+    if (src.used_bandwidth !== undefined) return src;
+
+    // Convert raw Virtualizor format → normalized
+    const usedMb = parseFloat(src.used ?? 0);
+    const limitMb = parseFloat(src.limit ?? 0);
+    const freeMb = parseFloat(src.free ?? 0);
+    return {
+        used_bandwidth: parseFloat(src.used_gb ?? (usedMb / 1024).toFixed(2)),
+        bandwidth: parseFloat(src.limit_gb ?? (limitMb / 1024).toFixed(2)),
+        free_bandwidth: parseFloat(src.free_gb ?? (freeMb / 1024).toFixed(2)),
+        percent: parseFloat(src.percent ?? 0),
+        network_in: src.in?.used_gb != null ? parseFloat(src.in.used_gb) : null,
+        network_out: src.out?.used_gb != null ? parseFloat(src.out.used_gb) : null,
+        daily_usage: src.usage ?? {},
+        daily_in: src.in?.usage ?? {},
+        daily_out: src.out?.usage ?? {},
+    };
 }
 
 function formatBwBytes(val) {
@@ -1028,7 +1045,23 @@ async function loadStatusLogs() {
         if (data.error) {
             statusLogsError.value = data.error;
         } else {
-            statusLogsData.value = data.statuslogs ?? [];
+            let entries = data.statuslogs ?? [];
+            // Normalize entries: convert raw status codes and timestamps
+            entries = entries.map(e => {
+                const entry = { ...e };
+                // Convert Unix timestamp to readable date if numeric
+                if (entry.time && /^\d{9,}$/.test(String(entry.time))) {
+                    entry.timestamp = parseInt(entry.time);
+                    entry.time = new Date(parseInt(entry.time) * 1000).toLocaleString();
+                }
+                // Normalize status: 1 = Running, 0 = Stopped (if still numeric)
+                if (entry.status !== undefined && (entry.status === 1 || entry.status === '1' || entry.status === 0 || entry.status === '0')) {
+                    entry.status_code = parseInt(entry.status);
+                    entry.status = entry.status == 1 ? 'Running' : 'Stopped';
+                }
+                return entry;
+            });
+            statusLogsData.value = entries;
         }
     } catch (e) {
         statusLogsError.value = 'Network error: ' + (e.message || 'Request failed');

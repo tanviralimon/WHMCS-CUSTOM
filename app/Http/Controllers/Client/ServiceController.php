@@ -519,10 +519,34 @@ class ServiceController extends Controller
                 return response()->json(['error' => $result['message'] ?? 'Failed to get bandwidth data.'], 422);
             }
 
+            $bw  = $result['bandwidth'] ?? [];
+            $raw = $result['raw'] ?? [];
+
+            // Server-side normalization: if orcus_sso.php returned raw Virtualizor
+            // fields (used_gb, limit, used...) instead of our normalized names
+            // (used_bandwidth, bandwidth...), normalize here as a safety net.
+            if (!empty($bw) && !isset($bw['used_bandwidth'])) {
+                $usedMb  = floatval($bw['used'] ?? 0);
+                $limitMb = floatval($bw['limit'] ?? 0);
+                $freeMb  = floatval($bw['free'] ?? 0);
+
+                $bw = [
+                    'used_bandwidth' => floatval($bw['used_gb'] ?? round($usedMb / 1024, 2)),
+                    'bandwidth'      => floatval($bw['limit_gb'] ?? round($limitMb / 1024, 2)),
+                    'free_bandwidth' => floatval($bw['free_gb'] ?? round(max($limitMb - $usedMb, 0) / 1024, 2)),
+                    'percent'        => floatval($bw['percent'] ?? ($limitMb > 0 ? round($usedMb / $limitMb * 100, 2) : 0)),
+                    'network_in'     => isset($bw['in']['used_gb']) ? floatval($bw['in']['used_gb']) : null,
+                    'network_out'    => isset($bw['out']['used_gb']) ? floatval($bw['out']['used_gb']) : null,
+                    'daily_usage'    => $bw['usage'] ?? [],
+                    'daily_in'       => $bw['in']['usage'] ?? [],
+                    'daily_out'      => $bw['out']['usage'] ?? [],
+                ];
+            }
+
             return response()->json([
-                'bandwidth' => $result['bandwidth'] ?? [],
+                'bandwidth' => $bw,
                 'month'     => $result['month'] ?? [],
-                'raw'       => $result['raw'] ?? [],
+                'raw'       => $raw,
             ]);
         } catch (\Exception $e) {
             return response()->json(['error' => $e->getMessage()], 500);
@@ -576,7 +600,23 @@ class ServiceController extends Controller
                 return response()->json(['error' => $result['message'] ?? 'Failed to get status logs.'], 422);
             }
 
-            return response()->json(['statuslogs' => $result['statuslogs'] ?? []]);
+            $entries = $result['statuslogs'] ?? [];
+
+            // Server-side normalization: convert raw status codes and timestamps
+            // in case orcus_sso.php returned unprocessed Virtualizor data.
+            foreach ($entries as &$e) {
+                if (!empty($e['time']) && is_numeric($e['time']) && strlen((string)$e['time']) >= 9) {
+                    $e['timestamp']   = (int)$e['time'];
+                    $e['time']        = date('Y-m-d H:i:s', (int)$e['time']);
+                }
+                if (isset($e['status']) && in_array($e['status'], [0, 1, '0', '1'], true)) {
+                    $e['status_code'] = (int)$e['status'];
+                    $e['status']      = ($e['status'] == 1) ? 'Running' : 'Stopped';
+                }
+            }
+            unset($e);
+
+            return response()->json(['statuslogs' => $entries]);
         } catch (\Exception $e) {
             return response()->json(['error' => $e->getMessage()], 500);
         }

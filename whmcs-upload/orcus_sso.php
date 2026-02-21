@@ -1378,26 +1378,37 @@ if ($action === 'GetBandwidth') {
     $apiPass = $creds['apiPass'];
     if (empty($apiKey) || empty($apiPass)) { echo json_encode(['result' => 'error', 'message' => 'Virtualizor API credentials missing']); exit; }
 
-    // Use enduser API (port 4083) for per-VPS bandwidth — admin API is server-wide
-    $enduserUrl = 'https://' . $hostname . ':4083/index.php';
-    $params = [
-        'act' => 'bandwidth', 'svs' => $vpsId, 'api' => 'json',
-        'apikey' => $apiKey, 'apipass' => $apiPass,
-    ];
     $month = trim($_POST['month'] ?? $_GET['month'] ?? '');
-    if ($month) $params['show'] = $month;
 
-    $result = virtualizorApiGet($enduserUrl . '?' . http_build_query($params));
+    // Strategy 1: Admin API (port 4085) — most reliable, always has bandwidth data
+    $adminUrl = 'https://' . $hostname . ':4085/index.php';
+    $adminParams = [
+        'act' => 'bandwidth', 'svs' => $vpsId, 'api' => 'json',
+        'adminapikey' => $apiKey, 'adminapipass' => $apiPass,
+    ];
+    if ($month) $adminParams['show'] = $month;
+    $result = virtualizorApiGet($adminUrl . '?' . http_build_query($adminParams));
 
-    // Fallback: try admin API if enduser API fails
+    // Strategy 2: Enduser API with adminapikey (like SetPrimaryIP which works)
     if (!$result['ok']) {
-        $adminUrl = 'https://' . $hostname . ':4085/index.php';
-        $adminParams = [
+        $enduserUrl = 'https://' . $hostname . ':4083/index.php';
+        $params2 = [
             'act' => 'bandwidth', 'svs' => $vpsId, 'api' => 'json',
             'adminapikey' => $apiKey, 'adminapipass' => $apiPass,
         ];
-        if ($month) $adminParams['show'] = $month;
-        $result = virtualizorApiGet($adminUrl . '?' . http_build_query($adminParams));
+        if ($month) $params2['show'] = $month;
+        $result = virtualizorApiGet($enduserUrl . '?' . http_build_query($params2));
+    }
+
+    // Strategy 3: Enduser API with apikey/apipass
+    if (!$result['ok']) {
+        $enduserUrl = 'https://' . $hostname . ':4083/index.php';
+        $params3 = [
+            'act' => 'bandwidth', 'svs' => $vpsId, 'api' => 'json',
+            'apikey' => $apiKey, 'apipass' => $apiPass,
+        ];
+        if ($month) $params3['show'] = $month;
+        $result = virtualizorApiGet($enduserUrl . '?' . http_build_query($params3));
     }
 
     if (!$result['ok']) { echo json_encode(['result' => 'error', 'message' => $result['error'] ?? 'Failed']); exit; }
@@ -1537,20 +1548,31 @@ if ($action === 'GetStatusLogs') {
     $apiPass = $creds['apiPass'];
     if (empty($apiKey) || empty($apiPass)) { echo json_encode(['result' => 'error', 'message' => 'Virtualizor API credentials missing']); exit; }
 
-    // Use enduser API (port 4083) — status logs is an enduser-only endpoint
-    $enduserUrl = 'https://' . $hostname . ':4083/index.php';
-    $result     = virtualizorApiGet($enduserUrl . '?' . http_build_query([
+    // Strategy 1: Admin API (port 4085) — try statuslogs endpoint
+    $adminUrl = 'https://' . $hostname . ':4085/index.php';
+    $result = virtualizorApiGet($adminUrl . '?' . http_build_query([
         'act' => 'statuslogs', 'svs' => $vpsId, 'api' => 'json',
-        'apikey' => $apiKey, 'apipass' => $apiPass, 'do' => 1,
+        'adminapikey' => $apiKey, 'adminapipass' => $apiPass,
     ]));
 
-    // Fallback: try admin API if enduser API fails
-    if (!$result['ok']) {
-        $adminUrl = 'https://' . $hostname . ':4085/index.php';
-        $result   = virtualizorApiGet($adminUrl . '?' . http_build_query([
+    // Strategy 2: Enduser API with adminapikey (like SetPrimaryIP which works)
+    if (!$result['ok'] || (empty($result['data']['var']) && empty($result['data']['statuslogs']) && empty($result['data']['logs']))) {
+        $enduserUrl = 'https://' . $hostname . ':4083/index.php';
+        $result2 = virtualizorApiGet($enduserUrl . '?' . http_build_query([
             'act' => 'statuslogs', 'svs' => $vpsId, 'api' => 'json',
-            'adminapikey' => $apiKey, 'adminapipass' => $apiPass,
+            'adminapikey' => $apiKey, 'adminapipass' => $apiPass, 'do' => 1,
         ]));
+        if ($result2['ok']) $result = $result2;
+    }
+
+    // Strategy 3: Enduser API with apikey/apipass
+    if (!$result['ok'] || (empty($result['data']['var']) && empty($result['data']['statuslogs']) && empty($result['data']['logs']))) {
+        $enduserUrl = 'https://' . $hostname . ':4083/index.php';
+        $result3 = virtualizorApiGet($enduserUrl . '?' . http_build_query([
+            'act' => 'statuslogs', 'svs' => $vpsId, 'api' => 'json',
+            'apikey' => $apiKey, 'apipass' => $apiPass, 'do' => 1,
+        ]));
+        if ($result3['ok']) $result = $result3;
     }
 
     if (!$result['ok']) { echo json_encode(['result' => 'error', 'message' => $result['error'] ?? 'Failed']); exit; }
