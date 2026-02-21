@@ -1354,6 +1354,9 @@ if ($action === 'ChangeVncPassword') {
 }
 
 // ── VPS: Get Bandwidth Stats ────────────────────────────────
+// Enduser API: GET https://hostname:4083/index.php?act=bandwidth&svs=VPSID&show=YYYYMM&api=json
+// Docs: https://www.virtualizor.com/docs/enduser-api/bandwidth/
+// Response: { "bandwidth": { "limit","used","usage":{},"in":{},"out":{},"used_gb","free_gb","percent" }, "month":{} }
 if ($action === 'GetBandwidth') {
     if (!$serviceId) { echo json_encode(['result' => 'error', 'message' => 'serviceid is required']); exit; }
 
@@ -1375,15 +1378,27 @@ if ($action === 'GetBandwidth') {
     $apiPass = $creds['apiPass'];
     if (empty($apiKey) || empty($apiPass)) { echo json_encode(['result' => 'error', 'message' => 'Virtualizor API credentials missing']); exit; }
 
-    $adminUrl = 'https://' . $hostname . ':4085/index.php';
-    $params   = [
+    // Use enduser API (port 4083) for per-VPS bandwidth — admin API is server-wide
+    $enduserUrl = 'https://' . $hostname . ':4083/index.php';
+    $params = [
         'act' => 'bandwidth', 'svs' => $vpsId, 'api' => 'json',
-        'adminapikey' => $apiKey, 'adminapipass' => $apiPass,
+        'apikey' => $apiKey, 'apipass' => $apiPass,
     ];
     $month = trim($_POST['month'] ?? $_GET['month'] ?? '');
     if ($month) $params['show'] = $month;
 
-    $result = virtualizorApiGet($adminUrl . '?' . http_build_query($params));
+    $result = virtualizorApiGet($enduserUrl . '?' . http_build_query($params));
+
+    // Fallback: try admin API if enduser API fails
+    if (!$result['ok']) {
+        $adminUrl = 'https://' . $hostname . ':4085/index.php';
+        $adminParams = [
+            'act' => 'bandwidth', 'svs' => $vpsId, 'api' => 'json',
+            'adminapikey' => $apiKey, 'adminapipass' => $apiPass,
+        ];
+        if ($month) $adminParams['show'] = $month;
+        $result = virtualizorApiGet($adminUrl . '?' . http_build_query($adminParams));
+    }
 
     if (!$result['ok']) { echo json_encode(['result' => 'error', 'message' => $result['error'] ?? 'Failed']); exit; }
 
@@ -1394,7 +1409,27 @@ if ($action === 'GetBandwidth') {
     }
 
     $bw = $data['bandwidth'] ?? $data['bw'] ?? [];
-    echo json_encode(['result' => 'success', 'bandwidth' => $bw, 'raw' => $data]);
+
+    // Normalize for frontend — map Virtualizor fields to UI field names
+    $normalized = [
+        'used_bandwidth' => floatval($bw['used_gb'] ?? (isset($bw['used']) ? round($bw['used'] / 1024, 2) : 0)),
+        'bandwidth'      => floatval($bw['limit_gb'] ?? (isset($bw['limit']) ? round($bw['limit'] / 1024, 2) : 0)),
+        'free_bandwidth' => floatval($bw['free_gb'] ?? (isset($bw['free']) ? round($bw['free'] / 1024, 2) : 0)),
+        'percent'        => floatval($bw['percent'] ?? 0),
+        'network_in'     => isset($bw['in']['used_gb']) ? floatval($bw['in']['used_gb']) : null,
+        'network_out'    => isset($bw['out']['used_gb']) ? floatval($bw['out']['used_gb']) : null,
+        // Daily usage data for charts (values in MB, keyed by day 1-31)
+        'daily_usage'    => $bw['usage'] ?? [],
+        'daily_in'       => isset($bw['in']['usage']) ? $bw['in']['usage'] : [],
+        'daily_out'      => isset($bw['out']['usage']) ? $bw['out']['usage'] : [],
+    ];
+
+    echo json_encode([
+        'result'    => 'success',
+        'bandwidth' => $normalized,
+        'month'     => $data['month'] ?? [],
+        'raw'       => $data,
+    ]);
     exit;
 }
 
@@ -1478,6 +1513,9 @@ if ($action === 'GetLogs') {
 }
 
 // ── VPS: Get Status Logs ───────────────────────────────────
+// Enduser API: GET https://hostname:4083/index.php?act=statuslogs&svs=VPSID&api=json&do=1
+// Docs: https://www.virtualizor.com/docs/enduser-api/status-logs/
+// Response: { "var": [ { "vpsid","time","status","disk","inode","ram","cpu","actual_cpu","net_in","net_out" }, ... ], "num_res":"N" }
 if ($action === 'GetStatusLogs') {
     if (!$serviceId) { echo json_encode(['result' => 'error', 'message' => 'serviceid is required']); exit; }
 
@@ -1499,22 +1537,50 @@ if ($action === 'GetStatusLogs') {
     $apiPass = $creds['apiPass'];
     if (empty($apiKey) || empty($apiPass)) { echo json_encode(['result' => 'error', 'message' => 'Virtualizor API credentials missing']); exit; }
 
-    $adminUrl = 'https://' . $hostname . ':4085/index.php';
-    $result   = virtualizorApiGet($adminUrl . '?' . http_build_query([
+    // Use enduser API (port 4083) — status logs is an enduser-only endpoint
+    $enduserUrl = 'https://' . $hostname . ':4083/index.php';
+    $result     = virtualizorApiGet($enduserUrl . '?' . http_build_query([
         'act' => 'statuslogs', 'svs' => $vpsId, 'api' => 'json',
-        'adminapikey' => $apiKey, 'adminapipass' => $apiPass,
+        'apikey' => $apiKey, 'apipass' => $apiPass, 'do' => 1,
     ]));
+
+    // Fallback: try admin API if enduser API fails
+    if (!$result['ok']) {
+        $adminUrl = 'https://' . $hostname . ':4085/index.php';
+        $result   = virtualizorApiGet($adminUrl . '?' . http_build_query([
+            'act' => 'statuslogs', 'svs' => $vpsId, 'api' => 'json',
+            'adminapikey' => $apiKey, 'adminapipass' => $apiPass,
+        ]));
+    }
 
     if (!$result['ok']) { echo json_encode(['result' => 'error', 'message' => $result['error'] ?? 'Failed']); exit; }
 
-    $data    = $result['data'];
-    $entries = $data['statuslogs'] ?? $data['logs'] ?? [];
-    // May be keyed by timestamp
+    $data = $result['data'];
+    // Enduser API returns logs in 'var' key; admin API might use 'statuslogs' or 'logs'
+    $entries = $data['var'] ?? $data['statuslogs'] ?? $data['logs'] ?? [];
+
+    // May be keyed by index or timestamp
     if (!empty($entries) && !array_key_exists(0, $entries)) {
         $entries = array_values($entries);
     }
+
+    // Normalize each entry for the frontend
+    foreach ($entries as &$e) {
+        // Convert Unix timestamp to readable date
+        if (!empty($e['time']) && is_numeric($e['time'])) {
+            $e['timestamp'] = (int)$e['time'];
+            $e['time'] = date('Y-m-d H:i:s', (int)$e['time']);
+        }
+        // Normalize status: 1 = Running, 0 = Stopped
+        if (isset($e['status'])) {
+            $e['status_code'] = (int)$e['status'];
+            $e['status'] = ($e['status'] == 1) ? 'Running' : 'Stopped';
+        }
+    }
+    unset($e);
+
     // Sort newest first
-    usort($entries, fn($a, $b) => ($b['time'] ?? $b['timestamp'] ?? 0) <=> ($a['time'] ?? $a['timestamp'] ?? 0));
+    usort($entries, fn($a, $b) => ($b['timestamp'] ?? 0) <=> ($a['timestamp'] ?? 0));
     echo json_encode(['result' => 'success', 'statuslogs' => array_slice($entries, 0, 100)]);
     exit;
 }

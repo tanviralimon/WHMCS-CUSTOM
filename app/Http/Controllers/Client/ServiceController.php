@@ -521,6 +521,7 @@ class ServiceController extends Controller
 
             return response()->json([
                 'bandwidth' => $result['bandwidth'] ?? [],
+                'month'     => $result['month'] ?? [],
                 'raw'       => $result['raw'] ?? [],
             ]);
         } catch (\Exception $e) {

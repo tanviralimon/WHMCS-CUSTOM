@@ -1771,13 +1771,13 @@ function doDisableRescue() {
                                     <p class="text-[11px] text-emerald-600 font-medium uppercase tracking-wide mb-1">Remaining</p>
                                     <p class="text-[18px] font-bold text-emerald-800">{{ formatBwBytes(bandwidthData.free_bandwidth) }}</p>
                                 </div>
-                                <div v-if="bandwidthData.speed_in !== undefined || bandwidthData.network_speed !== undefined" class="bg-purple-50 rounded-xl border border-purple-200 p-3 text-center">
-                                    <p class="text-[11px] text-purple-600 font-medium uppercase tracking-wide mb-1">Speed In</p>
-                                    <p class="text-[16px] font-bold text-purple-800">{{ bandwidthData.speed_in ?? bandwidthData.network_speed ?? '—' }} <span class="text-[11px] font-normal">Mbps</span></p>
+                                <div v-if="bandwidthData.network_in !== undefined && bandwidthData.network_in !== null" class="bg-purple-50 rounded-xl border border-purple-200 p-3 text-center">
+                                    <p class="text-[11px] text-purple-600 font-medium uppercase tracking-wide mb-1">Inbound</p>
+                                    <p class="text-[16px] font-bold text-purple-800">{{ formatBwBytes(bandwidthData.network_in) }}</p>
                                 </div>
-                                <div v-if="bandwidthData.speed_out !== undefined" class="bg-indigo-50 rounded-xl border border-indigo-200 p-3 text-center">
-                                    <p class="text-[11px] text-indigo-600 font-medium uppercase tracking-wide mb-1">Speed Out</p>
-                                    <p class="text-[16px] font-bold text-indigo-800">{{ bandwidthData.speed_out ?? '—' }} <span class="text-[11px] font-normal">Mbps</span></p>
+                                <div v-if="bandwidthData.network_out !== undefined && bandwidthData.network_out !== null" class="bg-indigo-50 rounded-xl border border-indigo-200 p-3 text-center">
+                                    <p class="text-[11px] text-indigo-600 font-medium uppercase tracking-wide mb-1">Outbound</p>
+                                    <p class="text-[16px] font-bold text-indigo-800">{{ formatBwBytes(bandwidthData.network_out) }}</p>
                                 </div>
                             </div>
                             <!-- Bandwidth bar -->
@@ -1857,11 +1857,24 @@ function doDisableRescue() {
                                 <div v-else-if="statusLogsData.length === 0" class="text-center py-6 text-[13px] text-gray-400">No status logs found.</div>
                                 <div v-else class="overflow-x-auto">
                                     <table class="w-full text-[12px]">
-                                        <thead><tr class="border-b border-gray-100"><th class="text-left py-2 px-2 text-gray-500 font-medium">Time</th><th class="text-left py-2 px-2 text-gray-500 font-medium">Status</th></tr></thead>
+                                        <thead><tr class="border-b border-gray-100">
+                                            <th class="text-left py-2 px-2 text-gray-500 font-medium">Time</th>
+                                            <th class="text-left py-2 px-2 text-gray-500 font-medium">Status</th>
+                                            <th class="text-left py-2 px-2 text-gray-500 font-medium">CPU</th>
+                                            <th class="text-left py-2 px-2 text-gray-500 font-medium">RAM</th>
+                                            <th class="text-left py-2 px-2 text-gray-500 font-medium">Disk</th>
+                                            <th class="text-left py-2 px-2 text-gray-500 font-medium">Net In</th>
+                                            <th class="text-left py-2 px-2 text-gray-500 font-medium">Net Out</th>
+                                        </tr></thead>
                                         <tbody>
                                             <tr v-for="(entry, i) in statusLogsData.slice(0, 50)" :key="i" class="border-b border-gray-50 hover:bg-gray-50">
-                                                <td class="py-2 px-2 text-gray-500 whitespace-nowrap">{{ entry.time ?? entry.timestamp ?? '—' }}</td>
-                                                <td class="py-2 px-2"><span :class="['inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold', (String(entry.status ?? entry.system_status ?? '')).toLowerCase() === 'running' || (entry.status ?? entry.system_status ?? '') === 1 ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700']"><span class="w-1.5 h-1.5 rounded-full" :class="(String(entry.status ?? entry.system_status ?? '')).toLowerCase() === 'running' ? 'bg-emerald-500' : 'bg-red-500'"></span>{{ entry.status ?? entry.system_status ?? '—' }}</span></td>
+                                                <td class="py-2 px-2 text-gray-500 whitespace-nowrap">{{ entry.time ?? '—' }}</td>
+                                                <td class="py-2 px-2"><span :class="['inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold', String(entry.status ?? '').toLowerCase() === 'running' || entry.status_code === 1 ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700']"><span class="w-1.5 h-1.5 rounded-full" :class="String(entry.status ?? '').toLowerCase() === 'running' || entry.status_code === 1 ? 'bg-emerald-500' : 'bg-red-500'"></span>{{ entry.status ?? '—' }}</span></td>
+                                                <td class="py-2 px-2 text-gray-700 font-mono">{{ entry.cpu ?? entry.actual_cpu ?? '—' }}%</td>
+                                                <td class="py-2 px-2 text-gray-700 font-mono">{{ entry.ram ?? '—' }} MB</td>
+                                                <td class="py-2 px-2 text-gray-700 font-mono">{{ entry.disk ?? '—' }} MB</td>
+                                                <td class="py-2 px-2 text-gray-700 font-mono">{{ entry.net_in ?? '—' }}</td>
+                                                <td class="py-2 px-2 text-gray-700 font-mono">{{ entry.net_out ?? '—' }}</td>
                                             </tr>
                                         </tbody>
                                     </table>
