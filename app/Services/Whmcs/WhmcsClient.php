@@ -180,6 +180,7 @@ class WhmcsClient
         'GetVnc', 'ChangeVncPassword', 'CreateVncToken', 'TestVirtApi',
         'DebugVnc', 'DebugPrimaryIP',
         'GetBandwidth', 'GetStatusLogs', 'GetTasks', 'GetLogs',
+        'GetRescueStatus', 'EnableRescue', 'DisableRescue',
     ];
 
     public function callSsoProxy(string $action, array $params = []): array
@@ -190,9 +191,12 @@ class WhmcsClient
             'secret'     => $this->secret,
         ], $params);
 
-        // Virtualizor-backed actions make up to two outbound API calls;
+        // Virtualizor-backed actions make up to three outbound API calls;
         // give them 45 s so they don't time out before orcus_sso.php replies.
-        $timeout = in_array($action, self::SSO_SLOW_ACTIONS) ? 45 : $this->timeout;
+        // Rescue mode can take 3-5 min on first use, so give it 180 s.
+        $rescueActions = ['EnableRescue', 'DisableRescue'];
+        $timeout = in_array($action, $rescueActions) ? 180
+                 : (in_array($action, self::SSO_SLOW_ACTIONS) ? 45 : $this->timeout);
 
         try {
             $response = Http::timeout($timeout)

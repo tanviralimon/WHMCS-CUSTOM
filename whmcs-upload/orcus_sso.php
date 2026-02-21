@@ -1629,11 +1629,29 @@ if ($action === 'GetRescueStatus') {
     $apiPass = $creds['apiPass'];
     if (empty($apiKey) || empty($apiPass)) { echo json_encode(['result' => 'error', 'message' => 'Virtualizor API credentials missing']); exit; }
 
-    $adminUrl = 'https://' . $hostname . ':4085/index.php';
-    $result   = virtualizorApiGet($adminUrl . '?' . http_build_query([
-        'act' => 'rescue', 'svs' => $vpsId, 'api' => 'json',
+    // Strategy 1: Enduser API (port 4083) with adminapikey
+    $enduserUrl = 'https://' . $hostname . ':4083/index.php';
+    $result = virtualizorApiGet($enduserUrl . '?' . http_build_query([
+        'act' => 'rescue', 'svs' => $vpsId, 'api' => 'json', 'do' => 1,
         'adminapikey' => $apiKey, 'adminapipass' => $apiPass,
     ]));
+
+    // Strategy 2: Enduser API with apikey/apipass
+    if (!$result['ok']) {
+        $result = virtualizorApiGet($enduserUrl . '?' . http_build_query([
+            'act' => 'rescue', 'svs' => $vpsId, 'api' => 'json', 'do' => 1,
+            'apikey' => $apiKey, 'apipass' => $apiPass,
+        ]));
+    }
+
+    // Strategy 3: Admin API fallback
+    if (!$result['ok']) {
+        $adminUrl = 'https://' . $hostname . ':4085/index.php';
+        $result = virtualizorApiGet($adminUrl . '?' . http_build_query([
+            'act' => 'rescue', 'svs' => $vpsId, 'api' => 'json',
+            'adminapikey' => $apiKey, 'adminapipass' => $apiPass,
+        ]));
+    }
 
     if (!$result['ok']) { echo json_encode(['result' => 'error', 'message' => $result['error'] ?? 'Failed']); exit; }
 
@@ -1676,16 +1694,36 @@ if ($action === 'EnableRescue') {
     $apiPass = $creds['apiPass'];
     if (empty($apiKey) || empty($apiPass)) { echo json_encode(['result' => 'error', 'message' => 'Virtualizor API credentials missing']); exit; }
 
-    $adminUrl   = 'https://' . $hostname . ':4085/index.php';
-    $postResult = virtualizorApiPost($adminUrl . '?' . http_build_query([
-        'act' => 'rescue', 'svs' => $vpsId, 'api' => 'json',
-        'adminapikey' => $apiKey, 'adminapipass' => $apiPass,
-    ]), [
-        'vpsid'         => $vpsId,
+    $postData = [
+        'enablerescue'  => 1,
         'password'      => $rescuePass,
         'conf_password' => $rescueConf,
-        'enablerescue'  => 'Enable Rescue',
-    ]);
+    ];
+
+    // Strategy 1: Enduser API (port 4083) with adminapikey — per Virtualizor docs
+    // Rescue can take 3-5 min on first use, so 150s timeout
+    $enduserUrl = 'https://' . $hostname . ':4083/index.php';
+    $postResult = virtualizorApiPost($enduserUrl . '?' . http_build_query([
+        'act' => 'rescue', 'svs' => $vpsId, 'api' => 'json', 'do' => 1,
+        'adminapikey' => $apiKey, 'adminapipass' => $apiPass,
+    ]), $postData, 150);
+
+    // Strategy 2: Enduser API with apikey/apipass
+    if (!$postResult['ok']) {
+        $postResult = virtualizorApiPost($enduserUrl . '?' . http_build_query([
+            'act' => 'rescue', 'svs' => $vpsId, 'api' => 'json', 'do' => 1,
+            'apikey' => $apiKey, 'apipass' => $apiPass,
+        ]), $postData, 150);
+    }
+
+    // Strategy 3: Admin API fallback
+    if (!$postResult['ok']) {
+        $adminUrl = 'https://' . $hostname . ':4085/index.php';
+        $postResult = virtualizorApiPost($adminUrl . '?' . http_build_query([
+            'act' => 'rescue', 'svs' => $vpsId, 'api' => 'json',
+            'adminapikey' => $apiKey, 'adminapipass' => $apiPass,
+        ]), array_merge($postData, ['vpsid' => $vpsId]), 150);
+    }
 
     if (!$postResult['ok']) { echo json_encode(['result' => 'error', 'message' => $postResult['error'] ?? 'Failed']); exit; }
 
@@ -1695,7 +1733,8 @@ if ($action === 'EnableRescue') {
         echo json_encode(['result' => 'error', 'message' => $errMsg]); exit;
     }
     if (empty($data['done']) && empty($data['rescue_enabled'])) {
-        echo json_encode(['result' => 'error', 'message' => 'Failed to enable rescue mode']); exit;
+        // Return the full API response for debugging
+        echo json_encode(['result' => 'error', 'message' => 'Failed to enable rescue mode', 'debug' => $data]); exit;
     }
 
     echo json_encode(['result' => 'success', 'message' => 'Rescue mode enabled. Boot your VPS to enter rescue environment.']);
@@ -1724,14 +1763,32 @@ if ($action === 'DisableRescue') {
     $apiPass = $creds['apiPass'];
     if (empty($apiKey) || empty($apiPass)) { echo json_encode(['result' => 'error', 'message' => 'Virtualizor API credentials missing']); exit; }
 
-    $adminUrl   = 'https://' . $hostname . ':4085/index.php';
-    $postResult = virtualizorApiPost($adminUrl . '?' . http_build_query([
-        'act' => 'rescue', 'svs' => $vpsId, 'api' => 'json',
+    $postData = ['disablerescue' => 1];
+
+    // Strategy 1: Enduser API (port 4083) with adminapikey
+    // Rescue can take 3-5 min on first use, so 150s timeout
+    $enduserUrl = 'https://' . $hostname . ':4083/index.php';
+    $postResult = virtualizorApiPost($enduserUrl . '?' . http_build_query([
+        'act' => 'rescue', 'svs' => $vpsId, 'api' => 'json', 'do' => 1,
         'adminapikey' => $apiKey, 'adminapipass' => $apiPass,
-    ]), [
-        'vpsid'        => $vpsId,
-        'disablerescue' => 1,
-    ]);
+    ]), $postData, 150);
+
+    // Strategy 2: Enduser API with apikey/apipass
+    if (!$postResult['ok']) {
+        $postResult = virtualizorApiPost($enduserUrl . '?' . http_build_query([
+            'act' => 'rescue', 'svs' => $vpsId, 'api' => 'json', 'do' => 1,
+            'apikey' => $apiKey, 'apipass' => $apiPass,
+        ]), $postData, 150);
+    }
+
+    // Strategy 3: Admin API fallback
+    if (!$postResult['ok']) {
+        $adminUrl = 'https://' . $hostname . ':4085/index.php';
+        $postResult = virtualizorApiPost($adminUrl . '?' . http_build_query([
+            'act' => 'rescue', 'svs' => $vpsId, 'api' => 'json',
+            'adminapikey' => $apiKey, 'adminapipass' => $apiPass,
+        ]), array_merge($postData, ['vpsid' => $vpsId]), 150);
+    }
 
     if (!$postResult['ok']) { echo json_encode(['result' => 'error', 'message' => $postResult['error'] ?? 'Failed']); exit; }
 
@@ -3735,7 +3792,7 @@ function virtualizorApiGet($url)
 // Helper: POST request to Virtualizor API
 // Returns ['ok' => true, 'data' => [...]] on success
 // Returns ['ok' => false, 'error' => '...', 'http_code' => N] on failure
-function virtualizorApiPost($url, $postData = [])
+function virtualizorApiPost($url, $postData = [], $timeout = 30)
 {
     $ch = curl_init();
     curl_setopt($ch, CURLOPT_URL, $url);
@@ -3745,7 +3802,7 @@ function virtualizorApiPost($url, $postData = [])
     curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
     curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, false);
     curl_setopt($ch, CURLOPT_FOLLOWLOCATION, false);
-    curl_setopt($ch, CURLOPT_TIMEOUT, 30);
+    curl_setopt($ch, CURLOPT_TIMEOUT, $timeout);
     curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 10);
 
     $response  = curl_exec($ch);
