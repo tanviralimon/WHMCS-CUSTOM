@@ -1960,7 +1960,7 @@ function doDisableRescue() {
                                                 <td class="py-2 px-2 text-gray-900 font-medium">{{ t.action ?? t.name ?? '—' }}</td>
                                                 <td class="py-2 px-2 text-gray-500">{{ t.started ?? t.created_at ?? '—' }}</td>
                                                 <td class="py-2 px-2 text-gray-500">{{ t.ended ?? t.updated_at ?? '—' }}</td>
-                                                <td class="py-2 px-2"><span :class="['inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold', (t.status === 2 || t.status === 'done' || t.done) ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700']">{{ t.status === 2 || t.done ? 'Done' : (t.status === 1 ? 'Running' : (t.status ?? 'Pending')) }}</span></td>
+                                                <td class="py-2 px-2"><span :class="['inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold', (String(t.status) === '2' || String(t.status) === '1' || t.status === 'done' || t.done) ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700']">{{ String(t.status) === '2' || t.done ? 'Done' : (String(t.status) === '1' ? 'Completed' : (t.status === 0 || t.status === '0' ? 'Pending' : (t.status ?? 'Pending'))) }}</span></td>
                                             </tr>
                                         </tbody>
                                     </table>
@@ -1978,7 +1978,7 @@ function doDisableRescue() {
                                             <tr v-for="(log, i) in logsData.slice(0, 50)" :key="i" class="border-b border-gray-50 hover:bg-gray-50">
                                                 <td class="py-2 px-2 text-gray-500 whitespace-nowrap">{{ log.date ?? log.time ?? '—' }}</td>
                                                 <td class="py-2 px-2 text-gray-900">{{ log.task ?? log.action ?? log.message ?? '—' }}</td>
-                                                <td class="py-2 px-2"><span :class="['inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold', log.status === 'success' || log.status === 1 || log.status === '1' ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-100 text-gray-600']">{{ log.status ?? '—' }}</span></td>
+                                                <td class="py-2 px-2"><span :class="['inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold', log.status === 'success' || String(log.status) === '1' ? 'bg-emerald-100 text-emerald-700' : String(log.status) === '0' || log.status === 'failed' ? 'bg-red-100 text-red-700' : 'bg-gray-100 text-gray-600']">{{ log.status === 'success' || String(log.status) === '1' ? 'Success' : (String(log.status) === '0' || log.status === 'failed' ? 'Failed' : (log.status ?? '—')) }}</span></td>
                                                 <td class="py-2 px-2 text-gray-400 font-mono text-[11px]">{{ log.ip ?? '—' }}</td>
                                             </tr>
                                         </tbody>
