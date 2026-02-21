@@ -56,8 +56,8 @@ jobs:
 
       - name: Deploy code on server
         run: |
-          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} << 'ENDSSH'
-          cd ${{ secrets.DEPLOY_PATH }}
+          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no root@${{ secrets.SERVER_HOST }} << 'ENDSSH'
+          cd /home/jltusu/htdocs/orcus.one
           git pull origin main
           composer install --no-dev --optimize-autoloader --no-interaction
           php artisan migrate --force
@@ -65,15 +65,16 @@ jobs:
           php artisan route:cache
           php artisan view:cache
           php artisan event:cache
+          chown -R jltusu:tusu /home/jltusu/htdocs/orcus.one
           chmod -R 775 storage bootstrap/cache
           ENDSSH
 
       - name: Upload built assets
         run: |
           tar czf /tmp/build.tar.gz public/build/
-          scp -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no /tmp/build.tar.gz ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}:/tmp/build.tar.gz
-          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} "cd ${{ secrets.DEPLOY_PATH }} && tar xzf /tmp/build.tar.gz && rm /tmp/build.tar.gz"
+          scp -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no /tmp/build.tar.gz root@${{ secrets.SERVER_HOST }}:/tmp/build.tar.gz
+          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no root@${{ secrets.SERVER_HOST }} "cd /home/jltusu/htdocs/orcus.one && tar xzf /tmp/build.tar.gz && chown -R jltusu:tusu public/build/ && rm /tmp/build.tar.gz"
 
       - name: Restart PHP-FPM
         run: |
-          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} 'PHP_VERSION=$(php -r "echo PHP_MAJOR_VERSION.\".\".PHP_MINOR_VERSION;") && sudo systemctl restart php${PHP_VERSION}-fpm'
+          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no root@${{ secrets.SERVER_HOST }} 'PHP_VERSION=$(php -r "echo PHP_MAJOR_VERSION.\".\".PHP_MINOR_VERSION;") && systemctl restart php${PHP_VERSION}-fpm'
