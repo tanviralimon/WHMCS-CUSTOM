@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Client;
 
 use App\Http\Controllers\Controller;
 use App\Services\Whmcs\WhmcsService;
+use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
 
@@ -144,64 +145,60 @@ class InvoiceController extends Controller
 
     public function downloadPdf(Request $request, int $id)
     {
+        $result = $this->whmcs->getInvoice($id);
+
+        if (($result['result'] ?? '') !== 'success') {
+            abort(404);
+        }
+
         $clientId = $request->user()->whmcs_client_id;
-        $whmcsBase = rtrim(config('whmcs.base_url'), '/');
 
-        // Strategy 1: Create SSO token and use it to fetch the PDF server-side
+        // Get client billing details
+        $profile = $this->whmcs->getClientsDetails($clientId);
+        $clientDetails = [
+            'name'      => trim(($profile['firstname'] ?? '') . ' ' . ($profile['lastname'] ?? '')),
+            'company'   => $profile['companyname'] ?? '',
+            'email'     => $profile['email'] ?? $request->user()->email,
+            'address1'  => $profile['address1'] ?? '',
+            'address2'  => $profile['address2'] ?? '',
+            'city'      => $profile['city'] ?? '',
+            'state'     => $profile['state'] ?? '',
+            'postcode'  => $profile['postcode'] ?? '',
+            'country'   => $profile['country'] ?? '',
+        ];
+
+        // Resolve payment method display name
+        $paymentMethodName = $result['paymentmethod'] ?? '—';
         try {
-            $sso = $this->whmcs->createClientSsoToken($clientId, 'clientarea:invoices');
-            if (!empty($sso['redirect_url'])) {
-                // First hit the SSO URL to get the session cookie, then download the PDF
-                $ch = curl_init();
-                $cookieFile = tempnam(sys_get_temp_dir(), 'whmcs_sso_');
-
-                // Step 1: Follow SSO redirect to establish session
-                curl_setopt_array($ch, [
-                    CURLOPT_URL => $sso['redirect_url'],
-                    CURLOPT_RETURNTRANSFER => true,
-                    CURLOPT_FOLLOWLOCATION => true,
-                    CURLOPT_COOKIEJAR => $cookieFile,
-                    CURLOPT_COOKIEFILE => $cookieFile,
-                    CURLOPT_SSL_VERIFYPEER => false,
-                    CURLOPT_TIMEOUT => 15,
-                    CURLOPT_USERAGENT => 'OrcusTech/1.0',
-                ]);
-                curl_exec($ch);
-
-                // Step 2: Download the PDF with the authenticated session
-                curl_setopt($ch, CURLOPT_URL, $whmcsBase . '/dl.php?type=i&id=' . $id);
-                $pdfContent = curl_exec($ch);
-                $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-                $contentType = curl_getinfo($ch, CURLINFO_CONTENT_TYPE);
-                curl_close($ch);
-                @unlink($cookieFile);
-
-                if ($httpCode === 200 && $pdfContent && str_contains($contentType, 'pdf')) {
-                    return response($pdfContent, 200, [
-                        'Content-Type' => 'application/pdf',
-                        'Content-Disposition' => 'inline; filename="Invoice-' . $id . '.pdf"',
-                        'Cache-Control' => 'no-cache',
-                    ]);
+            $methods = $this->whmcs->getPaymentMethods();
+            $gateways = $methods['paymentmethods']['paymentmethod'] ?? [];
+            foreach ($gateways as $gw) {
+                if (($gw['module'] ?? '') === $result['paymentmethod']) {
+                    $paymentMethodName = $gw['displayname'] ?? $gw['module'];
+                    break;
                 }
             }
         } catch (\Exception $e) {
-            // Fall through to SSO redirect
+            // keep raw name
         }
 
-        // Strategy 2: Redirect user through SSO to the PDF (browser will handle auth)
-        try {
-            $sso = $this->whmcs->createClientSsoToken($clientId, 'clientarea:invoices');
-            if (!empty($sso['redirect_url'])) {
-                $ssoUrl = $sso['redirect_url'];
-                $sep = str_contains($ssoUrl, '?') ? '&' : '?';
-                return redirect()->away($ssoUrl . $sep . 'goto=' . urlencode('dl.php?type=i&id=' . $id));
-            }
-        } catch (\Exception $e) {
-            // Fall through to direct link
-        }
+        $data = [
+            'invoice'           => $result,
+            'clientDetails'     => $clientDetails,
+            'companyName'       => 'OrcusTech',
+            'paymentMethodName' => $paymentMethodName,
+            'currencyPrefix'    => $result['currencyprefix'] ?? '',
+            'currencySuffix'    => $result['currencysuffix'] ?? '',
+        ];
 
-        // Strategy 3: Direct link (will require WHMCS login)
-        return redirect()->away($whmcsBase . '/dl.php?type=i&id=' . $id);
+        $invoiceNum = $result['invoicenum'] ?: $result['invoiceid'];
+
+        $pdf = Pdf::loadView('pdf.invoice', $data)
+            ->setPaper('a4')
+            ->setOption('isRemoteEnabled', true)
+            ->setOption('defaultFont', 'Helvetica');
+
+        return $pdf->download("Invoice-{$invoiceNum}.pdf");
     }
 
     /**
