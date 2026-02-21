@@ -5,7 +5,7 @@ on:
     branches: [main]
 
 jobs:
-  build:
+  build-and-deploy:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -16,7 +16,7 @@ jobs:
           php-version: '8.4'
 
       - name: Install Composer dependencies
-        run: composer install --no-dev --no-interaction --prefer-dist
+        run: composer install --no-dev --no-interaction --prefer-dist --optimize-autoloader
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -24,30 +24,22 @@ jobs:
           node-version: '20'
           cache: 'npm'
 
-      - name: Install & Build
+      - name: Install & Build frontend
         run: |
           npm install --legacy-peer-deps
           npm run build
 
-      - name: Upload build artifacts
-        uses: actions/upload-artifact@v4
+      - name: Deploy code to server via rsync
+        uses: burnett01/rsync-deployments@7.0.1
         with:
-          name: build
-          path: public/build/
+          switches: -avzr --delete --exclude='.git' --exclude='node_modules' --exclude='.github' --exclude='.env' --exclude='storage/logs/*' --exclude='storage/framework/cache/*' --exclude='storage/framework/sessions/*' --exclude='storage/framework/views/*'
+          path: ./
+          remote_path: ${{ secrets.DEPLOY_PATH }}/
+          remote_host: ${{ secrets.SERVER_HOST }}
+          remote_user: ${{ secrets.SERVER_USER }}
+          remote_key: ${{ secrets.SSH_PRIVATE_KEY }}
 
-  deploy:
-    needs: build
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Download build artifacts
-        uses: actions/download-artifact@v4
-        with:
-          name: build
-          path: public/build/
-
-      - name: Deploy to Server
+      - name: Post-deploy commands
         uses: appleboy/ssh-action@v1
         with:
           host: ${{ secrets.SERVER_HOST }}
@@ -55,30 +47,11 @@ jobs:
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           script: |
             cd ${{ secrets.DEPLOY_PATH }}
-            git pull origin main
-            composer install --no-dev --optimize-autoloader --no-interaction
             php artisan migrate --force
             php artisan config:cache
             php artisan route:cache
             php artisan view:cache
             php artisan event:cache
             chmod -R 775 storage bootstrap/cache
-
-      - name: Upload built assets to server
-        uses: appleboy/scp-action@v0.1.7
-        with:
-          host: ${{ secrets.SERVER_HOST }}
-          username: ${{ secrets.SERVER_USER }}
-          key: ${{ secrets.SSH_PRIVATE_KEY }}
-          source: "public/build/"
-          target: ${{ secrets.DEPLOY_PATH }}
-
-      - name: Restart PHP-FPM
-        uses: appleboy/ssh-action@v1
-        with:
-          host: ${{ secrets.SERVER_HOST }}
-          username: ${{ secrets.SERVER_USER }}
-          key: ${{ secrets.SSH_PRIVATE_KEY }}
-          script: |
             PHP_VERSION=$(php -r "echo PHP_MAJOR_VERSION.'.'.PHP_MINOR_VERSION;")
-            sudo systemctl restart php${PHP_VERSION}-fpm
+            sudo systemctl restart php${PHP_VERSION}-fpm 2>/dev/null || true
