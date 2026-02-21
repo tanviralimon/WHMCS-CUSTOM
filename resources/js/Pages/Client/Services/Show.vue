@@ -155,6 +155,18 @@ function formatBandwidth(gb) {
     return gb.toFixed(2) + ' GB';
 }
 
+// Format speed in MB/s to the most human-readable unit
+function formatSpeed(mbps) {
+    if (mbps === null || mbps === undefined) return '—';
+    const v = parseFloat(mbps);
+    if (isNaN(v) || v === 0) return '0 B/s';
+    if (v >= 1024) return (v / 1024).toFixed(2) + ' GB/s';
+    if (v >= 1) return v.toFixed(2) + ' MB/s';
+    const kbps = v * 1024;
+    if (kbps >= 1) return kbps.toFixed(2) + ' KB/s';
+    return (kbps * 1024).toFixed(0) + ' B/s';
+}
+
 function progressColor(pct) {
     if (pct > 90) return 'bg-red-500';
     if (pct > 70) return 'bg-amber-500';
@@ -1197,6 +1209,25 @@ function doDisableRescue() {
                     <p class="text-[11px] text-gray-400">{{ formatBandwidth(vps.bandwidth_used) }} / {{ vps.bandwidth_total > 0 ? formatBandwidth(vps.bandwidth_total) : '\u221E' }}</p>
                 </div>
             </div>
+            <!-- Live I/O & Network Speed -->
+            <div v-if="vps && (vps.io_read !== undefined || vps.net_in !== undefined)" class="grid grid-cols-2 lg:grid-cols-4 gap-0 border-x border-b border-gray-200 rounded-b-xl bg-white overflow-hidden divide-x divide-gray-100 -mt-px">
+                <div class="p-3 text-center">
+                    <p class="text-[10px] text-gray-400 font-medium uppercase tracking-wide mb-0.5">Disk Read</p>
+                    <p class="text-[14px] font-bold text-sky-700">{{ formatSpeed(vps.io_read) }}</p>
+                </div>
+                <div class="p-3 text-center">
+                    <p class="text-[10px] text-gray-400 font-medium uppercase tracking-wide mb-0.5">Disk Write</p>
+                    <p class="text-[14px] font-bold text-orange-700">{{ formatSpeed(vps.io_write) }}</p>
+                </div>
+                <div class="p-3 text-center">
+                    <p class="text-[10px] text-gray-400 font-medium uppercase tracking-wide mb-0.5">Net Download</p>
+                    <p class="text-[14px] font-bold text-emerald-700">{{ formatSpeed(vps.net_in) }}</p>
+                </div>
+                <div class="p-3 text-center">
+                    <p class="text-[10px] text-gray-400 font-medium uppercase tracking-wide mb-0.5">Net Upload</p>
+                    <p class="text-[14px] font-bold text-violet-700">{{ formatSpeed(vps.net_out) }}</p>
+                </div>
+            </div>
             <!-- Loading skeleton -->
             <div v-else class="grid grid-cols-2 lg:grid-cols-4 gap-0 border-x border-b border-gray-200 rounded-b-xl bg-white overflow-hidden divide-x divide-gray-100">
                 <div v-for="i in 4" :key="i" class="p-4 text-center animate-pulse">
@@ -1380,6 +1411,43 @@ function doDisableRescue() {
                                 <div class="w-full bg-gray-100 rounded-full h-3"><div class="h-3 rounded-full transition-all duration-700" :class="progressColor(vps.bandwidth_total > 0 ? vpsPercent(vps.bandwidth_used, vps.bandwidth_total) : 0)" :style="{ width: (vps.bandwidth_total > 0 ? vpsPercent(vps.bandwidth_used, vps.bandwidth_total) : 0) + '%' }"></div></div>
                             </div>
                         </div>
+
+                        <!-- Disk I/O -->
+                        <div v-if="vps.io_read !== undefined || vps.io_write !== undefined" class="mt-5 pt-5 border-t border-gray-100">
+                            <h4 class="text-[12px] font-semibold text-gray-500 uppercase tracking-wider mb-3 flex items-center gap-2">
+                                <svg class="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4 7v10c0 2 1.79 4 4 4h8c2.21 0 4-1.79 4-4V7M4 7c0-2 1.79-4 4-4h8c2.21 0 4 1.79 4 4M4 7h16M12 11v6m-3-3h6" /></svg>
+                                Disk I/O
+                            </h4>
+                            <div class="grid grid-cols-2 gap-3">
+                                <div class="bg-sky-50 rounded-xl border border-sky-200 p-3 text-center">
+                                    <p class="text-[11px] text-sky-600 font-medium uppercase tracking-wide mb-1">Read Speed</p>
+                                    <p class="text-[16px] font-bold text-sky-800">{{ formatSpeed(vps.io_read) }}</p>
+                                </div>
+                                <div class="bg-orange-50 rounded-xl border border-orange-200 p-3 text-center">
+                                    <p class="text-[11px] text-orange-600 font-medium uppercase tracking-wide mb-1">Write Speed</p>
+                                    <p class="text-[16px] font-bold text-orange-800">{{ formatSpeed(vps.io_write) }}</p>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Network Speed -->
+                        <div v-if="vps.net_in !== undefined || vps.net_out !== undefined" class="mt-5 pt-5 border-t border-gray-100">
+                            <h4 class="text-[12px] font-semibold text-gray-500 uppercase tracking-wider mb-3 flex items-center gap-2">
+                                <svg class="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M7 16V4m0 0L3 8m4-4l4 4m6 0v12m0 0l4-4m-4 4l-4-4" /></svg>
+                                Network Speed
+                            </h4>
+                            <div class="grid grid-cols-2 gap-3">
+                                <div class="bg-emerald-50 rounded-xl border border-emerald-200 p-3 text-center">
+                                    <p class="text-[11px] text-emerald-600 font-medium uppercase tracking-wide mb-1">Download</p>
+                                    <p class="text-[16px] font-bold text-emerald-800">{{ formatSpeed(vps.net_in) }}</p>
+                                </div>
+                                <div class="bg-violet-50 rounded-xl border border-violet-200 p-3 text-center">
+                                    <p class="text-[11px] text-violet-600 font-medium uppercase tracking-wide mb-1">Upload</p>
+                                    <p class="text-[16px] font-bold text-violet-800">{{ formatSpeed(vps.net_out) }}</p>
+                                </div>
+                            </div>
+                        </div>
+
                         <p class="mt-4 text-[11px] text-gray-400 text-center flex items-center justify-center gap-1">
                             <svg class="w-3.5 h-3.5 animate-pulse" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
                             Auto-refreshing every 30 seconds
