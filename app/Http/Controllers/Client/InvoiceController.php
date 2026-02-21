@@ -34,12 +34,35 @@ class InvoiceController extends Controller
             });
         }
 
+        // Compute summary stats from the current result set
+        $allInvoices = $result['invoices']['invoice'] ?? [];
+        $stats = [
+            'total'        => (int) ($result['totalresults'] ?? 0),
+            'unpaid_count' => 0,
+            'unpaid_total' => 0,
+            'overdue_count' => 0,
+            'paid_count'   => 0,
+        ];
+        foreach ($allInvoices as $inv) {
+            $s = strtolower($inv['status'] ?? '');
+            if ($s === 'unpaid') {
+                $stats['unpaid_count']++;
+                $stats['unpaid_total'] += (float) ($inv['balance'] ?? $inv['total'] ?? 0);
+            } elseif ($s === 'overdue') {
+                $stats['overdue_count']++;
+                $stats['unpaid_total'] += (float) ($inv['balance'] ?? $inv['total'] ?? 0);
+            } elseif ($s === 'paid') {
+                $stats['paid_count']++;
+            }
+        }
+
         return Inertia::render('Client/Invoices/Index', [
             'invoices' => $invoices,
             'total'    => (int) ($result['totalresults'] ?? 0),
             'page'     => $page,
             'perPage'  => $perPage,
             'status'   => $status,
+            'stats'    => $stats,
         ]);
     }
 
@@ -53,9 +76,23 @@ class InvoiceController extends Controller
 
         $clientId = $request->user()->whmcs_client_id;
 
-        // Get client credit balance
+        // Get client details (credit + billing address)
         $profile  = $this->whmcs->getClientsDetails($clientId);
         $creditBalance = (float) ($profile['credit'] ?? 0);
+
+        // Extract client billing info for the invoice
+        $clientDetails = [
+            'name'      => trim(($profile['firstname'] ?? '') . ' ' . ($profile['lastname'] ?? '')),
+            'company'   => $profile['companyname'] ?? '',
+            'email'     => $profile['email'] ?? $request->user()->email,
+            'address1'  => $profile['address1'] ?? '',
+            'address2'  => $profile['address2'] ?? '',
+            'city'      => $profile['city'] ?? '',
+            'state'     => $profile['state'] ?? '',
+            'postcode'  => $profile['postcode'] ?? '',
+            'country'   => $profile['country'] ?? '',
+            'phone'     => $profile['phonenumber'] ?? '',
+        ];
 
         // Get available payment methods from WHMCS
         $paymentMethods = $this->whmcs->getPaymentMethods();
@@ -96,6 +133,8 @@ class InvoiceController extends Controller
         return Inertia::render('Client/Invoices/Show', [
             'invoice'            => $result,
             'creditBalance'      => $creditBalance,
+            'clientDetails'      => $clientDetails,
+            'companyName'        => config('app.name', 'OrcusTech'),
             'paymentMethods'     => $gateways,
             'bankInfo'           => $bankInfo,
             'ticketUploadConfig' => $ticketUploadConfig,
