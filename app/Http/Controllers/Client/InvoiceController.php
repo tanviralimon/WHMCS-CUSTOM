@@ -135,7 +135,7 @@ class InvoiceController extends Controller
             'invoice'            => $result,
             'creditBalance'      => $creditBalance,
             'clientDetails'      => $clientDetails,
-            'companyName'        => 'OrcusTech',
+            'companyName'        => 'Orcus Technology',
             'paymentMethods'     => $gateways,
             'bankInfo'           => $bankInfo,
             'ticketUploadConfig' => $ticketUploadConfig,
@@ -231,7 +231,7 @@ class InvoiceController extends Controller
         $data = [
             'invoice'           => $result,
             'clientDetails'     => $clientDetails,
-            'companyName'       => 'OrcusTech',
+            'companyName'       => 'Orcus Technology',
             'companyDetails'    => $companyDetails,
             'paymentMethodName' => $paymentMethodName,
             'currencyPrefix'    => $currencyPrefix,

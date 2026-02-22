@@ -303,7 +303,7 @@ const statusConfig = computed(() => {
                                         <div class="w-9 h-9 rounded-lg bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center">
                                             <svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M3.75 13.5l10.5-11.25L12 10.5h8.25L9.75 21.75 12 13.5H3.75z" /></svg>
                                         </div>
-                                        <span class="text-[16px] font-bold text-gray-900 tracking-tight">{{ companyName || 'OrcusTech' }}</span>
+                                        <span class="text-[16px] font-bold text-gray-900 tracking-tight">{{ companyName || 'Orcus Technology' }}</span>
                                     </div>
                                     <h2 class="text-[11px] font-bold text-gray-400 uppercase tracking-[0.15em]">Invoice</h2>
                                     <p class="text-xl font-bold text-gray-900 mt-0.5">#{{ inv.invoicenum || inv.invoiceid }}</p>

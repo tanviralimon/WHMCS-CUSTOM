@@ -231,7 +231,7 @@
         <tr>
             <td style="width: 60%;">
                 <div class="company-name">{{ $companyName }}</div>
-                <div class="company-sub">Cloud Infrastructure &amp; Hosting</div>
+                <div class="company-sub">One Portal, All Services &mdash; orcus.one</div>
             </td>
             <td style="width: 40%;">
                 <div class="inv-label">Invoice</div>

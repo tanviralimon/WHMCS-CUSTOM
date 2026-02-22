@@ -165,7 +165,7 @@ onUnmounted(() => document.removeEventListener('click', handleClickOutside));
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
                         </svg>
                     </div>
-                    <span class="text-[17px] font-bold text-gray-900 tracking-tight">OrcusTech</span>
+                    <span class="text-[17px] font-bold text-gray-900 tracking-tight">Orcus Technology</span>
                 </Link>
                 <button @click="showSidebar = false" class="lg:hidden ml-auto p-1 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-gray-100">
                     <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
