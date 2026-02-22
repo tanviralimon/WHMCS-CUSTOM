@@ -8,7 +8,7 @@
         /* ── Reset & Base ── */
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
-            font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+            font-family: 'DejaVu Sans', sans-serif;
             font-size: 13px;
             color: #1a1a2e;
             line-height: 1.5;
@@ -423,6 +423,36 @@
             <div class="header-left">
                 <div class="company-name">{{ $companyName }}</div>
                 <div class="company-tagline">Cloud Infrastructure & Hosting</div>
+                <div style="margin-top: 10px; font-size: 11px; color: #64748b; line-height: 1.7;">
+                    @if(!empty($companyDetails['address1']))
+                        {{ $companyDetails['address1'] }}<br>
+                    @endif
+                    @if(!empty($companyDetails['address2']))
+                        {{ $companyDetails['address2'] }}<br>
+                    @endif
+                    @php
+                        $companyCity = collect([
+                            $companyDetails['city'] ?? '',
+                            $companyDetails['state'] ?? '',
+                            $companyDetails['postcode'] ?? '',
+                        ])->filter()->implode(', ');
+                    @endphp
+                    @if($companyCity)
+                        {{ $companyCity }}<br>
+                    @endif
+                    @if(!empty($companyDetails['country']))
+                        {{ $companyDetails['country'] }}<br>
+                    @endif
+                    @if(!empty($companyDetails['phone']))
+                        Tel: {{ $companyDetails['phone'] }}<br>
+                    @endif
+                    @if(!empty($companyDetails['email']))
+                        {{ $companyDetails['email'] }}
+                    @endif
+                    @if(!empty($companyDetails['taxId']))
+                        <br>Tax ID: {{ $companyDetails['taxId'] }}
+                    @endif
+                </div>
             </div>
             <div class="header-right">
                 <div class="invoice-title">INVOICE</div>
@@ -473,6 +503,9 @@
                         @if(!empty($clientDetails['country']))
                             {{ $clientDetails['country'] }}
                         @endif
+                        @if(!empty($clientDetails['phone']))
+                            <br>Tel: {{ $clientDetails['phone'] }}
+                        @endif
                     </div>
                 </div>
             </div>
@@ -511,6 +544,12 @@
                                 <td style="padding: 3px 0; color: #64748b; font-size: 12px;">Payment Method</td>
                                 <td style="padding: 3px 0; text-align: right; font-weight: 500;">{{ $paymentMethodName }}</td>
                             </tr>
+                            @if(!empty($currencyCode))
+                            <tr>
+                                <td style="padding: 3px 0; color: #64748b; font-size: 12px;">Currency</td>
+                                <td style="padding: 3px 0; text-align: right; font-weight: 600; color: #6366f1;">{{ $currencyCode }}</td>
+                            </tr>
+                            @endif
                         </table>
                     </div>
                 </div>
@@ -593,7 +632,7 @@
         {{-- ═══════════════ PAID CONFIRMATION ═══════════════ --}}
         @if(strtolower($invoice['status']) === 'paid')
             <div class="payment-info">
-                <div class="payment-info-title">✓ Payment Received</div>
+                <div class="payment-info-title">PAYMENT RECEIVED</div>
                 <div class="payment-info-text">
                     This invoice has been paid in full.
                     @if(!empty($invoice['datepaid']) && $invoice['datepaid'] !== '0000-00-00 00:00:00')
@@ -641,7 +680,7 @@
         {{-- ═══════════════ NOTES ═══════════════ --}}
         @if(!empty($invoice['notes']))
             <div class="notes-box">
-                <div class="notes-label">📝 Notes</div>
+                <div class="notes-label">Notes</div>
                 <div class="notes-text">{!! nl2br(e($invoice['notes'])) !!}</div>
             </div>
         @endif
@@ -652,7 +691,7 @@
             <div class="footer-brand">{{ $companyName }}</div>
             <div class="footer-text">
                 Cloud Infrastructure & Hosting Solutions<br>
-                <span style="color: #6366f1;">support@orcustech.com</span> &nbsp;•&nbsp; <span style="color: #6366f1;">orcus.one</span>
+                <span style="color: #6366f1;">{{ $companyDetails['email'] ?? 'support@orcustech.com' }}</span> &nbsp;&bull;&nbsp; <span style="color: #6366f1;">orcus.one</span>
             </div>
             <div style="margin-top: 12px; font-size: 10px; color: #cbd5e1;">
                 This is a computer-generated invoice. No signature is required.

@@ -165,6 +165,20 @@ class InvoiceController extends Controller
             'state'     => $profile['state'] ?? '',
             'postcode'  => $profile['postcode'] ?? '',
             'country'   => $profile['country'] ?? '',
+            'phone'     => $profile['phonenumber'] ?? '',
+        ];
+
+        // Company details for the invoice header
+        $companyDetails = [
+            'address1'  => config('invoice.company_address1', ''),
+            'address2'  => config('invoice.company_address2', ''),
+            'city'      => config('invoice.company_city', ''),
+            'state'     => config('invoice.company_state', ''),
+            'postcode'  => config('invoice.company_postcode', ''),
+            'country'   => config('invoice.company_country', ''),
+            'phone'     => config('invoice.company_phone', ''),
+            'email'     => config('invoice.company_email', 'support@orcustech.com'),
+            'taxId'     => config('invoice.company_tax_id', ''),
         ];
 
         // Resolve payment method display name
@@ -186,9 +200,11 @@ class InvoiceController extends Controller
             'invoice'           => $result,
             'clientDetails'     => $clientDetails,
             'companyName'       => 'OrcusTech',
+            'companyDetails'    => $companyDetails,
             'paymentMethodName' => $paymentMethodName,
             'currencyPrefix'    => $result['currencyprefix'] ?? '',
             'currencySuffix'    => $result['currencysuffix'] ?? '',
+            'currencyCode'      => strtoupper($result['currencycode'] ?? ''),
         ];
 
         $invoiceNum = $result['invoicenum'] ?: $result['invoiceid'];
@@ -196,7 +212,7 @@ class InvoiceController extends Controller
         $pdf = Pdf::loadView('pdf.invoice', $data)
             ->setPaper('a4')
             ->setOption('isRemoteEnabled', true)
-            ->setOption('defaultFont', 'Helvetica');
+            ->setOption('defaultFont', 'DejaVu Sans');
 
         return $pdf->download("Invoice-{$invoiceNum}.pdf");
     }
