@@ -196,15 +196,44 @@ class InvoiceController extends Controller
             // keep raw name
         }
 
+        // ── Resolve currency prefix/suffix/code from GetCurrencies API ──
+        // GetInvoice does NOT return currency fields, so we look up the
+        // client's currency ID from their profile, then match it against
+        // the system currencies list.
+        $clientCurrencyId = (int) ($profile['currency'] ?? 1);
+        $currencyPrefix = '';
+        $currencySuffix = '';
+        $currencyCode   = '';
+
+        try {
+            $currencies   = $this->whmcs->getCurrencies();
+            $currencyList = $currencies['currencies']['currency'] ?? [];
+            // Handle single-currency WHMCS (not wrapped in indexed array)
+            if (isset($currencyList['id'])) {
+                $currencyList = [$currencyList];
+            }
+            foreach ($currencyList as $curr) {
+                if ((int) ($curr['id'] ?? 0) === $clientCurrencyId) {
+                    $currencyPrefix = $curr['prefix'] ?? '';
+                    $currencySuffix = $curr['suffix'] ?? '';
+                    $currencyCode   = strtoupper($curr['code'] ?? '');
+                    break;
+                }
+            }
+        } catch (\Exception $e) {
+            // Fallback: use currency_code from client profile if available
+            $currencyCode = strtoupper($profile['currency_code'] ?? '');
+        }
+
         $data = [
             'invoice'           => $result,
             'clientDetails'     => $clientDetails,
             'companyName'       => 'OrcusTech',
             'companyDetails'    => $companyDetails,
             'paymentMethodName' => $paymentMethodName,
-            'currencyPrefix'    => $result['currencyprefix'] ?? '',
-            'currencySuffix'    => $result['currencysuffix'] ?? '',
-            'currencyCode'      => strtoupper($result['currencycode'] ?? ''),
+            'currencyPrefix'    => $currencyPrefix,
+            'currencySuffix'    => $currencySuffix,
+            'currencyCode'      => $currencyCode,
         ];
 
         $invoiceNum = $result['invoicenum'] ?: $result['invoiceid'];
