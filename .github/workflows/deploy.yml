@@ -58,9 +58,11 @@ jobs:
         run: |
           ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no root@${{ secrets.SERVER_HOST }} << 'ENDSSH'
           cd /home/jltusu/htdocs/orcus.one
-          git pull origin main
-          composer install --no-dev --optimize-autoloader --no-interaction
+          GIT_SSH_COMMAND='ssh -i /home/jltusu/.ssh/github_deploy -o StrictHostKeyChecking=no' git pull origin main
+          COMPOSER_ALLOW_SUPERUSER=1 composer install --no-dev --optimize-autoloader --no-interaction
           php artisan migrate --force
+          php artisan config:clear
+          php artisan view:clear
           php artisan config:cache
           php artisan route:cache
           php artisan view:cache

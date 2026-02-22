@@ -196,14 +196,15 @@ class InvoiceController extends Controller
             // keep raw name
         }
 
-        // ── Resolve currency prefix/suffix/code from GetCurrencies API ──
+        // ── Resolve currency code from GetCurrencies API ──
         // GetInvoice does NOT return currency fields, so we look up the
         // client's currency ID from their profile, then match it against
         // the system currencies list.
+        // NOTE: We always use "amount CODE" format (e.g. "1,000.00 BDT")
+        // because some currency symbols like ৳ (BDT) cannot be rendered
+        // by DomPDF fonts, causing broken □ characters.
         $clientCurrencyId = (int) ($profile['currency'] ?? 1);
-        $currencyPrefix = '';
-        $currencySuffix = '';
-        $currencyCode   = '';
+        $currencyCode = '';
 
         try {
             $currencies   = $this->whmcs->getCurrencies();
@@ -214,9 +215,7 @@ class InvoiceController extends Controller
             }
             foreach ($currencyList as $curr) {
                 if ((int) ($curr['id'] ?? 0) === $clientCurrencyId) {
-                    $currencyPrefix = $curr['prefix'] ?? '';
-                    $currencySuffix = $curr['suffix'] ?? '';
-                    $currencyCode   = strtoupper($curr['code'] ?? '');
+                    $currencyCode = strtoupper($curr['code'] ?? '');
                     break;
                 }
             }
@@ -224,6 +223,10 @@ class InvoiceController extends Controller
             // Fallback: use currency_code from client profile if available
             $currencyCode = strtoupper($profile['currency_code'] ?? '');
         }
+
+        // Use code-based suffix for PDF: "1,000.00 BDT"
+        $currencyPrefix = '';
+        $currencySuffix = $currencyCode ? ' ' . $currencyCode : '';
 
         $data = [
             'invoice'           => $result,
