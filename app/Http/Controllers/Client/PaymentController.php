@@ -218,7 +218,13 @@ class PaymentController extends Controller
         $request->validate(['gateway' => 'required|string']);
 
         $gatewayModule = $request->gateway;
-        $invoice = $this->whmcs->getInvoice($id);
+
+        try {
+            $invoice = $this->whmcs->getInvoice($id);
+        } catch (\Exception $e) {
+            Log::error('Payment: failed to fetch invoice', ['invoice' => $id, 'error' => $e->getMessage()]);
+            return response()->json(['error' => 'Unable to retrieve invoice details. Please try again.'], 500);
+        }
 
         if (($invoice['result'] ?? '') !== 'success' || $invoice['status'] !== 'Unpaid') {
             return response()->json(['error' => 'Invalid or already paid invoice.'], 400);
@@ -228,23 +234,42 @@ class PaymentController extends Controller
         $supported = config('payment.supported_gateways', []);
         $handler = $supported[strtolower($gatewayModule)] ?? null;
 
-        // First update the invoice payment method in WHMCS to match selection
-        $this->whmcs->updateInvoicePaymentMethod($id, $gatewayModule);
-
-        if ($handler === 'stripe') {
-            return $this->handleStripe($request, $id, $invoice);
+        // Update the invoice payment method in WHMCS to match selection
+        try {
+            $this->whmcs->updateInvoicePaymentMethod($id, $gatewayModule);
+        } catch (\Exception $e) {
+            // Non-fatal: log but continue — payment can still proceed
+            Log::error('Payment: failed to update invoice payment method', [
+                'invoice' => $id,
+                'gateway' => $gatewayModule,
+                'error'   => $e->getMessage(),
+            ]);
         }
 
-        if ($handler === 'sslcommerz') {
-            return $this->handleSslcommerz($request, $id, $invoice);
-        }
+        try {
+            if ($handler === 'stripe') {
+                return $this->handleStripe($request, $id, $invoice);
+            }
 
-        if ($handler === 'banktransfer') {
-            return $this->handleBankTransfer($request, $id, $invoice);
-        }
+            if ($handler === 'sslcommerz') {
+                return $this->handleSslcommerz($request, $id, $invoice);
+            }
 
-        // Fallback: SSO redirect to WHMCS invoice page
-        return $this->handleSsoFallback($request, $id);
+            if ($handler === 'banktransfer') {
+                return $this->handleBankTransfer($request, $id, $invoice);
+            }
+
+            // Fallback: SSO redirect to WHMCS invoice page
+            return $this->handleSsoFallback($request, $id);
+        } catch (\Exception $e) {
+            Log::error('Payment: gateway handler failed', [
+                'invoice' => $id,
+                'gateway' => $gatewayModule,
+                'handler' => $handler ?? 'sso_fallback',
+                'error'   => $e->getMessage(),
+            ]);
+            return response()->json(['error' => 'Failed to initiate payment. Please try again or contact support.'], 500);
+        }
     }
 
     /**

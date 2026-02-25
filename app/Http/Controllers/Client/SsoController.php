@@ -19,7 +19,7 @@ class SsoController extends Controller
         $clientId    = $request->user()->whmcs_client_id;
         $destination = $request->get('destination', 'clientarea:services');
 
-        $result = $this->whmcs->createSsoToken($clientId, $destination);
+        $result = $this->whmcs->createClientSsoToken($clientId, $destination);
 
         if (($result['result'] ?? '') === 'success' && !empty($result['redirect_url'])) {
             return redirect()->away($result['redirect_url']);
