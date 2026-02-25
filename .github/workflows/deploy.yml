@@ -69,6 +69,9 @@ jobs:
           php artisan event:cache
           chown -R jltusu:tusu /home/jltusu/htdocs/orcus.one
           chmod -R 775 storage bootstrap/cache
+          # Passport OAuth keys must be 660 (league/oauth2-server rejects 775)
+          [ -f storage/oauth-private.key ] && chmod 660 storage/oauth-private.key
+          [ -f storage/oauth-public.key ] && chmod 660 storage/oauth-public.key
           ENDSSH
 
       - name: Upload built assets
