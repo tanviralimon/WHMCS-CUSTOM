@@ -5,6 +5,7 @@ namespace App\Http\Middleware;
 use App\Services\Whmcs\WhmcsService;
 use Illuminate\Http\Request;
 use Inertia\Middleware;
+use Symfony\Component\HttpFoundation\Response;
 
 class HandleInertiaRequests extends Middleware
 {
@@ -14,6 +15,22 @@ class HandleInertiaRequests extends Middleware
      * @var string
      */
     protected $rootView = 'app';
+
+    /**
+     * Handle the incoming request.
+     *
+     * Skip Inertia processing for OAuth routes so that external redirects
+     * (e.g., to api.aurizor.com/auth/orcus/callback) are performed as
+     * full-page browser redirects instead of XHR/fetch requests.
+     */
+    public function handle(Request $request, \Closure $next): Response
+    {
+        if ($request->is('oauth/*')) {
+            return $next($request);
+        }
+
+        return parent::handle($request, $next);
+    }
 
     /**
      * Determine the current asset version.
