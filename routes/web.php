@@ -2,11 +2,16 @@
 
 use App\Http\Controllers\Auth\WhmcsSsoController;
 use App\Http\Controllers\Client\PaymentController;
+use App\Http\Controllers\OidcController;
 use Illuminate\Support\Facades\Route;
 
 Route::get('/', function () {
     return redirect()->route('client.dashboard');
 });
+
+// ─── OpenID Connect Discovery (public, no auth) ───────────────────
+Route::get('/.well-known/openid-configuration', [OidcController::class, 'discovery'])->name('oidc.discovery');
+Route::get('/oauth/jwks', [OidcController::class, 'jwks'])->name('oidc.jwks');
 
 // SSO Login Routes (public — no auth required)
 Route::get('/sso/login', [WhmcsSsoController::class, 'redirect'])->name('sso.login');
