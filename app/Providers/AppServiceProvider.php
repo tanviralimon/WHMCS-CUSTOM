@@ -2,8 +2,10 @@
 
 namespace App\Providers;
 
+use App\Http\Responses\AuthorizationViewResponse;
 use Illuminate\Support\Facades\Vite;
 use Illuminate\Support\ServiceProvider;
+use Laravel\Passport\Contracts\AuthorizationViewResponse as AuthorizationViewResponseContract;
 use Laravel\Passport\Passport;
 
 class AppServiceProvider extends ServiceProvider
@@ -13,7 +15,7 @@ class AppServiceProvider extends ServiceProvider
      */
     public function register(): void
     {
-        //
+        $this->app->singleton(AuthorizationViewResponseContract::class, AuthorizationViewResponse::class);
     }
 
     /**
