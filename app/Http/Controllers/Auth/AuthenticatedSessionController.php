@@ -27,13 +27,22 @@ class AuthenticatedSessionController extends Controller
     /**
      * Handle an incoming authentication request.
      */
-    public function store(LoginRequest $request): RedirectResponse
+    public function store(LoginRequest $request): \Symfony\Component\HttpFoundation\Response
     {
         $request->authenticate();
 
         $request->session()->regenerate();
 
-        return redirect()->intended(route('dashboard', absolute: false));
+        $intended = session()->pull('url.intended', route('dashboard', absolute: false));
+
+        // If redirecting to an OAuth authorize URL, use Inertia::location()
+        // to force a full-page browser redirect (not an XHR Inertia visit),
+        // because /oauth/* routes are outside the Inertia SPA.
+        if (str_contains($intended, '/oauth/')) {
+            return Inertia::location($intended);
+        }
+
+        return redirect($intended);
     }
 
     /**

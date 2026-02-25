@@ -41,4 +41,12 @@ return Application::configure(basePath: dirname(__DIR__))
             }
             abort(500, $e->getMessage());
         });
+
+        // Ensure Passport's AuthenticationException stores the full OAuth
+        // authorize URL as the intended destination before redirecting to login.
+        $exceptions->renderable(function (\Laravel\Passport\Exceptions\AuthenticationException $e, $request) {
+            if (! $request->expectsJson()) {
+                return redirect()->guest(route('login'));
+            }
+        });
     })->create();
